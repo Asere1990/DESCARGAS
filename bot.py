@@ -39,7 +39,7 @@ async def descargar_todo():
             try:
                 print(f"📥 Descargando mensaje ID {message.id}...")
                 
-                # El método mágico que ignora la restricción de "No Guardar"
+                # El método mágico
                 path = await client.download_media(
                     message, 
                     file=os.path.join(folder, f"{message.id}_")
