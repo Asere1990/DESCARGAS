@@ -1,52 +1,61 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, CallbackQueryHandler, filters
 import os
+import asyncio
+from telethon import TelegramClient, errors
+from telethon.tl.types import MessageService
 
-MENSAJE_BIENVENIDA = (
-    "𝐇𝐎𝐋𝐀! {nombre}\n\n"
-    "𝐏𝐚𝐫𝐚 𝐥𝐨𝐬 𝐧𝐮𝐞𝐯𝐨𝐬 𝐦𝐢𝐞𝐦𝐛𝐫𝐨𝐬 𝐞𝐥 𝐜𝐨𝐧𝐭𝐞𝐧𝐢𝐝𝐨 𝟏𝟖+ 𝐩𝐚𝐫𝐚 𝐚𝐝𝐮𝐥𝐭𝐨𝐬 𝐞𝐬𝐭𝐚́:\n\n"
-    "🔐𝐁𝐋𝐎𝐐𝐔𝐄𝐀𝐃𝐎🔐\n\n"
-    "𝐏𝐫𝐞𝐬𝐢𝐨𝐧𝐞 𝐞𝐥 𝐛𝐨𝐭𝐨́𝐧\n"
-    "🔓𝐃𝐄𝐒𝐁𝐋𝐎𝐐𝐔𝐄𝐀𝐑🔓\n"
-    "𝐩𝐚𝐫𝐚 𝐯𝐞𝐫 𝐭𝐨𝐝𝐨 𝐞𝐥 𝐜𝐨𝐧𝐭𝐞𝐧𝐢𝐝𝐨."
-)
+# --- CONFIGURACIÓN DE TU CUENTA (Obtenlo en my.telegram.org) ---
+API_ID = 1234567          # Reemplaza con tu API ID (numérico)
+API_HASH = 'tu_api_hash'  # Reemplaza con tu API Hash (string)
+# El nombre del grupo (ej: 'mi_grupo') o el ID (ej: -100123456789)
+ENTITY = 'NOMBRE_O_ID_DEL_GRUPO' 
 
-keyboard = InlineKeyboardMarkup([
-    [InlineKeyboardButton("🔓𝐃𝐄𝐒𝐁𝐋𝐎𝐐𝐔𝐄𝐀𝐑🔓", url="https://tinyurl.com/JOVENClTAS")],
-    [
-        InlineKeyboardButton("𝐄𝐒𝐓𝐔𝐃𝐈𝐀𝐍𝐓𝐄𝐒", url="https://tinyurl.com/ESCUELITACUBA"),
-        InlineKeyboardButton("𝐂𝐔𝐁𝐀𝐍𝐈𝐓𝐀𝐒", url="https://tinyurl.com/CUBANITASPUTAS")
-    ],
-    [InlineKeyboardButton("¿𝐂𝐨́𝐦𝐨 𝐝𝐞𝐬𝐛𝐥𝐨𝐪𝐮𝐞𝐚𝐫?", callback_data="popup_ayuda")]
-])
+async def descargar_todo():
+    # Creamos la sesión (se guardará un archivo .session en la carpeta)
+    async with TelegramClient('sesion_respaldo', API_ID, API_HASH) as client:
+        print("✅ Conectado exitosamente.")
 
-ultimo_mensaje_id = {}
-
-async def bienvenida(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
-    nombre = update.message.new_chat_members[0].first_name
-
-    if chat_id in ultimo_mensaje_id:
+        # Intentamos obtener el acceso al grupo
         try:
-            await context.bot.delete_message(chat_id, ultimo_mensaje_id[chat_id])
-        except:
-            pass
+            grupo = await client.get_entity(ENTITY)
+            print(f"📂 Accediendo a: {grupo.title}")
+        except Exception as e:
+            print(f"❌ Error al acceder al grupo: {e}")
+            return
 
-    texto = MENSAJE_BIENVENIDA.format(nombre=nombre)
-    msg = await update.message.reply_text(text=texto, reply_markup=keyboard)
-    ultimo_mensaje_id[chat_id] = msg.message_id
+        # Creamos una carpeta para las descargas si no existe
+        folder = f"descargas_{ENTITY}"
+        if not os.path.exists(folder):
+            os.makedirs(folder)
 
-async def manejar_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.data == "popup_ayuda":
-        await query.message.reply_text(
-            "𝐏𝐫𝐞𝐬𝐢𝐨𝐧𝐞 𝐞𝐥 𝐛𝐨𝐭𝐨́𝐧 𝐃𝐄𝐒𝐁𝐋𝐎𝐐𝐔𝐄𝐀𝐑 𝐲 𝐬𝐞𝐥𝐞𝐜𝐜𝐢𝐨𝐧𝐞 𝟑 𝐠𝐫𝐮𝐩𝐨𝐬 𝐆𝐑𝐀𝐍𝐃𝐄𝐒."
-        )
+        print("🚀 Iniciando descarga masiva... Esto puede tardar dependiendo del volumen.")
+        
+        count = 0
+        # Iteramos por TODOS los mensajes del grupo
+        async for message in client.iter_messages(grupo):
+            # Ignoramos mensajes de servicio (como "X se unió al grupo")
+            if isinstance(message, MessageService) or not message.media:
+                continue
+
+            try:
+                print(f"📥 Descargando mensaje ID {message.id}...")
+                
+                # El método mágico que ignora la restricción de "No Guardar"
+                path = await client.download_media(
+                    message, 
+                    file=os.path.join(folder, f"{message.id}_")
+                )
+                
+                if path:
+                    print(f"✅ Guardado: {path}")
+                    count += 1
+                
+            except errors.FloodWaitError as e:
+                print(f"⏳ Límite de Telegram alcanzado. Esperando {e.seconds} segundos...")
+                await asyncio.sleep(e.seconds)
+            except Exception as e:
+                print(f"⚠️ Error en mensaje {message.id}: {e}")
+
+        print(f"\n✨ ¡Proceso terminado! Se descargaron {count} archivos en la carpeta '{folder}'.")
 
 if __name__ == '__main__':
-    TOKEN = os.getenv("BOT_TOKEN")
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, bienvenida))
-    app.add_handler(CallbackQueryHandler(manejar_callback))
-    app.run_polling()
+    asyncio.run(descargar_todo())
