@@ -41,7 +41,7 @@ class Security(unittest.TestCase):
 class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.env=patch.dict(os.environ,{'TOKEN':TOKEN,'DESCARGAS_SESSION_KEY':Fernet.generate_key().decode(),'DESCARGAS_DATA_DIR':self.temp.name,'TELEGRAM_API_ID':'123','TELEGRAM_API_HASH':'a'*32})
+        self.env=patch.dict(os.environ,{'TOKEN':TOKEN,'DESCARGAS_SESSION_KEY':Fernet.generate_key().decode(),'DESCARGAS_DATA_DIR':self.temp.name,'TELEGRAM_API_ID':'123','HASH':'a'*32})
         self.env.start();self.s=Service()
     async def asyncTearDown(self):
         await self.s.close();self.env.stop();self.temp.cleanup()

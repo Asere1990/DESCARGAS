@@ -19,7 +19,7 @@ Variables en el **servicio TATICA**:
 - `TOKEN`: token de @Descargas_Robot, introducido por el propietario en Render.
 - `DESCARGAS_SESSION_KEY`: clave Fernet generada una sola vez (el despliegue la provisiona sin mostrarla). No cambiarla: permite descifrar las sesiones existentes.
 - `DESCARGAS_PUBLIC_URL`: `https://tatica.onrender.com/descargas/`.
-- Se reutilizan `TELEGRAM_API_ID` y `TELEGRAM_API_HASH`.
+- Se reutilizan `TELEGRAM_API_ID` y `HASH`.
 - Disco: sesiones y estado en `/var/data/descargas`, separado de `/var/data/tatica`.
 
 El arranque configura automáticamente comandos, botón de menú y botones web_app mediante Bot API, una vez añadido el token. Verifica que el token corresponda exactamente a @Descargas_Robot. `/descargas/healthz` indica `ready`; no muestra usuarios ni secretos.
