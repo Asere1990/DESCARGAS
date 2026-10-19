@@ -12,17 +12,22 @@ Bot de descargas bajo petición con Mini App para conectar voluntariamente la cu
 
 No requiere api_id/hash de cada usuario; usa las credenciales de la aplicación. No desbloquea contenido con Stars. No garantiza acceso a todos los mensajes, ni convierte formatos incompatibles. Límite: 100 MB por elemento y 500 MB por álbum. La exploración del álbum busca el mismo grouped_id entre los 100 ID cercanos por lado.
 
-## Alojamiento compartido en TATICA
-Se instala como paquete con una versión fijada por commit. TATICA monta la Mini App en `/descargas/` y comparte su bloqueo de trabajos. No se crea otro servicio ni disco. Una sola transferencia pesada a la vez; el tráfico total puede aumentar los cargos por consumo.
+## Servicio independiente en Render
+Inicio: `python bot.py`. URL pública en `DESCARGAS_PUBLIC_URL`; disco persistente montado en `/var/data`.
 
-Variables en el **servicio TATICA**:
-- `TOKEN`: token de @Descargas_Robot, introducido por el propietario en Render.
-- `DESCARGAS_SESSION_KEY`: clave Fernet generada una sola vez (el despliegue la provisiona sin mostrarla). No cambiarla: permite descifrar las sesiones existentes.
-- `DESCARGAS_PUBLIC_URL`: `https://tatica.onrender.com/descargas/`.
-- Se reutilizan `TELEGRAM_API_ID` y `HASH`.
-- Disco: sesiones y estado en `/var/data/descargas`, separado de `/var/data/tatica`.
+Variables del servicio DESCARGAS:
+- `TOKEN`: token del bot que opera el servicio.
+- `ID`: api_id de la aplicación propia.
+- `HASH`: api_hash correspondiente al mismo ID.
+- `DESCARGAS_SESSION_KEY`: clave Fernet existente. No cambiarla.
+- `DESCARGAS_PUBLIC_URL`: URL raíz del servicio.
+- `ALMACEN`: ID del destino de las copias.
 
-El arranque configura automáticamente comandos, botón de menú y botones web_app mediante Bot API, una vez añadido el token. Verifica que el token corresponda exactamente a @Descargas_Robot. `/descargas/healthz` indica `ready`; no muestra usuarios ni secretos.
+Para sustituir las credenciales de aplicación, actualizar ID y HASH juntos y guardar/desplegar en Render. El servidor usa los nuevos valores al arrancar sin borrar las sesiones cifradas. Telegram puede exigir reconectar sesiones o rechazar cuentas/aplicaciones restringidas: esta configuración no garantiza recuperar acceso suspendido. Nunca cambiar la clave de cifrado ni borrar el disco durante la sustitución.
+
+La identidad del bot se obtiene de TOKEN. Un cambio de bot reinicia solo los identificadores de actualizaciones y órdenes del bot, no las sesiones de usuarios. Agregar el bot nuevo al almacén y que cada usuario inicie su DM con /start.
+
+El arranque configura comandos y menú automáticamente. `/healthz` indica `ready` sin mostrar usuarios ni secretos.
 
 ## Seguridad y operación
 - initData validado con HMAC, sin campos duplicados, fecha de autorización de máximo una hora; no se confía en initDataUnsafe ni un user_id enviado por el frontend.

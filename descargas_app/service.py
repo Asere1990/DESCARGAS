@@ -58,8 +58,8 @@ def error_message(exc):
 class Service:
     def __init__(self,shared_lock=None):
         self.token=os.environ.get('TOKEN','')
-        self.api_id=os.environ.get('TELEGRAM_API_ID','')
-        self.api_hash=os.environ.get('HASH','')
+        self.api_id=os.environ.get('ID','').strip()
+        self.api_hash=os.environ.get('HASH','').strip()
         self.url=os.environ.get('DESCARGAS_PUBLIC_URL','https://tatica.onrender.com/descargas/').rstrip('/')+'/'
         self.key=os.environ.get('DESCARGAS_SESSION_KEY','')
         raw_store=os.environ.get('ALMACEN','').strip()
