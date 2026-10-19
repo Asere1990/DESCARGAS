@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "descargas-service"
 version = "1.0.0"
 requires-python = ">=3.11"
-dependencies = ["Telethon==1.45.0", "aiohttp>=3.12,<4", "Pillow>=11,<13", "cryptography>=44", "phonenumbers>=8.13"]
+dependencies = ["Telethon==1.45.0", "aiohttp>=3.12,<4", "Pillow>=11,<13", "cryptography>=44", "phonenumbers>=8.13", "asyncpg>=0.30,<1"]
 
 [tool.setuptools.package-data]
 descargas_app = ["web/*"]
+
+[tool.setuptools.packages.find]
+include = ["descargas_app*"]

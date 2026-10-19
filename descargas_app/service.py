@@ -89,6 +89,12 @@ class Service:
         row=self.db.execute('SELECT session FROM users WHERE uid=?',(uid,)).fetchone()
         return self.cipher.decrypt(row[0]).decode() if row and self.cipher else ''
 
+    async def get_session(self,uid):
+        return self.session(uid)
+
+    async def before_send(self,uid,count=1):
+        pass
+
     def save_profile(self,uid,phone):
         parsed=phonenumbers.parse(phone,None)
         normalized=phonenumbers.format_number(parsed,phonenumbers.PhoneNumberFormat.E164)
@@ -366,6 +372,7 @@ class Service:
                 total+=target.stat().st_size
                 files.append(target)
             media=[await prepare_media_for_bot(self.bot,client,path,item) for path,item in zip(files,items)]
+            await self.before_send(uid,len(media))
             result=await self.bot.send_file(uid,media if len(media)>1 else media[0],
                 caption=[m.message or '' for m in items] if len(items)>1 else items[0].message or '',
                 formatting_entities=[m.entities or [] for m in items] if len(items)>1 else items[0].entities or [],parse_mode=None)
