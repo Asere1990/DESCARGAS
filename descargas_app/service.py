@@ -346,11 +346,14 @@ class Service:
 
     async def archive(self,uid,delivered):
         caption,entities=archive_caption(self.names.get(uid,f'Usuario {uid}'),uid)
-        result=await self.bot.send_file(self.almacen,delivered if len(delivered)>1 else delivered[0],
-            caption=[caption]+['']*(len(delivered)-1) if len(delivered)>1 else caption,
-            formatting_entities=[entities]+[[] for _ in delivered[1:]] if len(delivered)>1 else entities,parse_mode=None)
-        archived=result if isinstance(result,list) else [result]
+        # Bot API resolves destination IDs without a Telethon entity/access-hash cache.
+        archived=await self.api('copyMessages',{'chat_id':self.almacen,'from_chat_id':uid,
+            'message_ids':[item.id for item in delivered],'remove_caption':True})
         if len(archived)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
+        await self.api('editMessageCaption',{'chat_id':self.almacen,
+            'message_id':archived[0]['message_id'],'caption':caption,
+            'caption_entities':[{'type':'text_link','offset':entity.offset,
+                'length':entity.length,'url':entity.url} for entity in entities]})
 
     async def close(self):
         for task in self.tasks:task.cancel()

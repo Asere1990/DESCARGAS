@@ -22,23 +22,22 @@ class Archive(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ALMACEN':'-100123456','DESCARGAS_DATA_DIR':directory}):
             service=Service();service.names[10]='Test User'
             from types import SimpleNamespace
-            service.bot=SimpleNamespace(send_file=AsyncMock(return_value=[object(),object()]),disconnect=AsyncMock())
-            delivered=[object(),object()]
+            service.api=AsyncMock(side_effect=[[{'message_id':501},{'message_id':502}],{}])
             try:
-                await service.archive(10,delivered)
-                args=service.bot.send_file.call_args
-                self.assertEqual(args.args,(-100123456,delivered))
-                self.assertEqual(args.kwargs['caption'],['Usuario: Test User\nTelegram ID: 10',''])
-                self.assertEqual(len(args.kwargs['formatting_entities'][0]),2)
-                self.assertIsNone(args.kwargs['parse_mode'])
+                await service.archive(10,[SimpleNamespace(id=101),SimpleNamespace(id=102)])
+                copy,caption=service.api.call_args_list
+                self.assertEqual(copy.args,('copyMessages',{'chat_id':-100123456,'from_chat_id':10,'message_ids':[101,102],'remove_caption':True}))
+                self.assertEqual(caption.args[1]['message_id'],501)
+                self.assertEqual(caption.args[1]['caption'],'Usuario: Test User\nTelegram ID: 10')
+                self.assertEqual(len(caption.args[1]['caption_entities']),2)
+                self.assertIsNone(service.bot)
             finally:await service.close()
-    async def test_single_caption(self):
+    async def test_partial_album_does_not_claim_success(self):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ALMACEN':'-100123456','DESCARGAS_DATA_DIR':directory}):
             service=Service()
             from types import SimpleNamespace
-            service.bot=SimpleNamespace(send_file=AsyncMock(return_value=object()),disconnect=AsyncMock())
+            service.api=AsyncMock(return_value=[])
             try:
-                item=object();await service.archive(20,[item])
-                self.assertIs(service.bot.send_file.call_args.args[1],item)
-                self.assertIsInstance(service.bot.send_file.call_args.kwargs['caption'],str)
+                with self.assertRaises(ValueError):await service.archive(20,[SimpleNamespace(id=101)])
+                self.assertEqual(service.api.await_count,1)
             finally:await service.close()
