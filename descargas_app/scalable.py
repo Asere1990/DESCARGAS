@@ -67,7 +67,9 @@ class ScaleService(Service):
 
     async def bootstrap(self):
         try:
+            LOG.warning('Scale startup role=%s phase=database',self.role)
             await self.repo.start()
+            LOG.warning('Scale startup role=%s phase=configuration',self.role)
             if self.role=='worker':
                 for _ in range(60):
                     stored=await self.repo.setting('runtime_config')
@@ -77,13 +79,16 @@ class ScaleService(Service):
                 self.runtime_config=self.repo.decode(stored.encode())
                 for field,value in self.runtime_config.items():setattr(self,field,value)
             me=await self.api('getMe',{});self.bot_id=me['id']
+            LOG.warning('Scale startup role=%s phase=identity',self.role)
             if self.role=='web':
                 config={field:getattr(self,field) for field in ('token','api_id','api_hash','url','almacen')}
                 await self.repo.set_setting('runtime_config',self.repo.encode(config).decode())
                 await self.repo.pool.execute("UPDATE descarga_jobs SET state='cancelled' WHERE bot_id<>$1 AND state='queued'",self.bot_id)
             if self.role=='worker':
                 self.bot=self.client();await self.bot.connect()
+                LOG.warning('Scale startup role=worker phase=telegram_connected')
                 await self.bot.sign_in(bot_token=self.token)
+                LOG.warning('Scale startup role=worker phase=authorized')
                 self.tasks.extend(asyncio.create_task(self.work()) for _ in range(self.concurrency))
                 self.tasks.append(asyncio.create_task(self.maintenance()))
                 self.tasks.append(asyncio.create_task(self.watch_config()))
@@ -93,6 +98,7 @@ class ScaleService(Service):
                 self.tasks.append(asyncio.create_task(self.expire()))
             else:raise ValueError('Invalid DESCARGAS_ROLE')
             self.ready=True;self.state='ready'
+            LOG.warning('Scale startup role=%s phase=ready concurrency=%s',self.role,self.concurrency)
         except Exception as exc:
             self.state='startup_error';LOG.error('Scale startup failed (%s)',type(exc).__name__)
 
@@ -265,7 +271,8 @@ class ScaleService(Service):
         while not self.stopping:
             try:job=await self.repo.claim(self.bot_id)
             except asyncio.CancelledError:raise
-            except Exception:
+            except Exception as exc:
+                LOG.warning('Scale queue claim failed (%s)',type(exc).__name__)
                 await asyncio.sleep(5);continue
             if not job:await asyncio.sleep(0.5);continue
             heartbeat=asyncio.create_task(self.lease(job));marker=CURRENT_JOB.set(job)
@@ -320,6 +327,10 @@ class ScaleService(Service):
     async def expire(self):
         while True:
             await asyncio.sleep(30)
+            try:
+                stats=await self.repo.pool.fetch('SELECT state,count(*) AS total FROM descarga_jobs GROUP BY state')
+                LOG.warning('Scale queue counts %s',{row['state']:row['total'] for row in stats})
+            except Exception as exc:LOG.warning('Scale queue diagnostics failed (%s)',type(exc).__name__)
             now=time.monotonic()
             for uid,p in list(self.pending.items()):
                 if now-p['created']>600:
