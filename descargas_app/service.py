@@ -117,12 +117,21 @@ class Service:
         self.http=aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45))
         self.tasks=[asyncio.create_task(self.bootstrap())]
 
+    def bind_bot(self,bot_id):
+        identity=str(bot_id)
+        previous=self.db.execute("SELECT value FROM settings WHERE key='bot_id'").fetchone()
+        if previous and previous[0]==identity:return
+        # Update IDs belong to each bot. User sessions belong to users and remain intact.
+        with self.db:
+            self.db.execute("DELETE FROM settings WHERE key='offset'")
+            self.db.execute('DELETE FROM orders')
+            self.db.execute("INSERT OR REPLACE INTO settings VALUES('bot_id',?)",(identity,))
+
     async def bootstrap(self):
         stage='bot_identity'
         try:
             me=await self.api('getMe',{})
-            if me.get('username','').lower()!='descargas_robot':
-                self.state='wrong_bot';return
+            self.bind_bot(me['id'])
             # Bot session is in memory only; user sessions are encrypted on disk.
             stage='mtproto_connect'
             self.bot=self.client()
