@@ -12,6 +12,7 @@ async def main():
         deadline=time.monotonic()+120
         await asyncio.sleep(1)
         while not service.ready:
+            if service.state=='telegram_wait':deadline=time.monotonic()+120
             if time.monotonic()>deadline or service.state=='startup_error' or not service.cipher or not service.repo.url:
                 raise RuntimeError('Worker configuration/startup failed')
             await asyncio.sleep(1)

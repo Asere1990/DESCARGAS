@@ -87,7 +87,15 @@ class ScaleService(Service):
             if self.role=='worker':
                 self.bot=self.client();await self.bot.connect()
                 LOG.warning('Scale startup role=worker phase=telegram_connected')
-                await self.bot.sign_in(bot_token=self.token)
+                while True:
+                    try:
+                        await self.bot.sign_in(bot_token=self.token)
+                        break
+                    except errors.FloodWaitError as exc:
+                        self.state='telegram_wait'
+                        LOG.warning('Worker startup waiting for Telegram seconds=%s',exc.seconds)
+                        await asyncio.sleep(exc.seconds+1)
+                        self.state='starting'
                 LOG.warning('Scale startup role=worker phase=authorized')
                 self.tasks.extend(asyncio.create_task(self.work()) for _ in range(self.concurrency))
                 self.tasks.append(asyncio.create_task(self.maintenance()))
