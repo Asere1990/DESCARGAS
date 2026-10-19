@@ -295,7 +295,6 @@ class Service:
                 finally:await client.disconnect()
             with self.db:
                 self.db.execute('DELETE FROM users WHERE uid=?',(uid,))
-                self.db.execute('DELETE FROM profiles WHERE uid=?',(uid,))
             self.contacts.pop(uid,None)
 
     async def expire(self):

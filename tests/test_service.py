@@ -62,7 +62,9 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.s.db.execute('SELECT COUNT(*) FROM profiles').fetchone()[0],1)
         self.assertEqual(self.s.db.execute('SELECT phone_country FROM profiles').fetchone()[0],'GB')
         await self.s.disconnect(10)
-        self.assertEqual(self.s.db.execute('SELECT COUNT(*) FROM profiles').fetchone()[0],0)
+        self.assertEqual(self.s.db.execute('SELECT COUNT(*) FROM profiles').fetchone()[0],1)
+        self.assertEqual(self.s.db.execute('SELECT phone_country FROM profiles WHERE uid=10').fetchone()[0],'GB')
+        self.assertEqual(self.s.session(10),'')
 
     async def test_wrong_account_rejected(self):
         client=SimpleNamespace(sign_in=AsyncMock(),get_me=AsyncMock(return_value=SimpleNamespace(id=20)),log_out=AsyncMock(),disconnect=AsyncMock())
