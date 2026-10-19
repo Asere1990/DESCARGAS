@@ -43,9 +43,12 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
                 except StopIteration:raise StopAsyncIteration
             async def close(self):self.closed=True
         iterator=Iterator()
-        payload={'items':[{'kind':'document','size':6,'location':{'id':1,'access_hash':2,'reference':'','thumb':''}}]}
+        payload={'items':[{'kind':'document','size':6,'bot_message_id':99,'location':{'id':1,'access_hash':2,'reference':'','thumb':''}}]}
         repo=NS(backup_leased=AsyncMock(return_value={'payload':payload}),decode=lambda x:x)
-        bot=NS(iter_download=lambda *args,**kwargs:iterator)
+        def download(source,**kwargs):
+            self.assertEqual(source.file_reference,b'fresh-reference')
+            return iterator
+        bot=NS(iter_download=download,get_messages=AsyncMock(return_value=NS(photo=None,document=NS(id=1,access_hash=2,file_reference=b'fresh-reference'))))
         app=web.Application();mount_backup(app,NS(ready=True,repo=repo,bot_id=123,backup_bot=bot))
         with patch.dict('os.environ',{'DESCARGAS_BACKUP_KEY':'secret'}):
             async with TestClient(TestServer(app)) as client:

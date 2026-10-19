@@ -58,7 +58,7 @@ def backup_payload(service,identity,uid,delivered,ids):
         return {'id':media.id,'access_hash':media.access_hash,'reference':base64.b64encode(media.file_reference or b'').decode(),'thumb':thumb}
     return {'key':identity,'bot_id':service.bot_id,'uid':uid,
         'items':[{'index':i,'file_id':file_id(m),'size':m.file.size or 0,
-            'ext':m.file.ext or '.bin','message_id':ids[i],
+            'ext':m.file.ext or '.bin','message_id':ids[i],'bot_message_id':m.id,
             'kind':'photo' if m.photo else 'document','location':location(m)} for i,m in enumerate(delivered)]}
 
 
@@ -111,6 +111,13 @@ def mount_backup(app,service):
             async with stream_lock:
                 try:bot=await get_bot()
                 except Exception:raise web.HTTPServiceUnavailable()
+                # Re-fetch our own delivered message to refresh a reference after a long queue wait.
+                # Never read another user's source session for backups.
+                if item.get('bot_message_id'):
+                    fresh=await bot.get_messages(None,ids=item['bot_message_id'])
+                    media=(getattr(fresh,'photo',None) or getattr(fresh,'document',None)) if fresh else None
+                    if media and media.id==location['id']:
+                        source=constructor(media.id,media.access_hash,media.file_reference,location['thumb'])
                 response=web.StreamResponse(headers={'Content-Type':'application/octet-stream','Cache-Control':'no-store'})
                 if item['size']:response.content_length=item['size']
                 iterator=bot.iter_download(source,request_size=512*1024,file_size=item['size'] or None)
