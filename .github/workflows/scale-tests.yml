@@ -1,7 +1,7 @@
 name: Scalable queue tests
 on:
   push:
-    branches: [scale-ready, cache-ready, main]
+    branches: [scale-ready, cache-ready, fastlane-ready, main]
   pull_request:
     branches: [main]
 permissions:

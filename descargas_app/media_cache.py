@@ -7,6 +7,10 @@ from .service import archive_caption,MAX_FILE,MAX_ALBUM
 
 LOG=logging.getLogger(__name__)
 CURRENT_MEDIA=ContextVar('descargas_media_cache',default=None)
+CACHE_ONLY=ContextVar('descargas_cache_only',default=False)
+
+class CacheMiss(Exception):
+    pass
 
 
 def cache_key(bot_id,almacen,key,items):
@@ -45,29 +49,40 @@ async def deliver_cached(service,uid,client,link,seen):
     if sum(m.file.size or 0 for m in items)>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):
         raise ValueError('El archivo supera 100 MB o el álbum supera 500 MB.')
     identity=cache_key(service.bot_id,service.almacen,key,items)
+    async def send_saved(row):
+        await service.repo.remember_media_route(service.bot_id,link,identity)
+        saved=service.repo.decode(row['payload'])
+        ids=saved['ids']
+        if len(ids)!=len(items):raise ValueError('El álbum guardado está incompleto y necesita revisión.')
+        await service.before_send(uid,len(items))
+        copied=await service.api('copyMessages',{'chat_id':uid,'from_chat_id':service.almacen,
+            'message_ids':ids,'remove_caption':True})
+        if len(copied)!=len(items):
+            raise ValueError('El álbum guardado no se entregó completo. Revisa lo recibido antes de repetir.')
+        # Never expose the first requester's ALMACEN identity in another user's DM.
+        for message,item in zip(copied,items):
+            if item.message:
+                await service.api('editMessageCaption',{'chat_id':uid,'message_id':message['message_id'],
+                    'caption':item.message,'caption_entities':caption_entities(item.entities)})
+        seen.add(key)
+        LOG.warning('Media cache hit items=%s',len(items))
+        return len(items)
+    if CACHE_ONLY.get():
+        row=await service.repo.media_cache(identity)
+        if not row or row['state']!='ready':raise CacheMiss()
+        return await send_saved(row)
     async with service.repo.media_lock(identity):
         row=await service.repo.media_cache(identity)
         if row:
             if row['state']!='ready':
                 raise ValueError('El contenido guardado necesita revisión. No se repetirá la copia al almacén.')
-            saved=service.repo.decode(row['payload'])
-            ids=saved['ids']
-            if len(ids)!=len(items):raise ValueError('El álbum guardado está incompleto y necesita revisión.')
-            await service.before_send(uid,len(items))
-            copied=await service.api('copyMessages',{'chat_id':uid,'from_chat_id':service.almacen,
-                'message_ids':ids,'remove_caption':True})
-            if len(copied)!=len(items):
-                raise ValueError('El álbum guardado no se entregó completo. Revisa lo recibido antes de repetir.')
-            # Never expose the first requester's ALMACEN identity in another user's DM.
-            for message,item in zip(copied,items):
-                if item.message:
-                    await service.api('editMessageCaption',{'chat_id':uid,'message_id':message['message_id'],
-                        'caption':item.message,'caption_entities':caption_entities(item.entities)})
-            seen.add(key)
-            LOG.warning('Media cache hit items=%s',len(items))
-            return len(items)
+            return await send_saved(row)
         marker=CURRENT_MEDIA.set(identity)
-        try:return await service.deliver_items(uid,client,key,items,seen)
+        try:
+            result=await service.deliver_items(uid,client,key,items,seen)
+            stored=await service.repo.media_cache(identity)
+            if stored and stored['state']=='ready':await service.repo.remember_media_route(service.bot_id,link,identity)
+            return result
         finally:CURRENT_MEDIA.reset(marker)
 
 

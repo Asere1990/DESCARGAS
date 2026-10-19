@@ -20,12 +20,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS descarga_one_user_job ON descarga_jobs(uid)
  WHERE state IN ('queued','preparing','sending');
 CREATE INDEX IF NOT EXISTS descarga_queue ON descarga_jobs(created) WHERE state='queued';
 CREATE INDEX IF NOT EXISTS descarga_leases ON descarga_jobs(heartbeat) WHERE state IN ('preparing','sending');
+ALTER TABLE descarga_jobs ADD COLUMN IF NOT EXISTS lane TEXT NOT NULL DEFAULT 'fast';
+CREATE INDEX IF NOT EXISTS descarga_lane_queue ON descarga_jobs(bot_id,lane,created) WHERE state='queued';
 CREATE TABLE IF NOT EXISTS descarga_archives(id TEXT PRIMARY KEY,bot_id BIGINT NOT NULL,payload BYTEA NOT NULL,state TEXT NOT NULL DEFAULT 'queued',owner TEXT,heartbeat DOUBLE PRECISION,created DOUBLE PRECISION NOT NULL);
 CREATE INDEX IF NOT EXISTS descarga_archive_queue ON descarga_archives(created) WHERE state='queued';
 CREATE TABLE IF NOT EXISTS descarga_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS descarga_rate(key TEXT PRIMARY KEY,next_at DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS descarga_media_cache(
  key TEXT PRIMARY KEY, state TEXT NOT NULL, payload BYTEA, created DOUBLE PRECISION NOT NULL);
+CREATE TABLE IF NOT EXISTS descarga_media_routes(key TEXT PRIMARY KEY,media_key TEXT NOT NULL);
 '''
 
 class Repository:
@@ -64,6 +67,10 @@ class Repository:
         await self.pool.execute("INSERT INTO descarga_media_cache VALUES($1,'publishing',NULL,$2)",key,time.time())
     async def media_ready(self,key,payload):
         await self.pool.execute("UPDATE descarga_media_cache SET state='ready',payload=$2 WHERE key=$1",key,self.encode(payload))
+    def route_key(self,bot_id,link):
+        return hashlib.sha256(f'{bot_id}:{link}'.encode()).hexdigest()
+    async def remember_media_route(self,bot_id,link,media_key):
+        await self.pool.execute('INSERT INTO descarga_media_routes VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET media_key=excluded.media_key',self.route_key(bot_id,link),media_key)
     async def set_setting(self,key,value):
         await self.pool.execute('INSERT INTO descarga_settings VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,str(value))
     @asynccontextmanager
@@ -90,16 +97,23 @@ class Repository:
             if not account or not account['session']:return 'disconnected'
             if await conn.fetchval("SELECT 1 FROM descarga_jobs WHERE uid=$1 AND state IN ('queued','preparing','sending')",uid):return 'busy'
             if await conn.fetchval("SELECT count(*) FROM descarga_jobs WHERE state IN ('queued','preparing','sending')")>=limit:return 'full'
-            await conn.execute('''INSERT INTO descarga_jobs(id,bot_id,update_id,uid,generation,payload,created)
-                VALUES($1,$2,$3,$4,$5,$6,$7)''',uuid.uuid4().hex,bot_id,update_id,uid,account['generation'],
-                self.encode({'links':links,'name':name,'seen':[]}),time.time())
+            # A routing hint is never access authorization. Workers still fetch the
+            # source with the requester's session before delivering cached media.
+            known=await conn.fetchval("SELECT 1 FROM descarga_media_routes r JOIN descarga_media_cache c ON c.key=r.media_key WHERE r.key=$1 AND c.state='ready'",self.route_key(bot_id,links[0]))
+            await conn.execute('''INSERT INTO descarga_jobs(id,bot_id,update_id,uid,generation,payload,created,lane)
+                VALUES($1,$2,$3,$4,$5,$6,$7,$8)''',uuid.uuid4().hex,bot_id,update_id,uid,account['generation'],
+                self.encode({'links':links,'name':name,'seen':[]}),time.time(),'fast' if known else 'slow')
             return 'queued'
-    async def claim(self,bot_id):
+    async def claim(self,bot_id,lane=None):
         return await self.pool.fetchrow('''WITH candidate AS (
-            SELECT id FROM descarga_jobs WHERE state='queued' AND bot_id=$1
+            SELECT id FROM descarga_jobs WHERE state='queued' AND bot_id=$1 AND ($4::text IS NULL OR lane=$4)
             ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1)
             UPDATE descarga_jobs j SET state='preparing',owner=$2,heartbeat=$3
-            FROM candidate c WHERE j.id=c.id RETURNING j.*''',bot_id,uuid.uuid4().hex,time.time())
+            FROM candidate c WHERE j.id=c.id RETURNING j.*''',bot_id,uuid.uuid4().hex,time.time(),lane)
+    async def reroute(self,job,lane):
+        if lane not in ('fast','slow'):raise ValueError('Invalid queue lane')
+        result=await self.pool.execute("UPDATE descarga_jobs SET lane=$3,state='queued',owner=NULL,heartbeat=NULL WHERE id=$1 AND owner=$2 AND state='preparing'",job['id'],job['owner'],lane)
+        if result!='UPDATE 1':raise RuntimeError('Lost job ownership or delivery already started')
     async def heartbeat(self,job):
         return await self.pool.execute("UPDATE descarga_jobs SET heartbeat=$3 WHERE id=$1 AND owner=$2 AND state IN ('preparing','sending')",job['id'],job['owner'],time.time())
     async def state(self,job,state):

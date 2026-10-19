@@ -43,3 +43,8 @@ Los trabajadores necesitan DATABASE_URL y la MISMA DESCARGAS_SESSION_KEY. El fro
 `python -m unittest discover -s tests -v`
 
 CI usa PostgreSQL 16 desechable y datos sintéticos. TEST_DATABASE_URL solo acepta localhost y base descargas_test; nunca ejecutar el test contra producción. Incluye 5.000 usuarios y 100.000 enlaces, carreras de duplicados, límites, reclamación paralela, recuperación por fases, sesiones cifradas y cola independiente de ALMACEN. No envía mensajes ni descarga contenido real de Telegram.
+
+## Colas separadas
+Las dos instancias conservan tres consumidores de descargas nuevas cada una. Cada instancia añade dos consumidores ligeros para verificar el acceso y copiar contenido de ALMACEN. No se añaden servicios ni instancias de pago. FAST_CONCURRENCY permite ajustar esos consumidores ligeros (predeterminado 2, máximo 4 por instancia).
+
+Los enlaces ya registrados se encaminan a la cola rápida desde la recepción. Esa clasificación es solo una pista: siempre se verifica el contenido con la sesión del solicitante. Si cambió la publicación o aún no hay copia lista, se pasa a la cola de descargas sin enviar ni descargar desde la cola rápida. Los lotes mixtos conservan su progreso y vuelven a la cola rápida tras cada descarga nueva. Las copias listas no esperan el bloqueo de preparación de un álbum.

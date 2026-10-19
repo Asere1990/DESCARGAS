@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import unittest
 from telethon import types
-from descargas_app.media_cache import deliver_cached,archive_once,CURRENT_MEDIA,cache_key
+from descargas_app.media_cache import deliver_cached,archive_once,CURRENT_MEDIA,cache_key,CACHE_ONLY,CacheMiss
 
 
 def item(id=1,text='original'):
@@ -25,7 +25,7 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
         async def ready(key,payload):rows[key]={'state':'ready','payload':payload}
         repo=SimpleNamespace(media_lock=locked,media_cache=AsyncMock(side_effect=lookup),
             media_publishing=AsyncMock(side_effect=publishing),media_ready=AsyncMock(side_effect=ready),
-            encode=lambda x:x,decode=lambda x:x,pace=AsyncMock())
+            encode=lambda x:x,decode=lambda x:x,pace=AsyncMock(),remember_media_route=AsyncMock())
         service=SimpleNamespace(repo=repo,bot_id=123,almacen=-100123,
             source_items=AsyncMock(return_value=((-100456,50),[item()])),
             before_send=AsyncMock(),api=AsyncMock(return_value=[{'message_id':99}]))
@@ -69,6 +69,27 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
         s,_=self.setup_service()
         self.assertNotEqual(cache_key(123,s.almacen,(-100456,50),[item(1)]),
             cache_key(123,s.almacen,(-100456,50),[item(2)]))
+
+    async def test_fast_miss_never_downloads_or_waits_for_media_lock(self):
+        s,_=self.setup_service()
+        def forbidden(*args):raise AssertionError('Fast lane must not wait for slow media lock')
+        s.repo.media_lock=forbidden
+        marker=CACHE_ONLY.set(True)
+        try:
+            with self.assertRaises(CacheMiss):await deliver_cached(s,1,None,'link',set())
+        finally:CACHE_ONLY.reset(marker)
+        s.deliver_items.assert_not_awaited();s.api.assert_not_awaited()
+
+    async def test_fast_hit_ignores_preparation_lock(self):
+        s,rows=self.setup_service()
+        identity=cache_key(123,s.almacen,(-100456,50),[item()])
+        rows[identity]={'state':'ready','payload':{'ids':[55]}}
+        def forbidden(*args):raise AssertionError('Cached copy must not wait for a media download')
+        s.repo.media_lock=forbidden
+        marker=CACHE_ONLY.set(True)
+        try:self.assertEqual(await deliver_cached(s,2,None,'link',set()),1)
+        finally:CACHE_ONLY.reset(marker)
+        s.source_items.assert_awaited_once();s.deliver_items.assert_not_awaited()
 
     async def test_failed_archive_keeps_uncertain_marker(self):
         s,rows=self.setup_service();s.api.side_effect=TimeoutError()

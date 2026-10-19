@@ -17,7 +17,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache')
+        await self.repo.pool.execute('TRUNCATE descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
     async def asyncTearDown(self):await self.repo.close()
     async def account(self,uid):await self.repo.save_account(uid,'authorized-session',{'phone':'+14155552671','phone_country':'US'})
     async def test_cache_cross_process_lock_and_encrypted_reference(self):
@@ -39,6 +39,34 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             row=await self.repo.media_cache('shared-album')
             self.assertNotIn(b'101',bytes(row['payload']))
         finally:await other.close()
+    async def test_fast_and_download_lanes_are_independent_and_fenced(self):
+        for uid in (1,2):await self.account(uid);await self.enqueue(uid)
+        await self.repo.pool.execute("UPDATE descarga_jobs SET lane='fast'")
+        first=await self.repo.claim(100,'fast')
+        await self.repo.reroute(first,'slow')
+        download=await self.repo.claim(100,'slow')
+        fast=await self.repo.claim(100,'fast')
+        self.assertNotEqual(download['id'],fast['id'])
+        self.assertEqual(download['id'],first['id'])
+        with self.assertRaises(RuntimeError):await self.repo.reroute(first,'fast')
+        await self.repo.state(download,'sending')
+        with self.assertRaises(RuntimeError):await self.repo.reroute(download,'fast')
+        await self.repo.checkpoint(download,1,1,{'links':['a','b'],'seen':[]})
+        await self.repo.reroute(download,'fast')
+        resumed=await self.repo.claim(100,'fast')
+        self.assertEqual(resumed['position'],1)
+        self.assertEqual(resumed['count'],1)
+    async def test_enqueue_routes_known_links_without_using_hint_as_authorization(self):
+        link='https://t.me/c/123/1'
+        await self.repo.media_publishing('cached')
+        await self.repo.media_ready('cached',{'ids':[55]})
+        await self.repo.remember_media_route(100,link,'cached')
+        for uid in (1,2):await self.account(uid)
+        await self.repo.enqueue(100,1,1,[link],'Known')
+        await self.repo.enqueue(100,2,2,['https://t.me/c/999/8'],'New')
+        self.assertEqual((await self.repo.claim(100,'fast'))['uid'],1)
+        self.assertEqual((await self.repo.claim(100,'slow'))['uid'],2)
+        self.assertEqual(await self.repo.enqueue(100,3,999,[link],'Disconnected'),'disconnected')
     async def enqueue(self,uid,update=None):
         return await self.repo.enqueue(100,uid if update is None else update,uid,['https://t.me/c/123/1'],'Tester')
     async def test_01_encryption_and_preserved_profile(self):

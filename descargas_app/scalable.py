@@ -11,7 +11,7 @@ import aiohttp
 from telethon import errors
 from .service import Service,parse_link,error_message,archive_caption
 from .pg_store import Repository
-from .media_cache import CURRENT_MEDIA,deliver_cached,archive_once
+from .media_cache import CURRENT_MEDIA,CACHE_ONLY,CacheMiss,deliver_cached,archive_once
 
 LOG=logging.getLogger(__name__)
 class TelegramDeliveryError(RuntimeError):
@@ -28,6 +28,7 @@ class ScaleService(Service):
             pool_size=int(os.environ.get('DB_POOL_SIZE','12')))
         self.role=os.environ.get('DESCARGAS_ROLE','web')
         self.concurrency=max(1,min(8,int(os.environ.get('DOWNLOAD_CONCURRENCY','3'))))
+        self.fast_concurrency=max(1,min(4,int(os.environ.get('FAST_CONCURRENCY','2'))))
         self.max_pending=max(20,min(500,int(os.environ.get('LOGIN_CAPACITY','200'))))
         self.bot_id=None;self.stopping=False
 
@@ -98,7 +99,8 @@ class ScaleService(Service):
                         await asyncio.sleep(exc.seconds+1)
                         self.state='starting'
                 LOG.warning('Scale startup role=worker phase=authorized')
-                self.tasks.extend(asyncio.create_task(self.work()) for _ in range(self.concurrency))
+                self.tasks.extend(asyncio.create_task(self.work('slow')) for _ in range(self.concurrency))
+                self.tasks.extend(asyncio.create_task(self.work('fast')) for _ in range(self.fast_concurrency))
                 self.tasks.append(asyncio.create_task(self.maintenance()))
                 self.tasks.append(asyncio.create_task(self.watch_config()))
                 self.tasks.append(asyncio.create_task(self.archive_loop()))
@@ -107,7 +109,7 @@ class ScaleService(Service):
                 self.tasks.append(asyncio.create_task(self.expire()))
             else:raise ValueError('Invalid DESCARGAS_ROLE')
             self.ready=True;self.state='ready'
-            LOG.warning('Scale startup role=%s phase=ready concurrency=%s',self.role,self.concurrency)
+            LOG.warning('Scale startup role=%s phase=ready concurrency=%s fast_concurrency=%s',self.role,self.concurrency,self.fast_concurrency)
         except Exception as exc:
             self.state='startup_error';LOG.error('Scale startup failed (%s)',type(exc).__name__)
 
@@ -236,6 +238,7 @@ class ScaleService(Service):
         await self.repo.pace('bot-send',0.06*count)
 
     async def deliver(self,uid,client,link,seen):
+        if CACHE_ONLY.get() and not self.almacen:raise CacheMiss()
         if not self.almacen:return await super().deliver(uid,client,link,seen)
         return await deliver_cached(self,uid,client,link,seen)
 
@@ -284,16 +287,17 @@ class ScaleService(Service):
             await asyncio.sleep(20)
             await self.repo.heartbeat(job)
 
-    async def work(self):
+    async def work(self,lane=None):
         while not self.stopping:
-            try:job=await self.repo.claim(self.bot_id)
+            try:job=await self.repo.claim(self.bot_id,lane) if lane else await self.repo.claim(self.bot_id)
             except asyncio.CancelledError:raise
             except Exception as exc:
                 LOG.warning('Scale queue claim failed (%s)',type(exc).__name__)
                 await asyncio.sleep(5);continue
             if not job:await asyncio.sleep(0.5);continue
-            LOG.warning('Scale job claimed queue_seconds=%.2f',max(0,time.time()-job['created']))
+            LOG.warning('Scale job claimed lane=%s queue_seconds=%.2f',lane,max(0,time.time()-job['created']))
             heartbeat=asyncio.create_task(self.lease(job));marker=CURRENT_JOB.set(job)
+            cache_marker=CACHE_ONLY.set(lane=='fast')
             client=None
             try:
                 async with self.repo.account_lock(job['uid']):
@@ -305,18 +309,27 @@ class ScaleService(Service):
                     client=self.client(session);await client.connect()
                     if not await client.is_user_authorized():raise ValueError('Conecta de nuevo tu cuenta; la sesión fue revocada.')
                     seen={tuple(key) for key in payload.get('seen',[])};count=job['count']
+                    requeued=False
                     for position in range(job['position'],len(payload['links'])):
                         async with asyncio.timeout(1800):
                             count+=await self.deliver(uid,client,payload['links'][position],seen)
                         payload['seen']=[list(key) for key in seen]
                         await self.repo.checkpoint(job,position+1,count,payload)
-                        await asyncio.sleep(2)
+                        if lane=='slow' and position+1<len(payload['links']):
+                            await self.repo.reroute(job,'fast');requeued=True;break
+                        if lane!='fast' and position+1<len(payload['links']):await asyncio.sleep(2)
+                    if requeued:continue
                     await self.repo.state(job,'done')
                     try:await self.tell(uid,f'✅ Terminado. {count} elemento(s) entregado(s).')
                     except Exception:pass
             except asyncio.CancelledError:
                 # Leave lease + durable phase for the recovery process; never replay uncertain sends.
                 raise
+            except CacheMiss:
+                try:
+                    await self.repo.reroute(job,'slow')
+                    LOG.warning('Scale job moved to download lane')
+                except Exception as exc:LOG.warning('Scale reroute deferred to lease recovery (%s)',type(exc).__name__)
             except Exception as exc:
                 LOG.warning('Scale job stopped (%s)',type(exc).__name__)
                 try:
@@ -326,7 +339,7 @@ class ScaleService(Service):
             finally:
                 heartbeat.cancel();await asyncio.gather(heartbeat,return_exceptions=True)
                 if client:await client.disconnect()
-                self.names.pop(job['uid'],None);CURRENT_JOB.reset(marker)
+                self.names.pop(job['uid'],None);CURRENT_JOB.reset(marker);CACHE_ONLY.reset(cache_marker)
 
     async def watch_config(self):
         while True:

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock,patch
 from cryptography.fernet import Fernet
 from descargas_app.scalable import ScaleService,CURRENT_JOB
+from descargas_app.media_cache import CacheMiss
 
 class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -78,3 +79,31 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
             release.set();service.stopping=True
             for task in tasks:task.cancel()
             await asyncio.gather(*tasks,return_exceptions=True)
+
+    async def run_lane_case(self,lane,miss=False):
+        s=self.service
+        payload=s.repo.encode({'name':'Test','links':['https://t.me/c/123/1','https://t.me/c/123/2'],'seen':[]})
+        job={'id':'j','uid':10,'generation':0,'payload':payload,'position':0,'count':0,'created':0}
+        s.repo.claim=AsyncMock(return_value=job)
+        @asynccontextmanager
+        async def lock(uid):yield
+        s.repo.account_lock=lock
+        s.repo.account=AsyncMock(return_value={'generation':0,'session':s.cipher.encrypt(b'session')})
+        s.client=lambda session:SimpleNamespace(connect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),disconnect=AsyncMock())
+        async def routed(*args):s.stopping=True
+        s.repo.reroute=AsyncMock(side_effect=routed)
+        s.repo.checkpoint=AsyncMock();s.repo.state=AsyncMock()
+        s.deliver=AsyncMock(side_effect=CacheMiss() if miss else None,return_value=1)
+        await s.work(lane)
+        return job
+
+    async def test_fast_miss_routes_to_slow_without_failed_or_completed_status(self):
+        job=await self.run_lane_case('fast',miss=True)
+        self.service.repo.reroute.assert_awaited_once_with(job,'slow')
+        self.service.repo.checkpoint.assert_not_awaited();self.service.repo.state.assert_not_awaited()
+
+    async def test_mixed_batch_returns_to_fast_after_one_new_download(self):
+        job=await self.run_lane_case('slow')
+        self.service.repo.reroute.assert_awaited_once_with(job,'fast')
+        self.assertEqual(self.service.repo.checkpoint.call_args.args[1:3],(1,1))
+        self.service.deliver.assert_awaited_once();self.service.repo.state.assert_not_awaited()
