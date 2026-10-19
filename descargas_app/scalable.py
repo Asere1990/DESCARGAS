@@ -9,7 +9,7 @@ import sqlite3
 import time
 import aiohttp
 from telethon import errors
-from .service import Service,parse_link,error_message
+from .service import Service,parse_link,error_message,archive_caption
 from .pg_store import Repository
 
 LOG=logging.getLogger(__name__)
@@ -55,19 +55,34 @@ class ScaleService(Service):
             raise RuntimeError('Telegram rechazó la operación')
 
     async def start(self):
-        if not self.configured() or not self.repo.url:return
+        if not self.repo.url or not self.cipher:return
+        if self.role=='web' and not self.configured():return
         self.http=aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45))
         self.tasks=[asyncio.create_task(self.bootstrap())]
 
     async def bootstrap(self):
         try:
             await self.repo.start()
+            if self.role=='worker':
+                for _ in range(60):
+                    stored=await self.repo.setting('runtime_config')
+                    if stored:break
+                    await asyncio.sleep(2)
+                else:raise RuntimeError('Waiting for frontend configuration')
+                self.runtime_config=self.repo.decode(stored.encode())
+                for field,value in self.runtime_config.items():setattr(self,field,value)
             me=await self.api('getMe',{});self.bot_id=me['id']
+            if self.role=='web':
+                config={field:getattr(self,field) for field in ('token','api_id','api_hash','url','almacen')}
+                await self.repo.set_setting('runtime_config',self.repo.encode(config).decode())
+                await self.repo.pool.execute("UPDATE descarga_jobs SET state='cancelled' WHERE bot_id<>$1 AND state='queued'",self.bot_id)
             if self.role=='worker':
                 self.bot=self.client();await self.bot.connect()
                 await self.bot.sign_in(bot_token=self.token)
                 self.tasks.extend(asyncio.create_task(self.work()) for _ in range(self.concurrency))
                 self.tasks.append(asyncio.create_task(self.maintenance()))
+                self.tasks.append(asyncio.create_task(self.watch_config()))
+                self.tasks.append(asyncio.create_task(self.archive_loop()))
             elif self.role=='web':
                 self.tasks.append(asyncio.create_task(self.poll()))
                 self.tasks.append(asyncio.create_task(self.expire()))
@@ -184,6 +199,9 @@ class ScaleService(Service):
     async def before_send(self,uid,count=1):
         job=CURRENT_JOB.get()
         if not job:raise RuntimeError('Missing durable job')
+        stored=await self.repo.setting('runtime_config')
+        if not stored or self.repo.decode(stored.encode())!=self.runtime_config:
+            raise RuntimeError('Application configuration changed; worker restarting')
         account=await self.repo.account(uid)
         if not account or account['generation']!=job['generation'] or not account['session']:
             raise ValueError('La sesión fue desconectada. Se canceló el envío.')
@@ -191,8 +209,40 @@ class ScaleService(Service):
         await self.repo.pace('bot-send',0.06*count)
 
     async def archive(self,uid,delivered):
-        await self.repo.pace('archive-group',3.1*len(delivered))
-        return await super().archive(uid,delivered)
+        job=CURRENT_JOB.get()
+        name=self.repo.decode(job['payload'])['name'] if job else self.names.get(uid,'Usuario')
+        await self.repo.enqueue_archive(self.bot_id,uid,name,[item.id for item in delivered])
+
+    async def archive_lease(self,job):
+        while True:
+            await asyncio.sleep(20);await self.repo.archive_heartbeat(job['id'])
+
+    async def archive_loop(self):
+        while not self.stopping:
+            try:
+                job=await self.repo.claim_archive(self.bot_id)
+                if not job:await asyncio.sleep(1);continue
+            except asyncio.CancelledError:raise
+            except Exception:await asyncio.sleep(5);continue
+            heartbeat=asyncio.create_task(self.archive_lease(job))
+            try:
+                data=self.repo.decode(job['payload'])
+                await self.repo.pace('archive-group',3.1*len(data['ids']))
+                await self.repo.archive_state(job['id'],'sending')
+                copied=await self.api('copyMessages',{'chat_id':self.almacen,'from_chat_id':data['uid'],
+                    'message_ids':data['ids'],'remove_caption':True})
+                if len(copied)!=len(data['ids']):raise RuntimeError('Incomplete archive')
+                caption,entities=archive_caption(data['name'],data['uid'])
+                await self.api('editMessageCaption',{'chat_id':self.almacen,'message_id':copied[0]['message_id'],
+                    'caption':caption,'caption_entities':[{'type':'text_link','offset':e.offset,'length':e.length,'url':e.url} for e in entities]})
+                await self.repo.archive_state(job['id'],'done')
+            except asyncio.CancelledError:raise
+            except Exception as exc:
+                LOG.error('Archive requires review (%s)',type(exc).__name__)
+                try:await self.repo.archive_state(job['id'],'review')
+                except Exception:pass
+            finally:
+                heartbeat.cancel();await asyncio.gather(heartbeat,return_exceptions=True)
 
     async def lease(self,job):
         while True:
@@ -240,6 +290,13 @@ class ScaleService(Service):
                 heartbeat.cancel();await asyncio.gather(heartbeat,return_exceptions=True)
                 if client:await client.disconnect()
                 self.names.pop(job['uid'],None);CURRENT_JOB.reset(marker)
+
+    async def watch_config(self):
+        while True:
+            await asyncio.sleep(5)
+            stored=await self.repo.setting('runtime_config')
+            if stored and self.repo.decode(stored.encode())!=self.runtime_config:
+                raise RuntimeError('Restart required for new application credentials')
 
     async def maintenance(self):
         while True:

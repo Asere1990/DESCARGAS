@@ -10,7 +10,7 @@ async def main():
     try:
         await asyncio.sleep(1)
         while not service.ready:
-            if service.state=='startup_error' or not service.configured() or not service.repo.url:
+            if service.state=='startup_error' or not service.cipher or not service.repo.url:
                 raise RuntimeError('Worker configuration/startup failed')
             await asyncio.sleep(1)
         while not stop.is_set():

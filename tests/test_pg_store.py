@@ -17,7 +17,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_jobs,descarga_accounts,descarga_settings,descarga_rate')
+        await self.repo.pool.execute('TRUNCATE descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate')
     async def asyncTearDown(self):await self.repo.close()
     async def account(self,uid):await self.repo.save_account(uid,'authorized-session',{'phone':'+14155552671','phone_country':'US'})
     async def enqueue(self,uid,update=None):
@@ -76,6 +76,17 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         await self.repo.set_setting('offset:100',555)
         self.assertIsNone(await self.repo.setting('offset:200'))
         self.assertEqual(await self.repo.setting('offset:100'),'555')
+    async def test_archive_queue_independent_and_deduplicated(self):
+        await self.repo.enqueue_archive(100,10,'Tester',[101,102])
+        await self.repo.enqueue_archive(100,10,'Tester',[101,102])
+        self.assertEqual(await self.repo.pool.fetchval('SELECT count(*) FROM descarga_archives'),1)
+        job=await self.repo.claim_archive(100)
+        self.assertEqual(self.repo.decode(job['payload'])['ids'],[101,102])
+        await self.repo.archive_state(job['id'],'sending')
+        await self.repo.pool.execute('UPDATE descarga_archives SET heartbeat=$1',time.time()-200)
+        await self.repo.recover()
+        self.assertEqual(await self.repo.pool.fetchval('SELECT state FROM descarga_archives'),'review')
+
     async def test_08_load_5000_users_100000_links(self):
         count=5000
         session=self.repo.cipher.encrypt(b'session')

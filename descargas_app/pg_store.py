@@ -2,6 +2,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import json
+import hashlib
 import time
 import uuid
 import asyncpg
@@ -19,6 +20,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS descarga_one_user_job ON descarga_jobs(uid)
  WHERE state IN ('queued','preparing','sending');
 CREATE INDEX IF NOT EXISTS descarga_queue ON descarga_jobs(created) WHERE state='queued';
 CREATE INDEX IF NOT EXISTS descarga_leases ON descarga_jobs(heartbeat) WHERE state IN ('preparing','sending');
+CREATE TABLE IF NOT EXISTS descarga_archives(id TEXT PRIMARY KEY,bot_id BIGINT NOT NULL,payload BYTEA NOT NULL,state TEXT NOT NULL DEFAULT 'queued',owner TEXT,heartbeat DOUBLE PRECISION,created DOUBLE PRECISION NOT NULL);
+CREATE INDEX IF NOT EXISTS descarga_archive_queue ON descarga_archives(created) WHERE state='queued';
 CREATE TABLE IF NOT EXISTS descarga_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS descarga_rate(key TEXT PRIMARY KEY,next_at DOUBLE PRECISION NOT NULL);
 '''
@@ -93,6 +96,9 @@ class Repository:
             cutoff=time.time()-180
             await conn.execute("UPDATE descarga_jobs SET state='queued',owner=NULL WHERE state='preparing' AND heartbeat<$1",cutoff)
             await conn.execute("UPDATE descarga_jobs SET state='review',owner=NULL WHERE state='sending' AND heartbeat<$1",cutoff)
+            await conn.execute("UPDATE descarga_archives SET state='review',owner=NULL WHERE state='sending' AND heartbeat<$1",cutoff)
+            await conn.execute("UPDATE descarga_archives SET state='queued',owner=NULL WHERE state='preparing' AND heartbeat<$1",cutoff)
+            await conn.execute("DELETE FROM descarga_archives WHERE state IN ('done','review') AND created<$1",time.time()-7*86400)
             await conn.execute("DELETE FROM descarga_jobs WHERE state IN ('done','failed','cancelled','review') AND created<$1",time.time()-7*86400)
     async def cancel_user(self,uid):
         async with self.pool.acquire() as conn,conn.transaction():
@@ -100,6 +106,21 @@ class Repository:
             await conn.execute("UPDATE descarga_jobs SET state='cancelled' WHERE uid=$1 AND state='queued'",uid)
     async def erase_session(self,uid):
         await self.pool.execute('UPDATE descarga_accounts SET session=NULL WHERE uid=$1',uid)
+    async def enqueue_archive(self,bot_id,uid,name,ids):
+        key=hashlib.sha256(f'{bot_id}:{uid}:{ids}'.encode()).hexdigest()
+        await self.pool.execute("INSERT INTO descarga_archives(id,bot_id,payload,created) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING",
+            key,bot_id,self.encode({'uid':uid,'name':name,'ids':ids}),time.time())
+    async def claim_archive(self,bot_id):
+        return await self.pool.fetchrow("""WITH candidate AS (
+            SELECT id FROM descarga_archives WHERE state='queued' AND bot_id=$1 ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1)
+            UPDATE descarga_archives j SET state='preparing',owner=$2,heartbeat=$3
+            FROM candidate c WHERE j.id=c.id RETURNING j.*""",bot_id,self.owner,time.time())
+    async def archive_state(self,job,state):
+        result=await self.pool.execute('UPDATE descarga_archives SET state=$3,heartbeat=$4 WHERE id=$1 AND owner=$2',job,self.owner,state,time.time())
+        if result!='UPDATE 1':raise RuntimeError('Lost archive ownership')
+    async def archive_heartbeat(self,job):
+        await self.pool.execute('UPDATE descarga_archives SET heartbeat=$3 WHERE id=$1 AND owner=$2',job,self.owner,time.time())
+
     async def pace(self,key,interval):
         async with self.pool.acquire() as conn,conn.transaction():
             now=time.time()
