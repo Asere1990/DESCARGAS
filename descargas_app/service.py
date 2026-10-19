@@ -1,0 +1,344 @@
+import asyncio
+from collections import defaultdict
+import json
+import logging
+import os
+from pathlib import Path
+import re
+import sqlite3
+import tempfile
+import time
+from urllib.parse import urlparse
+import aiohttp
+from cryptography.fernet import Fernet
+import phonenumbers
+from telethon import TelegramClient, errors, types, utils
+from telethon.sessions import StringSession
+from .media_upload import prepare_media
+
+LOG=logging.getLogger(__name__)
+MAX_FILE=100*1024*1024
+MAX_ALBUM=500*1024*1024
+
+
+def parse_link(link):
+    url=urlparse(link.strip())
+    if url.scheme!='https' or url.hostname not in ('t.me','www.t.me'):
+        raise ValueError('Envía enlaces HTTPS de mensajes de Telegram.')
+    parts=url.path.strip('/').split('/')
+    if len(parts)==3 and parts[0]=='c' and all(p.isdigit() for p in parts[1:]):
+        return int('-100'+parts[1]),int(parts[2])
+    if len(parts)==2 and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{3,}',parts[0]) and parts[1].isdigit():
+        return parts[0],int(parts[1])
+    raise ValueError('Copia el enlace de una foto, video o álbum; no una invitación.')
+
+
+async def album(client,entity,message):
+    gid=getattr(message,'grouped_id',None)
+    if not gid:return [message]
+    found={message.id:message}
+    async for item in client.iter_messages(entity,min_id=max(0,message.id-101),max_id=message.id+101,limit=200):
+        if getattr(item,'grouped_id',None)==gid:found[item.id]=item
+    return [found[key] for key in sorted(found)]
+
+
+def error_message(exc):
+    if isinstance(exc,errors.FloodWaitError):return f'Telegram pide esperar {exc.seconds} segundos. No se reintentará automáticamente.'
+    if isinstance(exc,errors.PhoneCodeInvalidError):return 'El código no es correcto. Revísalo y vuelve a intentar.'
+    if isinstance(exc,errors.PhoneCodeExpiredError):return 'El código venció. Solicita uno nuevo.'
+    if isinstance(exc,errors.PasswordHashInvalidError):return 'La contraseña de dos pasos no es correcta.'
+    if isinstance(exc,errors.PhoneNumberInvalidError):return 'El teléfono no es válido.'
+    if isinstance(exc,(errors.ChannelPrivateError,errors.ChatAdminRequiredError)):return 'Tu cuenta no tiene acceso a ese contenido.'
+    if isinstance(exc,ValueError):
+        allowed=('Envía ','Copia ','Acepta ','La cuenta ','Conecta ','El archivo ','El contenido ','El código ','No hay ','Espera ','Demasiadas ','La sesión ','El álbum ')
+        if str(exc).startswith(allowed):return str(exc)
+    return f'No se pudo completar la operación ({type(exc).__name__}).'
+
+
+class Service:
+    def __init__(self,shared_lock=None):
+        self.token=os.environ.get('DESCARGAS_BOT_TOKEN','')
+        self.api_id=os.environ.get('TELEGRAM_API_ID','')
+        self.api_hash=os.environ.get('TELEGRAM_API_HASH','')
+        self.url=os.environ.get('DESCARGAS_PUBLIC_URL','https://tatica.onrender.com/descargas/').rstrip('/')+'/'
+        self.key=os.environ.get('DESCARGAS_SESSION_KEY','')
+        self.root=Path(os.environ.get('DESCARGAS_DATA_DIR','/var/data/descargas' if Path('/var/data').is_dir() else '/tmp/descargas'))
+        self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
+        self.db=sqlite3.connect(str(self.root/'sessions.sqlite3'))
+        self.db.execute('CREATE TABLE IF NOT EXISTS users(uid INTEGER PRIMARY KEY, session BLOB NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY, uid INTEGER NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT)')
+        self.db.commit()
+        try:self.cipher=Fernet(self.key.encode()) if self.key else None
+        except ValueError:self.cipher=None
+        self.shared=shared_lock or asyncio.Lock()
+        self.locks=defaultdict(asyncio.Lock)
+        self.pending={};self.contacts={};self.attempts=defaultdict(list);self.last_code={}
+        self.epochs=defaultdict(int);self.active=set();self.queue=asyncio.Queue(maxsize=20)
+        self.bot=None;self.http=None;self.tasks=[];self.ready=False;self.state='missing_configuration'
+
+    def configured(self):
+        return bool(self.token and self.api_id.isdigit() and re.fullmatch('[a-fA-F0-9]{32}',self.api_hash) and self.cipher)
+
+    def session(self,uid):
+        row=self.db.execute('SELECT session FROM users WHERE uid=?',(uid,)).fetchone()
+        return self.cipher.decrypt(row[0]).decode() if row and self.cipher else ''
+
+    def client(self,session=''):
+        return TelegramClient(StringSession(session),int(self.api_id),self.api_hash,
+            device_model='DESCARGAS · sesión autorizada',app_version='1.0',receive_updates=False,
+            flood_sleep_threshold=0,request_retries=0,connection_retries=1)
+
+    async def api(self,method,payload):
+        async with self.http.post(f'https://api.telegram.org/bot{self.token}/{method}',json=payload) as response:
+            result=await response.json()
+        if not result.get('ok'):
+            raise RuntimeError('BotAPI request failed')
+        return result['result']
+
+    async def tell(self,uid,text,menu=False):
+        payload={'chat_id':uid,'text':text}
+        if menu:
+            payload['reply_markup']={'inline_keyboard':[
+                [{'text':'🔗 CONECTAR MI CUENTA','web_app':{'url':self.url},'style':'primary'}],
+                [{'text':'🔒 DESCONECTAR MI CUENTA','callback_data':'disconnect','style':'danger'}]]}
+        await self.api('sendMessage',payload)
+
+    async def start(self):
+        if not self.configured():return
+        self.http=aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=45))
+        self.tasks=[asyncio.create_task(self.bootstrap())]
+
+    async def bootstrap(self):
+        try:
+            me=await self.api('getMe',{})
+            if me.get('username','').lower()!='descargas_robot':
+                self.state='wrong_bot';return
+            # Bot session is in memory only; user sessions are encrypted on disk.
+            self.bot=self.client()
+            await self.bot.connect()
+            await self.bot.sign_in(bot_token=self.token)
+            await self.api('deleteWebhook',{'drop_pending_updates':False})
+            await self.api('setMyCommands',{'commands':[{'command':'start','description':'Conectar cuenta y descargar'},{'command':'estado','description':'Ver conexión de mi cuenta'},{'command':'desconectar','description':'Cerrar y borrar mi sesión'}]})
+            await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'Mi cuenta','web_app':{'url':self.url}}})
+            self.ready=True;self.state='ready'
+            self.tasks.extend([asyncio.create_task(self.poll()),asyncio.create_task(self.work()),asyncio.create_task(self.expire())])
+        except Exception as exc:
+            self.state='startup_error'
+            LOG.error('DESCARGAS startup failed (%s)',type(exc).__name__)
+
+    async def poll(self):
+        row=self.db.execute("SELECT value FROM settings WHERE key='offset'").fetchone()
+        offset=int(row[0]) if row else None
+        while True:
+            try:
+                updates=await self.api('getUpdates',{'offset':offset if offset is not None else -1,'timeout':25,'allowed_updates':['message','callback_query']})
+                for update in updates:
+                    if offset is not None:
+                        try:await self.update(update)
+                        except Exception as exc:LOG.warning('DESCARGAS update failed (%s)',type(exc).__name__)
+                    offset=update['update_id']+1
+                    self.db.execute("INSERT OR REPLACE INTO settings VALUES('offset',?)",(str(offset),));self.db.commit()
+                if offset is None:offset=0
+            except asyncio.CancelledError:raise
+            except Exception:
+                await asyncio.sleep(5)
+
+    async def update(self,update):
+        callback=update.get('callback_query')
+        if callback:
+            await self.api('answerCallbackQuery',{'callback_query_id':callback['id']})
+            chat=callback.get('message',{}).get('chat',{})
+            uid=callback['from']['id']
+            if chat.get('type')!='private' or chat.get('id')!=uid:return
+            if callback.get('data')=='disconnect':
+                await self.api('sendMessage',{'chat_id':uid,'text':'¿Cerrar y borrar tu sesión? Se cancelarán las descargas pendientes.',
+                    'reply_markup':{'inline_keyboard':[[{'text':'Sí, desconectar','callback_data':'confirm_disconnect','style':'danger'}],[{'text':'Cancelar','callback_data':'cancel_disconnect'}]]}})
+            elif callback.get('data')=='confirm_disconnect':
+                try:
+                    await self.disconnect(uid)
+                    await self.tell(uid,'Sesión cerrada y borrada.',True)
+                except Exception as exc:await self.tell(uid,error_message(exc),True)
+            elif callback.get('data')=='cancel_disconnect':
+                await self.tell(uid,'Conservas tu conexión.',True)
+            return
+        message=update.get('message',{})
+        if message.get('chat',{}).get('type')!='private' or message.get('from',{}).get('is_bot'):return
+        uid=message['from']['id']
+        contact=message.get('contact')
+        if contact and contact.get('user_id')==uid and not message.get('forward_origin'):
+            self.contacts[uid]=(contact['phone_number'],time.monotonic());return
+        text=message.get('text','').strip()
+        if text.startswith('/start'):
+            await self.tell(uid,'DESCARGAS\n\nConecta tu cuenta para descargar fotos, videos y álbumes de conversaciones a las que tienes acceso. Después envía aquí los enlaces.\n\nLa conexión crea una sesión adicional con acceso amplio a tu cuenta. Puedes revocarla cuando quieras. No envíes códigos ni contraseñas como mensajes.',True)
+        elif text=='/estado':
+            await self.tell(uid,'✅ Cuenta conectada. Envía los enlaces.' if self.session(uid) else 'Conecta primero tu cuenta.',True)
+        elif text=='/desconectar':
+            await self.disconnect(uid);await self.tell(uid,'Sesión cerrada y borrada. Descargas pendientes canceladas.',True)
+        elif text.startswith('https://'):
+            links=list(dict.fromkeys(text.split()))
+            try:
+                if len(links)>20:raise ValueError('Envía un máximo de 20 enlaces por mensaje.')
+                for link in links:parse_link(link)
+                if not self.session(uid):raise ValueError('Conecta primero tu cuenta desde el botón.')
+                if uid in self.active:raise ValueError('Espera a que termine tu descarga anterior.')
+                if self.queue.full():raise ValueError('Demasiadas descargas en cola. Inténtalo después.')
+                if self.db.execute('SELECT 1 FROM orders WHERE id=?',(update['update_id'],)).fetchone():return
+                self.db.execute('INSERT INTO orders VALUES (?,?)',(update['update_id'],uid));self.db.commit()
+                self.active.add(uid);self.queue.put_nowait((uid,links,self.epochs[uid]))
+                await self.tell(uid,f'Recibido: {len(links)} enlace(s). Te entregaré el contenido aquí.')
+            except Exception as exc:await self.tell(uid,error_message(exc),True)
+        elif text:
+            await self.tell(uid,'Envía enlaces de mensajes de Telegram. Para conectar tu cuenta usa el botón; no envíes aquí códigos ni contraseñas.',True)
+
+    def throttle(self,uid):
+        now=time.monotonic();self.attempts[uid]=[t for t in self.attempts[uid] if now-t<60]
+        if len(self.attempts[uid])>=10:raise ValueError('Demasiadas solicitudes. Espera un minuto.')
+        self.attempts[uid].append(now)
+
+    async def send_code(self,uid,data):
+        if data.get('consent') is not True:raise ValueError('Acepta el acceso de la sesión antes de continuar.')
+        if self.session(uid):return {'connected':True}
+        if time.monotonic()-self.last_code.get(uid,-1000)<60:raise ValueError('Espera un minuto antes de solicitar otro código.')
+        if len(self.pending)>=20 and uid not in self.pending:raise ValueError('Demasiadas conexiones en curso. Inténtalo después.')
+        try:
+            phone=phonenumbers.parse(str(data.get('phone','')),None)
+            if not phonenumbers.is_valid_number(phone):raise ValueError()
+            phone=phonenumbers.format_number(phone,phonenumbers.PhoneNumberFormat.E164)
+        except Exception:raise errors.PhoneNumberInvalidError(request=None)
+        self.last_code[uid]=time.monotonic()
+        await self.clear_pending(uid)
+        client=self.client();await client.connect()
+        try:sent=await client.send_code_request(phone)
+        except BaseException:
+            await client.disconnect();raise
+        self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic()}
+        return {'step':'code','message':'Revisa el código que recibiste en Telegram.'}
+
+    async def verify(self,uid,data,password=False):
+        pending=self.pending.get(uid)
+        if not pending or time.monotonic()-pending['created']>600:
+            await self.clear_pending(uid);raise ValueError('El código venció. Solicita uno nuevo.')
+        client=pending['client']
+        try:
+            if password:await client.sign_in(password=str(data.get('password','')))
+            else:await client.sign_in(phone=pending['phone'],code=str(data.get('code','')),phone_code_hash=pending['hash'])
+        except errors.SessionPasswordNeededError:return {'step':'password'}
+        me=await client.get_me()
+        if me.id!=uid:
+            await client.log_out();await self.clear_pending(uid)
+            raise ValueError('La cuenta conectada debe ser la misma que está hablando con el bot.')
+        token=self.cipher.encrypt(client.session.save().encode())
+        self.db.execute('INSERT OR REPLACE INTO users VALUES (?,?)',(uid,token));self.db.commit()
+        await self.clear_pending(uid)
+        try:await self.tell(uid,'✅ CUENTA CONECTADA\nAhora envía aquí enlaces de fotos, videos o álbumes. Para cerrar y borrar la sesión: /desconectar.')
+        except Exception:pass
+        return {'connected':True}
+
+    async def clear_pending(self,uid):
+        pending=self.pending.pop(uid,None)
+        if pending:await pending['client'].disconnect()
+
+    async def disconnect(self,uid):
+        self.epochs[uid]+=1
+        async with self.locks[uid]:
+            await self.clear_pending(uid)
+            session=self.session(uid)
+            if session:
+                client=self.client(session)
+                try:
+                    await client.connect();await client.log_out()
+                except Exception:
+                    raise ValueError('La sesión no pudo revocarse en Telegram. Inténtalo otra vez o ciérrala en Ajustes → Dispositivos.')
+                finally:await client.disconnect()
+            self.db.execute('DELETE FROM users WHERE uid=?',(uid,));self.db.commit()
+            self.contacts.pop(uid,None)
+
+    async def expire(self):
+        while True:
+            await asyncio.sleep(30)
+            for uid,p in list(self.pending.items()):
+                if time.monotonic()-p['created']>600:
+                    async with self.locks[uid]:await self.clear_pending(uid)
+            for uid,(_,created) in list(self.contacts.items()):
+                if time.monotonic()-created>600:self.contacts.pop(uid,None)
+
+    async def resolve(self,client,peer):
+        if isinstance(peer,int):
+            async for dialog in client.iter_dialogs():
+                if dialog.id==peer:return dialog.entity
+            raise ValueError('La cuenta no tiene acceso al grupo del enlace.')
+        return await client.get_entity(peer)
+
+    async def work(self):
+        while True:
+            uid,links,epoch=await self.queue.get()
+            try:
+                async with self.shared,self.locks[uid]:
+                    if epoch!=self.epochs[uid]:continue
+                    session=self.session(uid)
+                    if not session:continue
+                    client=self.client(session)
+                    try:
+                        await client.connect()
+                        if not await client.is_user_authorized():raise ValueError('Conecta de nuevo tu cuenta; la sesión fue revocada.')
+                        seen=set();count=0
+                        for link in links:
+                            if epoch!=self.epochs[uid]:break
+                            async with asyncio.timeout(1800):
+                                count+=await self.deliver(uid,client,link,seen)
+                            await asyncio.sleep(2)
+                        await self.tell(uid,f'✅ Terminado. {count} elemento(s) entregado(s).')
+                    finally:await client.disconnect()
+            except asyncio.CancelledError:raise
+            except Exception as exc:
+                try:await self.tell(uid,error_message(exc)+' Revisa lo recibido antes de repetir la orden.')
+                except Exception:pass
+            finally:
+                self.active.discard(uid);self.queue.task_done()
+
+    async def deliver(self,uid,client,link,seen):
+        peer,mid=parse_link(link);entity=await self.resolve(client,peer)
+        message=await client.get_messages(entity,ids=mid)
+        if not message or not (message.photo or message.document):
+            raise ValueError('El contenido no está disponible como foto o video. El contenido de pago no se desbloquea aquí.')
+        key=(utils.get_peer_id(entity),getattr(message,'grouped_id',None) or mid)
+        if key in seen:return 0
+        seen.add(key)
+        items=await album(client,entity,message)
+        size=sum((m.file.size or 0) for m in items)
+        if size>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):raise ValueError('El archivo supera 100 MB o el álbum supera 500 MB.')
+        with tempfile.TemporaryDirectory(prefix='descargas-') as directory:
+            files=[];total=0
+            for index,item in enumerate(items):
+                ext=item.file.ext or '.bin'
+                if not re.fullmatch(r'\.[A-Za-z0-9]{1,10}',ext):ext='.bin'
+                async def progress(current,expected):
+                    if current>MAX_FILE or total+current>MAX_ALBUM:raise ValueError('El archivo supera el límite de descarga.')
+                target=Path(directory)/f'{index:02d}_{item.id}{ext}'
+                result=await client.download_media(item,file=str(target),progress_callback=progress)
+                if not result or not target.exists() or not target.stat().st_size:raise ValueError('El archivo no se descargó completo.')
+                total+=target.stat().st_size
+                files.append(target)
+            media=[await prepare_media_for_bot(self.bot,client,path,item) for path,item in zip(files,items)]
+            result=await self.bot.send_file(uid,media if len(media)>1 else media[0],
+                caption=[m.message or '' for m in items] if len(items)>1 else items[0].message or '',
+                formatting_entities=[m.entities or [] for m in items] if len(items)>1 else items[0].entities or [],parse_mode=None)
+            delivered=result if isinstance(result,list) else [result]
+            if len(delivered)!=len(items):raise ValueError('El álbum se entregó incompleto. Revisa lo recibido antes de repetir.')
+            return len(items)
+
+    async def close(self):
+        for task in self.tasks:task.cancel()
+        await asyncio.gather(*self.tasks,return_exceptions=True)
+        for uid in list(self.pending):await self.clear_pending(uid)
+        if self.bot:await self.bot.disconnect()
+        if self.http:await self.http.close()
+        self.db.close()
+
+
+async def prepare_media_for_bot(bot,source,path,original):
+    class UploadBridge:
+        upload_file=bot.upload_file
+        download_media=source.download_media
+    return await prepare_media(UploadBridge(),path,original)
