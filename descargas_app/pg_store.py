@@ -51,10 +51,12 @@ class Repository:
     async def set_setting(self,key,value):
         await self.pool.execute('INSERT INTO descarga_settings VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,str(value))
     @asynccontextmanager
-    async def account_lock(self,uid):
+    async def account_lock(self,uid,wait=True):
         # A dedicated session lock serializes downloads, login and logout across processes.
         async with self.pool.acquire() as conn:
-            await conn.execute('SELECT pg_advisory_lock($1)',uid)
+            if wait:await conn.execute('SELECT pg_advisory_lock($1)',uid)
+            elif not await conn.fetchval('SELECT pg_try_advisory_lock($1)',uid):
+                raise ValueError('Espera a que termine la transferencia en curso y vuelve a intentarlo.')
             try:yield
             finally:await conn.execute('SELECT pg_advisory_unlock($1)',uid)
     @asynccontextmanager
@@ -81,14 +83,14 @@ class Repository:
             SELECT id FROM descarga_jobs WHERE state='queued' AND bot_id=$1
             ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1)
             UPDATE descarga_jobs j SET state='preparing',owner=$2,heartbeat=$3
-            FROM candidate c WHERE j.id=c.id RETURNING j.*''',bot_id,self.owner,time.time())
+            FROM candidate c WHERE j.id=c.id RETURNING j.*''',bot_id,uuid.uuid4().hex,time.time())
     async def heartbeat(self,job):
-        return await self.pool.execute("UPDATE descarga_jobs SET heartbeat=$3 WHERE id=$1 AND owner=$2 AND state IN ('preparing','sending')",job,self.owner,time.time())
+        return await self.pool.execute("UPDATE descarga_jobs SET heartbeat=$3 WHERE id=$1 AND owner=$2 AND state IN ('preparing','sending')",job['id'],job['owner'],time.time())
     async def state(self,job,state):
-        result=await self.pool.execute('UPDATE descarga_jobs SET state=$3,heartbeat=$4 WHERE id=$1 AND owner=$2',job,self.owner,state,time.time())
+        result=await self.pool.execute('UPDATE descarga_jobs SET state=$3,heartbeat=$4 WHERE id=$1 AND owner=$2',job['id'],job['owner'],state,time.time())
         if result!='UPDATE 1':raise RuntimeError('Lost job ownership')
     async def checkpoint(self,job,position,count,payload):
-        result=await self.pool.execute("UPDATE descarga_jobs SET position=$3,count=$4,payload=$5,state='preparing',heartbeat=$6 WHERE id=$1 AND owner=$2",job,self.owner,position,count,self.encode(payload),time.time())
+        result=await self.pool.execute("UPDATE descarga_jobs SET position=$3,count=$4,payload=$5,state='preparing',heartbeat=$6 WHERE id=$1 AND owner=$2",job['id'],job['owner'],position,count,self.encode(payload),time.time())
         if result!='UPDATE 1':raise RuntimeError('Lost job ownership')
     async def recover(self):
         # No automatic replay after sending starts: Telegram may already have accepted it.
@@ -114,12 +116,12 @@ class Repository:
         return await self.pool.fetchrow("""WITH candidate AS (
             SELECT id FROM descarga_archives WHERE state='queued' AND bot_id=$1 ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1)
             UPDATE descarga_archives j SET state='preparing',owner=$2,heartbeat=$3
-            FROM candidate c WHERE j.id=c.id RETURNING j.*""",bot_id,self.owner,time.time())
+            FROM candidate c WHERE j.id=c.id RETURNING j.*""",bot_id,uuid.uuid4().hex,time.time())
     async def archive_state(self,job,state):
-        result=await self.pool.execute('UPDATE descarga_archives SET state=$3,heartbeat=$4 WHERE id=$1 AND owner=$2',job,self.owner,state,time.time())
+        result=await self.pool.execute('UPDATE descarga_archives SET state=$3,heartbeat=$4 WHERE id=$1 AND owner=$2',job['id'],job['owner'],state,time.time())
         if result!='UPDATE 1':raise RuntimeError('Lost archive ownership')
     async def archive_heartbeat(self,job):
-        await self.pool.execute('UPDATE descarga_archives SET heartbeat=$3 WHERE id=$1 AND owner=$2',job,self.owner,time.time())
+        await self.pool.execute('UPDATE descarga_archives SET heartbeat=$3 WHERE id=$1 AND owner=$2',job['id'],job['owner'],time.time())
 
     async def pace(self,key,interval):
         async with self.pool.acquire() as conn,conn.transaction():

@@ -13,6 +13,8 @@ from .service import Service,parse_link,error_message,archive_caption
 from .pg_store import Repository
 
 LOG=logging.getLogger(__name__)
+class TelegramDeliveryError(RuntimeError):
+    pass
 CURRENT_JOB=ContextVar('descargas_job',default=None)
 
 class ScaleService(Service):
@@ -45,14 +47,17 @@ class ScaleService(Service):
             await self.repo.pace('bot-send',0.06*max(1,count))
         # Retry only explicit Telegram 429 rejections, never ambiguous network sends.
         for attempt in range(3):
-            async with self.http.post(f'https://api.telegram.org/bot{self.token}/{method}',json=payload) as response:
-                result=await response.json()
+            try:
+                async with self.http.post(f'https://api.telegram.org/bot{self.token}/{method}',json=payload) as response:
+                    result=await response.json()
+            except (aiohttp.ClientError,TimeoutError) as exc:
+                raise TelegramDeliveryError('Telegram delivery uncertain') from exc
             if result.get('ok'):return result['result']
             if result.get('error_code')==429 and attempt<2:
                 await asyncio.sleep(min(300,max(1,int(result.get('parameters',{}).get('retry_after',5)))))
                 continue
             LOG.error('DESCARGAS API %s rejected code=%s',method,result.get('error_code'))
-            raise RuntimeError('Telegram rechazó la operación')
+            raise TelegramDeliveryError('Telegram rechazó la operación')
 
     async def start(self):
         if not self.repo.url or not self.cipher:return
@@ -109,7 +114,8 @@ class ScaleService(Service):
                         updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','callback_query']})
                         for update in updates:
                             # Offset advances only after persistent acceptance. Duplicate update IDs are safe.
-                            await self.update(update)
+                            try:await self.update(update)
+                            except TelegramDeliveryError:pass
                             offset=update['update_id']+1
                             await self.repo.set_setting(key,offset)
             except asyncio.CancelledError:raise
@@ -136,6 +142,12 @@ class ScaleService(Service):
                         'queued':f'Recibido: {len(links)} enlace(s). Tu solicitud está en cola.'}
                     try:await self.tell(uid,messages[result],result=='disconnected')
                     except Exception:pass # Durable acceptance must not depend on acknowledgement delivery.
+                except ValueError as exc:await self.tell(uid,error_message(exc),True)
+                return
+            if text=='/desconectar':
+                try:
+                    await self.disconnect(uid)
+                    await self.tell(uid,'Sesión cerrada y borrada. Descargas pendientes canceladas.',True)
                 except ValueError as exc:await self.tell(uid,error_message(exc),True)
                 return
             if text=='/estado':
@@ -174,7 +186,7 @@ class ScaleService(Service):
             await client.log_out();await self.clear_pending(uid)
             raise ValueError('La cuenta conectada debe ser la misma que está hablando con el bot.')
         number=phonenumbers.parse(pending['phone'],None)
-        async with self.repo.account_lock(uid):
+        async with self.repo.account_lock(uid,wait=False):
             await self.repo.save_account(uid,client.session.save(),{'phone':pending['phone'],
                 'phone_country':phonenumbers.region_code_for_number(number) or 'ZZ',
                 'calling_code':number.country_code,'updated_at':int(time.time())})
@@ -185,7 +197,7 @@ class ScaleService(Service):
 
     async def disconnect(self,uid):
         await self.repo.cancel_user(uid)
-        async with self.repo.account_lock(uid):
+        async with self.repo.account_lock(uid,wait=False):
             await self.clear_pending(uid)
             session=await self.get_session(uid)
             if session:
@@ -205,7 +217,7 @@ class ScaleService(Service):
         account=await self.repo.account(uid)
         if not account or account['generation']!=job['generation'] or not account['session']:
             raise ValueError('La sesión fue desconectada. Se canceló el envío.')
-        await self.repo.state(job['id'],'sending')
+        await self.repo.state(job,'sending')
         await self.repo.pace('bot-send',0.06*count)
 
     async def archive(self,uid,delivered):
@@ -215,7 +227,7 @@ class ScaleService(Service):
 
     async def archive_lease(self,job):
         while True:
-            await asyncio.sleep(20);await self.repo.archive_heartbeat(job['id'])
+            await asyncio.sleep(20);await self.repo.archive_heartbeat(job)
 
     async def archive_loop(self):
         while not self.stopping:
@@ -228,18 +240,18 @@ class ScaleService(Service):
             try:
                 data=self.repo.decode(job['payload'])
                 await self.repo.pace('archive-group',3.1*len(data['ids']))
-                await self.repo.archive_state(job['id'],'sending')
+                await self.repo.archive_state(job,'sending')
                 copied=await self.api('copyMessages',{'chat_id':self.almacen,'from_chat_id':data['uid'],
                     'message_ids':data['ids'],'remove_caption':True})
                 if len(copied)!=len(data['ids']):raise RuntimeError('Incomplete archive')
                 caption,entities=archive_caption(data['name'],data['uid'])
                 await self.api('editMessageCaption',{'chat_id':self.almacen,'message_id':copied[0]['message_id'],
                     'caption':caption,'caption_entities':[{'type':'text_link','offset':e.offset,'length':e.length,'url':e.url} for e in entities]})
-                await self.repo.archive_state(job['id'],'done')
+                await self.repo.archive_state(job,'done')
             except asyncio.CancelledError:raise
             except Exception as exc:
                 LOG.error('Archive requires review (%s)',type(exc).__name__)
-                try:await self.repo.archive_state(job['id'],'review')
+                try:await self.repo.archive_state(job,'review')
                 except Exception:pass
             finally:
                 heartbeat.cancel();await asyncio.gather(heartbeat,return_exceptions=True)
@@ -247,7 +259,7 @@ class ScaleService(Service):
     async def lease(self,job):
         while True:
             await asyncio.sleep(20)
-            await self.repo.heartbeat(job['id'])
+            await self.repo.heartbeat(job)
 
     async def work(self):
         while not self.stopping:
@@ -262,7 +274,7 @@ class ScaleService(Service):
                 async with self.repo.account_lock(job['uid']):
                     account=await self.repo.account(job['uid'])
                     if not account or not account['session'] or account['generation']!=job['generation']:
-                        await self.repo.state(job['id'],'cancelled');continue
+                        await self.repo.state(job,'cancelled');continue
                     payload=self.repo.decode(job['payload']);uid=job['uid'];self.names[uid]=payload['name']
                     session=self.cipher.decrypt(bytes(account['session'])).decode()
                     client=self.client(session);await client.connect()
@@ -272,9 +284,9 @@ class ScaleService(Service):
                         async with asyncio.timeout(1800):
                             count+=await self.deliver(uid,client,payload['links'][position],seen)
                         payload['seen']=[list(key) for key in seen]
-                        await self.repo.checkpoint(job['id'],position+1,count,payload)
+                        await self.repo.checkpoint(job,position+1,count,payload)
                         await asyncio.sleep(2)
-                    await self.repo.state(job['id'],'done')
+                    await self.repo.state(job,'done')
                     try:await self.tell(uid,f'✅ Terminado. {count} elemento(s) entregado(s).')
                     except Exception:pass
             except asyncio.CancelledError:
@@ -283,7 +295,7 @@ class ScaleService(Service):
             except Exception as exc:
                 LOG.warning('Scale job stopped (%s)',type(exc).__name__)
                 try:
-                    await self.repo.state(job['id'],'review')
+                    await self.repo.state(job,'review')
                     await self.tell(job['uid'],error_message(exc)+' Revisa lo recibido antes de repetir la orden.')
                 except Exception:pass
             finally:

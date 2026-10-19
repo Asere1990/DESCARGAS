@@ -26,9 +26,9 @@ Los trabajadores necesitan DATABASE_URL y la MISMA DESCARGAS_SESSION_KEY. El fro
 - Frontend actual 0.5 CPU / 512 MB: $7/mes.
 - Dos trabajadores de 1 CPU / 2 GB: $25/mes cada uno, $50/mes.
 - PostgreSQL 0.5 CPU / 1 GB: $19/mes.
-- Almacenamiento de PostgreSQL: 5 GB; confirmar cargo vigente por GB en el resumen de Render antes de activar.
-- Base de cómputo: $76/mes, más almacenamiento, tráfico excedente, impuestos y otros servicios existentes. El consumo de video puede dominar la factura.
-- Una fase inicial con un trabajador en vez de dos reduce el cómputo a $51/mes y procesa hasta 3 usuarios a la vez. No activar servicios pagos hasta que el propietario elija/apruebe el gasto.
+- Almacenamiento de PostgreSQL: 5 GB a $0.30/GB/mes, presupuestado en $1.50/mes; confirmar el total del panel antes de activar.
+- Base presupuestada: aproximadamente $77.50/mes ($76 de cómputo más $1.50 de almacenamiento), más tráfico excedente, impuestos y otros servicios existentes. El consumo de video puede dominar la factura.
+- Una fase inicial con un trabajador en vez de dos reduce el base a aproximadamente $52.50/mes y procesa hasta 3 usuarios a la vez. No activar servicios pagos hasta que el propietario elija/apruebe el gasto.
 
 ## Activación
 1. Revisar CI en GitHub y fusionar la versión aprobada a main. La entrada antigua `python bot.py` sigue disponible y no cambia automáticamente al modo escalable.

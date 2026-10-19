@@ -44,7 +44,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
     async def test_04_restart_and_uncertain_send(self):
         for uid in (1,2):await self.account(uid);await self.enqueue(uid)
         preparing=await self.repo.claim(100);sending=await self.repo.claim(100)
-        await self.repo.state(sending['id'],'sending')
+        await self.repo.state(sending,'sending')
         await self.repo.pool.execute('UPDATE descarga_jobs SET heartbeat=$1',time.time()-200)
         other=Repository(URL,self.repo.cipher);await other.start()
         try:
@@ -53,7 +53,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             states={r['id']:r['state'] for r in rows}
             self.assertEqual(states[preparing['id']],'queued')
             self.assertEqual(states[sending['id']],'review')
-            with self.assertRaises(RuntimeError):await self.repo.state(preparing['id'],'sending')
+            with self.assertRaises(RuntimeError):await self.repo.state(preparing,'sending')
             reclaimed=await other.claim(100)
             self.assertEqual(reclaimed['id'],preparing['id'])
         finally:await other.close()
@@ -68,7 +68,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         await self.account(1);await self.enqueue(1)
         job=await self.repo.claim(100);payload=self.repo.decode(job['payload'])
         payload['seen']=[[-100123,777]]
-        await self.repo.checkpoint(job['id'],1,3,payload)
+        await self.repo.checkpoint(job,1,3,payload)
         row=await self.repo.pool.fetchrow('SELECT * FROM descarga_jobs WHERE id=$1',job['id'])
         self.assertEqual((row['position'],row['count'],row['state']),(1,3,'preparing'))
         self.assertEqual(self.repo.decode(row['payload'])['seen'],[[-100123,777]])
@@ -82,10 +82,19 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.repo.pool.fetchval('SELECT count(*) FROM descarga_archives'),1)
         job=await self.repo.claim_archive(100)
         self.assertEqual(self.repo.decode(job['payload'])['ids'],[101,102])
-        await self.repo.archive_state(job['id'],'sending')
+        await self.repo.archive_state(job,'sending')
         await self.repo.pool.execute('UPDATE descarga_archives SET heartbeat=$1',time.time()-200)
         await self.repo.recover()
         self.assertEqual(await self.repo.pool.fetchval('SELECT state FROM descarga_archives'),'review')
+
+    async def test_busy_account_lock_does_not_block_frontend(self):
+        async with self.repo.account_lock(10):
+            with self.assertRaises(ValueError):
+                async with self.repo.account_lock(10,wait=False):pass
+    async def test_shared_send_pacing(self):
+        started=time.monotonic()
+        await asyncio.gather(*(self.repo.pace('test-rate',0.03) for _ in range(3)))
+        self.assertGreaterEqual(time.monotonic()-started,0.05)
 
     async def test_08_load_5000_users_100000_links(self):
         count=5000
