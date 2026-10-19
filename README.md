@@ -16,7 +16,7 @@ No requiere api_id/hash de cada usuario; usa las credenciales de la aplicación.
 Se instala como paquete con una versión fijada por commit. TATICA monta la Mini App en `/descargas/` y comparte su bloqueo de trabajos. No se crea otro servicio ni disco. Una sola transferencia pesada a la vez; el tráfico total puede aumentar los cargos por consumo.
 
 Variables en el **servicio TATICA**:
-- `DESCARGAS_BOT_TOKEN`: token de @Descargas_Robot, introducido por el propietario en Render.
+- `TOKEN`: token de @Descargas_Robot, introducido por el propietario en Render.
 - `DESCARGAS_SESSION_KEY`: clave Fernet generada una sola vez (el despliegue la provisiona sin mostrarla). No cambiarla: permite descifrar las sesiones existentes.
 - `DESCARGAS_PUBLIC_URL`: `https://tatica.onrender.com/descargas/`.
 - Se reutilizan `TELEGRAM_API_ID` y `TELEGRAM_API_HASH`.
