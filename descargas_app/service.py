@@ -15,6 +15,7 @@ import phonenumbers
 from telethon import TelegramClient, errors, types, utils
 from telethon.sessions import StringSession
 from .media_upload import prepare_media
+from .paid_media import purchased_items
 
 LOG=logging.getLogger(__name__)
 MAX_FILE=100*1024*1024
@@ -349,12 +350,13 @@ class Service:
     async def deliver(self,uid,client,link,seen):
         peer,mid=parse_link(link);entity=await self.resolve(client,peer)
         message=await client.get_messages(entity,ids=mid)
-        if not message or not (message.photo or message.document):
-            raise ValueError('El contenido no está disponible como foto o video. El contenido de pago no se desbloquea aquí.')
+        paid = purchased_items(message)
+        if not message or (paid is None and not (message.photo or message.document)):
+            raise ValueError('El mensaje no contiene una foto, video o archivo descargable.')
         key=(utils.get_peer_id(entity),getattr(message,'grouped_id',None) or mid)
         if key in seen:return 0
         seen.add(key)
-        items=await album(client,entity,message)
+        items=paid if paid is not None else await album(client,entity,message)
         size=sum((m.file.size or 0) for m in items)
         if size>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):raise ValueError('El archivo supera 100 MB o el álbum supera 500 MB.')
         with tempfile.TemporaryDirectory(prefix='descargas-') as directory:
