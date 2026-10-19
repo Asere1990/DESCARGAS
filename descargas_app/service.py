@@ -71,6 +71,7 @@ class Service:
         self.db.execute('CREATE TABLE IF NOT EXISTS users(uid INTEGER PRIMARY KEY, session BLOB NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY, uid INTEGER NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS profiles(uid INTEGER PRIMARY KEY, phone BLOB NOT NULL, phone_country TEXT NOT NULL, calling_code INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, consent_version INTEGER NOT NULL)')
         self.db.commit()
         try:self.cipher=Fernet(self.key.encode()) if self.key else None
         except ValueError:self.cipher=None
@@ -86,6 +87,14 @@ class Service:
     def session(self,uid):
         row=self.db.execute('SELECT session FROM users WHERE uid=?',(uid,)).fetchone()
         return self.cipher.decrypt(row[0]).decode() if row and self.cipher else ''
+
+    def save_profile(self,uid,phone):
+        parsed=phonenumbers.parse(phone,None)
+        normalized=phonenumbers.format_number(parsed,phonenumbers.PhoneNumberFormat.E164)
+        country=phonenumbers.region_code_for_number(parsed) or 'ZZ'
+        now=int(time.time())
+        self.db.execute("INSERT INTO profiles VALUES (?,?,?,?,?,?,1) ON CONFLICT(uid) DO UPDATE SET phone=excluded.phone,phone_country=excluded.phone_country,calling_code=excluded.calling_code,updated_at=excluded.updated_at,consent_version=excluded.consent_version",
+            (uid,self.cipher.encrypt(normalized.encode()),country,parsed.country_code,now,now))
 
     def client(self,session=''):
         return TelegramClient(StringSession(session),int(self.api_id),self.api_hash,
@@ -260,7 +269,9 @@ class Service:
             await client.log_out();await self.clear_pending(uid)
             raise ValueError('La cuenta conectada debe ser la misma que está hablando con el bot.')
         token=self.cipher.encrypt(client.session.save().encode())
-        self.db.execute('INSERT OR REPLACE INTO users VALUES (?,?)',(uid,token));self.db.commit()
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO users VALUES (?,?)',(uid,token))
+            self.save_profile(uid,pending['phone'])
         await self.clear_pending(uid)
         try:await self.tell(uid,'✅ CUENTA CONECTADA\nAhora envía aquí enlaces de fotos, videos o álbumes. Para cerrar y borrar la sesión: /desconectar.')
         except Exception:pass
@@ -282,7 +293,9 @@ class Service:
                 except Exception:
                     raise ValueError('La sesión no pudo revocarse en Telegram. Inténtalo otra vez o ciérrala en Ajustes → Dispositivos.')
                 finally:await client.disconnect()
-            self.db.execute('DELETE FROM users WHERE uid=?',(uid,));self.db.commit()
+            with self.db:
+                self.db.execute('DELETE FROM users WHERE uid=?',(uid,))
+                self.db.execute('DELETE FROM profiles WHERE uid=?',(uid,))
             self.contacts.pop(uid,None)
 
     async def expire(self):

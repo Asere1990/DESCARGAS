@@ -52,6 +52,18 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.s.session(10),'session-A');self.assertEqual(self.s.session(20),'session-B');self.assertEqual(self.s.session(30),'')
         raw=(Path(self.temp.name)/'sessions.sqlite3').read_bytes()
         self.assertNotIn(b'session-A',raw)
+    async def test_profile_phone_encrypted_country_and_update(self):
+        self.s.save_profile(10,'+14155552671');self.s.db.commit()
+        row=self.s.db.execute('SELECT * FROM profiles WHERE uid=10').fetchone()
+        self.assertEqual(self.s.cipher.decrypt(row[1]).decode(),'+14155552671')
+        self.assertEqual((row[0],row[2],row[3]),(10,'US',1))
+        self.assertNotIn(b'+14155552671',(Path(self.temp.name)/'sessions.sqlite3').read_bytes())
+        self.s.save_profile(10,'+442079460018');self.s.db.commit()
+        self.assertEqual(self.s.db.execute('SELECT COUNT(*) FROM profiles').fetchone()[0],1)
+        self.assertEqual(self.s.db.execute('SELECT phone_country FROM profiles').fetchone()[0],'GB')
+        await self.s.disconnect(10)
+        self.assertEqual(self.s.db.execute('SELECT COUNT(*) FROM profiles').fetchone()[0],0)
+
     async def test_wrong_account_rejected(self):
         client=SimpleNamespace(sign_in=AsyncMock(),get_me=AsyncMock(return_value=SimpleNamespace(id=20)),log_out=AsyncMock(),disconnect=AsyncMock())
         self.s.pending[10]={'client':client,'phone':'+15555555555','hash':'not-a-secret','created':time.monotonic()}
