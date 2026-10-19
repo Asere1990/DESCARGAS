@@ -41,3 +41,11 @@ El arranque configura automáticamente comandos, botón de menú y botones web_a
 `python -m unittest discover -s tests -q`
 
 También funciona como servicio independiente con `python bot.py` y `DESCARGAS_PUBLIC_URL` apuntando a la raíz de ese servicio. Requiere un disco persistente para conservar sesiones.
+
+
+## ALMACEN
+Variable `ALMACEN`: ID negativo completo del grupo o canal donde se guarda una copia de cada descarga. El bot debe pertenecer al destino y tener permiso para publicar. Vacía significa copia desactivada.
+
+Tras entregar al usuario, el bot reutiliza los archivos ya subidos a Telegram para guardarlos en ALMACEN, sin descargarlos ni subir sus bytes otra vez. Conserva el álbum nativo; el primer elemento lleva como caption el nombre del solicitante y su Telegram ID, ambos enlazados mediante `tg://user?id=...`. En las copias del almacén ese caption sustituye al original; el DM conserva sus captions originales. Los enlaces al perfil pueden estar sujetos a las restricciones de privacidad de Telegram.
+
+Si falla el almacén, se registra el tipo de error y se informa de que el DM ya fue entregado, sin repetirlo automáticamente. El aviso de la Mini App y del bot informa al usuario del almacenamiento. No se guardan credenciales en ALMACEN.

@@ -62,6 +62,9 @@ class Service:
         self.api_hash=os.environ.get('HASH','')
         self.url=os.environ.get('DESCARGAS_PUBLIC_URL','https://tatica.onrender.com/descargas/').rstrip('/')+'/'
         self.key=os.environ.get('DESCARGAS_SESSION_KEY','')
+        raw_store=os.environ.get('ALMACEN','').strip()
+        self.almacen=int(raw_store) if re.fullmatch(r'-[1-9][0-9]*',raw_store) else None
+        self.names={}
         self.root=Path(os.environ.get('DESCARGAS_DATA_DIR','/var/data/descargas' if Path('/var/data').is_dir() else '/tmp/descargas'))
         self.root.mkdir(mode=0o700,parents=True,exist_ok=True)
         self.db=sqlite3.connect(str(self.root/'sessions.sqlite3'))
@@ -165,12 +168,14 @@ class Service:
         message=update.get('message',{})
         if message.get('chat',{}).get('type')!='private' or message.get('from',{}).get('is_bot'):return
         uid=message['from']['id']
+        person=message['from']
+        self.names[uid]=' '.join((str(person.get('first_name',''))+' '+str(person.get('last_name',''))).split())[:128] or str(person.get('username','')) or f'Usuario {uid}'
         contact=message.get('contact')
         if contact and contact.get('user_id')==uid and not message.get('forward_origin'):
             self.contacts[uid]=(contact['phone_number'],time.monotonic());return
         text=message.get('text','').strip()
         if text.startswith('/start'):
-            await self.tell(uid,'DESCARGAS\n\nConecta tu cuenta para descargar fotos, videos y álbumes de conversaciones a las que tienes acceso. Después envía aquí los enlaces.\n\nLa conexión crea una sesión adicional con acceso amplio a tu cuenta. Puedes revocarla cuando quieras. No envíes códigos ni contraseñas como mensajes.',True)
+            await self.tell(uid,'DESCARGAS\n\nConecta tu cuenta para descargar fotos, videos y álbumes de conversaciones a las que tienes acceso. Después envía aquí los enlaces.\n\nLa conexión crea una sesión adicional con acceso amplio a tu cuenta. Puedes revocarla cuando quieras. Las descargas también se guardan en el almacén del servicio con tu nombre e ID. No envíes códigos ni contraseñas como mensajes.',True)
         elif text=='/estado':
             await self.tell(uid,'✅ Cuenta conectada. Envía los enlaces.' if self.session(uid) else 'Conecta primero tu cuenta.',True)
         elif text=='/desconectar':
@@ -326,7 +331,21 @@ class Service:
                 formatting_entities=[m.entities or [] for m in items] if len(items)>1 else items[0].entities or [],parse_mode=None)
             delivered=result if isinstance(result,list) else [result]
             if len(delivered)!=len(items):raise ValueError('El álbum se entregó incompleto. Revisa lo recibido antes de repetir.')
+            if self.almacen:
+                try:
+                    await self.archive(uid,delivered)
+                except Exception as exc:
+                    LOG.error('DESCARGAS archive failed (%s)',type(exc).__name__)
+                    await self.tell(uid,'Tu descarga fue entregada, pero no se pudo completar la copia al almacén. No necesitas repetirla.')
             return len(items)
+
+    async def archive(self,uid,delivered):
+        caption,entities=archive_caption(self.names.get(uid,f'Usuario {uid}'),uid)
+        result=await self.bot.send_file(self.almacen,delivered if len(delivered)>1 else delivered[0],
+            caption=[caption]+['']*(len(delivered)-1) if len(delivered)>1 else caption,
+            formatting_entities=[entities]+[[] for _ in delivered[1:]] if len(delivered)>1 else entities,parse_mode=None)
+        archived=result if isinstance(result,list) else [result]
+        if len(archived)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
 
     async def close(self):
         for task in self.tasks:task.cancel()
@@ -335,6 +354,17 @@ class Service:
         if self.bot:await self.bot.disconnect()
         if self.http:await self.http.close()
         self.db.close()
+
+
+def archive_caption(name,uid):
+    name=' '.join(name.split())[:128] or f'Usuario {uid}'
+    prefix='Usuario: '
+    middle='\nTelegram ID: '
+    text=prefix+name+middle+str(uid)
+    units=lambda value:len(value.encode('utf-16-le'))//2
+    url=f'tg://user?id={uid}'
+    return text,[types.MessageEntityTextUrl(offset=units(prefix),length=units(name),url=url),
+                 types.MessageEntityTextUrl(offset=units(prefix+name+middle),length=len(str(uid)),url=url)]
 
 
 async def prepare_media_for_bot(bot,source,path,original):
