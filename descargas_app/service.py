@@ -348,16 +348,25 @@ class Service:
             finally:
                 self.active.discard(uid);self.queue.task_done()
 
-    async def deliver(self,uid,client,link,seen):
+    async def source_items(self,client,link):
         peer,mid=parse_link(link);entity=await self.resolve(client,peer)
         message=await client.get_messages(entity,ids=mid)
-        paid = purchased_items(message)
+        paid=purchased_items(message)
         if not message or (paid is None and not (message.photo or message.document)):
-            raise ValueError('El mensaje no contiene una foto, video o archivo descargable.')
+            raise ValueError('El contenido no contiene una foto, video o archivo descargable.')
         key=(utils.get_peer_id(entity),getattr(message,'grouped_id',None) or mid)
+        items=paid if paid is not None else await album(client,entity,message)
+        if not items or any(not (m.photo or m.document) for m in items):
+            raise ValueError('El álbum no contiene multimedia descargable completa.')
+        return key,items
+
+    async def deliver(self,uid,client,link,seen):
+        key,items=await self.source_items(client,link)
+        return await self.deliver_items(uid,client,key,items,seen)
+
+    async def deliver_items(self,uid,client,key,items,seen):
         if key in seen:return 0
         seen.add(key)
-        items=paid if paid is not None else await album(client,entity,message)
         size=sum((m.file.size or 0) for m in items)
         if size>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):raise ValueError('El archivo supera 100 MB o el álbum supera 500 MB.')
         with tempfile.TemporaryDirectory(prefix='descargas-') as directory:

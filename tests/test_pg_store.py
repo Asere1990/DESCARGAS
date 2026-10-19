@@ -17,9 +17,28 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate')
+        await self.repo.pool.execute('TRUNCATE descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache')
     async def asyncTearDown(self):await self.repo.close()
     async def account(self,uid):await self.repo.save_account(uid,'authorized-session',{'phone':'+14155552671','phone_country':'US'})
+    async def test_cache_cross_process_lock_and_encrypted_reference(self):
+        other=Repository(URL,self.repo.cipher,pool_size=4);await other.start()
+        published=[]
+        async def request(repo):
+            async with repo.media_lock('shared-album'):
+                row=await repo.media_cache('shared-album')
+                if row:return repo.decode(row['payload'])
+                await repo.media_publishing('shared-album')
+                published.append(1)
+                await asyncio.sleep(0.05)
+                await repo.media_ready('shared-album',{'ids':[101,102]})
+                return {'ids':[101,102]}
+        try:
+            results=await asyncio.gather(request(self.repo),request(other),request(self.repo))
+            self.assertEqual(len(published),1)
+            self.assertEqual(results,[{'ids':[101,102]}]*3)
+            row=await self.repo.media_cache('shared-album')
+            self.assertNotIn(b'101',bytes(row['payload']))
+        finally:await other.close()
     async def enqueue(self,uid,update=None):
         return await self.repo.enqueue(100,uid if update is None else update,uid,['https://t.me/c/123/1'],'Tester')
     async def test_01_encryption_and_preserved_profile(self):

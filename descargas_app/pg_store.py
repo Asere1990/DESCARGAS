@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS descarga_archives(id TEXT PRIMARY KEY,bot_id BIGINT N
 CREATE INDEX IF NOT EXISTS descarga_archive_queue ON descarga_archives(created) WHERE state='queued';
 CREATE TABLE IF NOT EXISTS descarga_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS descarga_rate(key TEXT PRIMARY KEY,next_at DOUBLE PRECISION NOT NULL);
+CREATE TABLE IF NOT EXISTS descarga_media_cache(
+ key TEXT PRIMARY KEY, state TEXT NOT NULL, payload BYTEA, created DOUBLE PRECISION NOT NULL);
 '''
 
 class Repository:
@@ -48,6 +50,20 @@ class Repository:
             ON CONFLICT(uid) DO UPDATE SET session=excluded.session,profile=excluded.profile''',
             uid,self.cipher.encrypt(session.encode()),self.encode(profile))
     async def setting(self,key):return await self.pool.fetchval('SELECT value FROM descarga_settings WHERE key=$1',key)
+    @asynccontextmanager
+    async def media_lock(self,key):
+        slot=int.from_bytes(hashlib.sha256(key.encode()).digest()[:4],'big',signed=True)
+        async with self.pool.acquire() as conn:
+            while not await conn.fetchval('SELECT pg_try_advisory_lock(748,$1)',slot):
+                await asyncio.sleep(0.5)
+            try:yield
+            finally:await conn.execute('SELECT pg_advisory_unlock(748,$1)',slot)
+    async def media_cache(self,key):
+        return await self.pool.fetchrow('SELECT state,payload FROM descarga_media_cache WHERE key=$1',key)
+    async def media_publishing(self,key):
+        await self.pool.execute("INSERT INTO descarga_media_cache VALUES($1,'publishing',NULL,$2)",key,time.time())
+    async def media_ready(self,key,payload):
+        await self.pool.execute("UPDATE descarga_media_cache SET state='ready',payload=$2 WHERE key=$1",key,self.encode(payload))
     async def set_setting(self,key,value):
         await self.pool.execute('INSERT INTO descarga_settings VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,str(value))
     @asynccontextmanager

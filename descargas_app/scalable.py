@@ -11,6 +11,7 @@ import aiohttp
 from telethon import errors
 from .service import Service,parse_link,error_message,archive_caption
 from .pg_store import Repository
+from .media_cache import CURRENT_MEDIA,deliver_cached,archive_once
 
 LOG=logging.getLogger(__name__)
 class TelegramDeliveryError(RuntimeError):
@@ -234,8 +235,16 @@ class ScaleService(Service):
         await self.repo.state(job,'sending')
         await self.repo.pace('bot-send',0.06*count)
 
+    async def deliver(self,uid,client,link,seen):
+        if not self.almacen:return await super().deliver(uid,client,link,seen)
+        return await deliver_cached(self,uid,client,link,seen)
+
     async def archive(self,uid,delivered):
         job=CURRENT_JOB.get()
+        identity=CURRENT_MEDIA.get()
+        if identity:
+            payload=self.repo.decode(job['payload'])
+            return await archive_once(self,identity,uid,payload['name'],delivered)
         name=self.repo.decode(job['payload'])['name'] if job else self.names.get(uid,'Usuario')
         await self.repo.enqueue_archive(self.bot_id,uid,name,[item.id for item in delivered])
 
