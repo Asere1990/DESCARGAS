@@ -90,7 +90,8 @@ class Service:
     def client(self,session=''):
         return TelegramClient(StringSession(session),int(self.api_id),self.api_hash,
             device_model='DESCARGAS · sesión autorizada',app_version='1.0',receive_updates=False,
-            flood_sleep_threshold=0,request_retries=0,connection_retries=1)
+            flood_sleep_threshold=0,request_retries=3,connection_retries=1,
+            raise_last_call_error=True)
 
     async def api(self,method,payload):
         async with self.http.post(f'https://api.telegram.org/bot{self.token}/{method}',json=payload) as response:
@@ -113,14 +114,18 @@ class Service:
         self.tasks=[asyncio.create_task(self.bootstrap())]
 
     async def bootstrap(self):
+        stage='bot_identity'
         try:
             me=await self.api('getMe',{})
             if me.get('username','').lower()!='descargas_robot':
                 self.state='wrong_bot';return
             # Bot session is in memory only; user sessions are encrypted on disk.
+            stage='mtproto_connect'
             self.bot=self.client()
             await self.bot.connect()
+            stage='mtproto_auth'
             await self.bot.sign_in(bot_token=self.token)
+            stage='bot_setup'
             await self.api('deleteWebhook',{'drop_pending_updates':False})
             await self.api('setMyCommands',{'commands':[{'command':'start','description':'Conectar cuenta y descargar'},{'command':'estado','description':'Ver conexión de mi cuenta'},{'command':'desconectar','description':'Cerrar y borrar mi sesión'}]})
             await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'Mi cuenta','web_app':{'url':self.url}}})
@@ -128,7 +133,7 @@ class Service:
             self.tasks.extend([asyncio.create_task(self.poll()),asyncio.create_task(self.work()),asyncio.create_task(self.expire())])
         except Exception as exc:
             self.state='startup_error'
-            LOG.error('DESCARGAS startup failed (%s)',type(exc).__name__)
+            LOG.error('DESCARGAS startup failed at %s (%s)',stage,type(exc).__name__)
 
     async def poll(self):
         row=self.db.execute("SELECT value FROM settings WHERE key='offset'").fetchone()
