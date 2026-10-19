@@ -1,0 +1,109 @@
+"""Shared encrypted registry and durable PostgreSQL queue for scalable deployment."""
+import asyncio
+from contextlib import asynccontextmanager
+import json
+import time
+import uuid
+import asyncpg
+
+SCHEMA='''
+CREATE TABLE IF NOT EXISTS descarga_accounts(
+ uid BIGINT PRIMARY KEY, session BYTEA, profile BYTEA, generation BIGINT NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS descarga_jobs(
+ id TEXT PRIMARY KEY, bot_id BIGINT NOT NULL, update_id BIGINT NOT NULL, uid BIGINT NOT NULL,
+ generation BIGINT NOT NULL, payload BYTEA NOT NULL, state TEXT NOT NULL DEFAULT 'queued',
+ position INTEGER NOT NULL DEFAULT 0, count INTEGER NOT NULL DEFAULT 0,
+ owner TEXT, heartbeat DOUBLE PRECISION, created DOUBLE PRECISION NOT NULL,
+ UNIQUE(bot_id, update_id));
+CREATE UNIQUE INDEX IF NOT EXISTS descarga_one_user_job ON descarga_jobs(uid)
+ WHERE state IN ('queued','preparing','sending');
+CREATE INDEX IF NOT EXISTS descarga_queue ON descarga_jobs(created) WHERE state='queued';
+CREATE INDEX IF NOT EXISTS descarga_leases ON descarga_jobs(heartbeat) WHERE state IN ('preparing','sending');
+CREATE TABLE IF NOT EXISTS descarga_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS descarga_rate(key TEXT PRIMARY KEY,next_at DOUBLE PRECISION NOT NULL);
+'''
+
+class Repository:
+    def __init__(self,url,cipher,pool_size=10):
+        self.url=url;self.cipher=cipher;self.pool_size=pool_size;self.pool=None
+        self.owner=uuid.uuid4().hex
+    async def start(self):
+        self.pool=await asyncpg.create_pool(self.url,min_size=1,max_size=self.pool_size,
+            command_timeout=20,max_inactive_connection_lifetime=60)
+        async with self.pool.acquire() as conn,conn.transaction():
+            await conn.execute('SELECT pg_advisory_xact_lock(741,1)')
+            await conn.execute(SCHEMA)
+    async def close(self):
+        if self.pool:await self.pool.close()
+    def encode(self,data):return self.cipher.encrypt(json.dumps(data,ensure_ascii=False).encode())
+    def decode(self,data):return json.loads(self.cipher.decrypt(bytes(data)))
+    async def account(self,uid):
+        row=await self.pool.fetchrow('SELECT * FROM descarga_accounts WHERE uid=$1',uid)
+        return row
+    async def save_account(self,uid,session,profile):
+        await self.pool.execute('''INSERT INTO descarga_accounts(uid,session,profile) VALUES($1,$2,$3)
+            ON CONFLICT(uid) DO UPDATE SET session=excluded.session,profile=excluded.profile''',
+            uid,self.cipher.encrypt(session.encode()),self.encode(profile))
+    async def setting(self,key):return await self.pool.fetchval('SELECT value FROM descarga_settings WHERE key=$1',key)
+    async def set_setting(self,key,value):
+        await self.pool.execute('INSERT INTO descarga_settings VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value',key,str(value))
+    @asynccontextmanager
+    async def account_lock(self,uid):
+        # A dedicated session lock serializes downloads, login and logout across processes.
+        async with self.pool.acquire() as conn:
+            await conn.execute('SELECT pg_advisory_lock($1)',uid)
+            try:yield
+            finally:await conn.execute('SELECT pg_advisory_unlock($1)',uid)
+    @asynccontextmanager
+    async def leader(self,bot_id):
+        async with self.pool.acquire() as conn:
+            # Negative namespace avoids positive user IDs used by account_lock.
+            await conn.execute('SELECT pg_advisory_lock($1)',-bot_id)
+            try:yield
+            finally:await conn.execute('SELECT pg_advisory_unlock($1)',-bot_id)
+    async def enqueue(self,bot_id,update_id,uid,links,name,limit=10000):
+        async with self.pool.acquire() as conn,conn.transaction():
+            await conn.execute('SELECT pg_advisory_xact_lock(0)')
+            if await conn.fetchval('SELECT 1 FROM descarga_jobs WHERE bot_id=$1 AND update_id=$2',bot_id,update_id):return 'duplicate'
+            account=await conn.fetchrow('SELECT generation,session FROM descarga_accounts WHERE uid=$1 FOR UPDATE',uid)
+            if not account or not account['session']:return 'disconnected'
+            if await conn.fetchval("SELECT 1 FROM descarga_jobs WHERE uid=$1 AND state IN ('queued','preparing','sending')",uid):return 'busy'
+            if await conn.fetchval("SELECT count(*) FROM descarga_jobs WHERE state IN ('queued','preparing','sending')")>=limit:return 'full'
+            await conn.execute('''INSERT INTO descarga_jobs(id,bot_id,update_id,uid,generation,payload,created)
+                VALUES($1,$2,$3,$4,$5,$6,$7)''',uuid.uuid4().hex,bot_id,update_id,uid,account['generation'],
+                self.encode({'links':links,'name':name,'seen':[]}),time.time())
+            return 'queued'
+    async def claim(self,bot_id):
+        return await self.pool.fetchrow('''WITH candidate AS (
+            SELECT id FROM descarga_jobs WHERE state='queued' AND bot_id=$1
+            ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1)
+            UPDATE descarga_jobs j SET state='preparing',owner=$2,heartbeat=$3
+            FROM candidate c WHERE j.id=c.id RETURNING j.*''',bot_id,self.owner,time.time())
+    async def heartbeat(self,job):
+        return await self.pool.execute("UPDATE descarga_jobs SET heartbeat=$3 WHERE id=$1 AND owner=$2 AND state IN ('preparing','sending')",job,self.owner,time.time())
+    async def state(self,job,state):
+        result=await self.pool.execute('UPDATE descarga_jobs SET state=$3,heartbeat=$4 WHERE id=$1 AND owner=$2',job,self.owner,state,time.time())
+        if result!='UPDATE 1':raise RuntimeError('Lost job ownership')
+    async def checkpoint(self,job,position,count,payload):
+        result=await self.pool.execute("UPDATE descarga_jobs SET position=$3,count=$4,payload=$5,state='preparing',heartbeat=$6 WHERE id=$1 AND owner=$2",job,self.owner,position,count,self.encode(payload),time.time())
+        if result!='UPDATE 1':raise RuntimeError('Lost job ownership')
+    async def recover(self):
+        # No automatic replay after sending starts: Telegram may already have accepted it.
+        async with self.pool.acquire() as conn,conn.transaction():
+            cutoff=time.time()-180
+            await conn.execute("UPDATE descarga_jobs SET state='queued',owner=NULL WHERE state='preparing' AND heartbeat<$1",cutoff)
+            await conn.execute("UPDATE descarga_jobs SET state='review',owner=NULL WHERE state='sending' AND heartbeat<$1",cutoff)
+            await conn.execute("DELETE FROM descarga_jobs WHERE state IN ('done','failed','cancelled','review') AND created<$1",time.time()-7*86400)
+    async def cancel_user(self,uid):
+        async with self.pool.acquire() as conn,conn.transaction():
+            await conn.execute('UPDATE descarga_accounts SET generation=generation+1 WHERE uid=$1',uid)
+            await conn.execute("UPDATE descarga_jobs SET state='cancelled' WHERE uid=$1 AND state='queued'",uid)
+    async def erase_session(self,uid):
+        await self.pool.execute('UPDATE descarga_accounts SET session=NULL WHERE uid=$1',uid)
+    async def pace(self,key,interval):
+        async with self.pool.acquire() as conn,conn.transaction():
+            now=time.time()
+            slot=await conn.fetchval('''INSERT INTO descarga_rate VALUES($1,$2)
+                ON CONFLICT(key) DO UPDATE SET next_at=greatest(descarga_rate.next_at,$3)+$4
+                RETURNING next_at-$4''',key,now+interval,now,interval)
+        await asyncio.sleep(max(0,slot-time.time()))

@@ -10,8 +10,8 @@ from .service import Service,error_message
 WEB=Path(__file__).parent/'web'
 
 
-def mount(app,prefix='/descargas',shared_lock=None):
-    service=Service(shared_lock)
+def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
+    service=service_factory(shared_lock)
     async def health(request):
         return web.json_response({'ok':True,'ready':service.ready,'state':service.state})
     async def index(request):
@@ -34,7 +34,7 @@ def mount(app,prefix='/descargas',shared_lock=None):
         try:
             data=await request.json()
             if not isinstance(data,dict):raise ValueError()
-            if operation=='status':return web.json_response({'connected':bool(service.session(uid))},headers={'Cache-Control':'no-store'})
+            if operation=='status':return web.json_response({'connected':bool(await service.get_session(uid))},headers={'Cache-Control':'no-store'})
             if operation=='contact':
                 stored=service.contacts.get(uid)
                 phone=stored[0] if stored and time.monotonic()-stored[1]<600 else ''
