@@ -19,8 +19,8 @@ from .paid_media import purchased_items
 from .transfer import prepare_album
 
 LOG=logging.getLogger(__name__)
-MAX_FILE=100*1024*1024
-MAX_ALBUM=500*1024*1024
+MAX_FILE=500*1024*1024
+MAX_ALBUM=1024*1024*1024
 
 
 def parse_link(link):
@@ -336,7 +336,7 @@ class Service:
                         seen=set();count=0
                         for link in links:
                             if epoch!=self.epochs[uid]:break
-                            async with asyncio.timeout(1800):
+                            async with asyncio.timeout(3600):
                                 count+=await self.deliver(uid,client,link,seen)
                             await asyncio.sleep(2)
                         await self.tell(uid,f'✅ Terminado. {count} elemento(s) entregado(s).')
@@ -365,16 +365,28 @@ class Service:
         return await self.deliver_items(uid,client,key,items,seen)
 
     async def deliver_items(self,uid,client,key,items,seen):
+        from .progress import Progress,ACTIVE
+        if key in seen:return 0
+        progress=Progress(self,uid,[m.file.size or 0 for m in items]).start()
+        marker=ACTIVE.set(progress)
+        try:return await self._deliver_items(uid,client,key,items,seen)
+        finally:
+            ACTIVE.reset(marker)
+            await progress.close()
+
+    async def _deliver_items(self,uid,client,key,items,seen):
         if key in seen:return 0
         seen.add(key)
         size=sum((m.file.size or 0) for m in items)
-        if size>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):raise ValueError('El archivo supera 100 MB o el álbum supera 500 MB.')
+        if size>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):raise ValueError('El archivo supera 500 MB o el álbum supera 1 GB.')
         with tempfile.TemporaryDirectory(prefix='descargas-') as directory:
             started=time.monotonic()
             async def prepare(path,item):
                 return await prepare_media_for_bot(self.bot,client,path,item)
             media=await prepare_album(client,items,directory,prepare,MAX_FILE,MAX_ALBUM)
             LOG.warning('Transfer prepared items=%s bytes=%s seconds=%.2f',len(items),size,time.monotonic()-started)
+            from .progress import ACTIVE
+            if ACTIVE.get():ACTIVE.get().phase='sending'
             await self.before_send(uid,len(media))
             result=await self.bot.send_file(uid,media if len(media)>1 else media[0],
                 caption=[m.message or '' for m in items] if len(items)>1 else items[0].message or '',

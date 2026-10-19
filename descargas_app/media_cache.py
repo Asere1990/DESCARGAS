@@ -47,7 +47,7 @@ async def deliver_cached(service,uid,client,link,seen):
     key,items=await service.source_items(client,link)
     if key in seen:return 0
     if sum(m.file.size or 0 for m in items)>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):
-        raise ValueError('El archivo supera 100 MB o el álbum supera 500 MB.')
+        raise ValueError('El archivo supera 500 MB o el álbum supera 1 GB.')
     identity=cache_key(service.bot_id,service.almacen,key,items)
     async def send_saved(row):
         await service.repo.remember_media_route(service.bot_id,link,identity)
@@ -95,7 +95,9 @@ async def archive_once(service,identity,uid,name,delivered):
         'message_ids':[m.id for m in delivered],'remove_caption':True})
     if len(copied)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
     ids=[m['message_id'] for m in copied]
-    await service.repo.media_ready(identity,{'ids':ids})
+    from .backup import backup_payload
+    backup=backup_payload(service,identity,uid,delivered,ids)
+    await service.repo.media_ready(identity,{'ids':ids},backup=backup)
     caption,entities=archive_caption(name,uid)
     await service.api('editMessageCaption',{'chat_id':service.almacen,'message_id':ids[0],
         'caption':caption,'caption_entities':[{'type':'text_mention','offset':e.offset,'length':e.length,

@@ -44,7 +44,7 @@ class ScaleService(Service):
         return session
 
     async def api(self,method,payload):
-        if method in ('sendMessage','copyMessages','editMessageCaption'):
+        if method in ('sendMessage','copyMessages','editMessageCaption','editMessageText'):
             count=len(payload.get('message_ids',[])) if method=='copyMessages' else 1
             await self.repo.pace('bot-send',0.06*max(1,count))
         # Retry only explicit Telegram 429 rejections, never ambiguous network sends.
@@ -311,7 +311,7 @@ class ScaleService(Service):
                     seen={tuple(key) for key in payload.get('seen',[])};count=job['count']
                     requeued=False
                     for position in range(job['position'],len(payload['links'])):
-                        async with asyncio.timeout(1800):
+                        async with asyncio.timeout(3600):
                             count+=await self.deliver(uid,client,payload['links'][position],seen)
                         payload['seen']=[list(key) for key in seen]
                         await self.repo.checkpoint(job,position+1,count,payload)
@@ -380,5 +380,6 @@ class ScaleService(Service):
 
     async def close(self):
         self.stopping=True
+        if getattr(self,'backup_bot',None):await self.backup_bot.disconnect()
         await super().close()
         if self.repo.pool:await asyncio.wait_for(self.repo.close(),20)

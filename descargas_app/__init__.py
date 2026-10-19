@@ -58,6 +58,9 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
             return web.json_response(result,headers={'Cache-Control':'no-store'})
         except web.HTTPException:raise
         except Exception as exc:return web.json_response({'error':error_message(exc)},status=400,headers={'Cache-Control':'no-store'})
+    if hasattr(service,'repo'):
+        from .backup import mount_backup
+        mount_backup(app,service)
     app.router.add_get(prefix+'/',index)
     app.router.add_get(prefix+'/healthz',health)
     app.router.add_get(prefix+'/countries',countries)

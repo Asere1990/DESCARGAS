@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS descarga_rate(key TEXT PRIMARY KEY,next_at DOUBLE PRE
 CREATE TABLE IF NOT EXISTS descarga_media_cache(
  key TEXT PRIMARY KEY, state TEXT NOT NULL, payload BYTEA, created DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS descarga_media_routes(key TEXT PRIMARY KEY,media_key TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS descarga_backups(
+ key TEXT PRIMARY KEY,bot_id BIGINT NOT NULL,payload BYTEA NOT NULL,
+ state TEXT NOT NULL DEFAULT 'queued',lease TEXT,available DOUBLE PRECISION NOT NULL DEFAULT 0,
+ heartbeat DOUBLE PRECISION,attempts INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS descarga_backup_pending ON descarga_backups(bot_id,available) WHERE state<>'done';
 '''
 
 class Repository:
@@ -65,8 +70,29 @@ class Repository:
         return await self.pool.fetchrow('SELECT state,payload FROM descarga_media_cache WHERE key=$1',key)
     async def media_publishing(self,key):
         await self.pool.execute("INSERT INTO descarga_media_cache VALUES($1,'publishing',NULL,$2)",key,time.time())
-    async def media_ready(self,key,payload):
-        await self.pool.execute("UPDATE descarga_media_cache SET state='ready',payload=$2 WHERE key=$1",key,self.encode(payload))
+    async def media_ready(self,key,payload,backup=None):
+        async with self.pool.acquire() as conn,conn.transaction():
+            await conn.execute("UPDATE descarga_media_cache SET state='ready',payload=$2 WHERE key=$1",key,self.encode(payload))
+            if backup:
+                await conn.execute('INSERT INTO descarga_backups(key,bot_id,payload) VALUES($1,$2,$3) ON CONFLICT(key) DO NOTHING',key,backup['bot_id'],self.encode(backup))
+    async def backup_enqueue(self,key,bot_id,payload):
+        await self.pool.execute('INSERT INTO descarga_backups(key,bot_id,payload) VALUES($1,$2,$3) ON CONFLICT(key) DO NOTHING',key,bot_id,self.encode(payload))
+    async def backup_leased(self,key,lease,bot_id):
+        return await self.pool.fetchrow("SELECT payload FROM descarga_backups WHERE key=$1 AND lease=$2 AND bot_id=$3 AND state='working' AND heartbeat>$4-180",key,lease,bot_id,time.time())
+    async def backup_claim(self,bot_id):
+        now=time.time();lease=uuid.uuid4().hex
+        return await self.pool.fetchrow("""WITH candidate AS (
+            SELECT key FROM descarga_backups WHERE bot_id=$1 AND available<=$2
+            AND (state='queued' OR (state='working' AND heartbeat<$2-180))
+            ORDER BY available,key FOR UPDATE SKIP LOCKED LIMIT 1)
+            UPDATE descarga_backups b SET state='working',lease=$3,heartbeat=$2,attempts=attempts+1
+            FROM candidate c WHERE b.key=c.key RETURNING b.*""",bot_id,now,lease)
+    async def backup_update(self,key,lease,operation):
+        if operation=='heartbeat':
+            result=await self.pool.execute("UPDATE descarga_backups SET heartbeat=$3 WHERE key=$1 AND lease=$2 AND state='working'",key,lease,time.time())
+        else:
+            result=await self.pool.execute("UPDATE descarga_backups SET state=$3,available=$4,lease=NULL WHERE key=$1 AND lease=$2 AND state='working'",key,lease,'done' if operation=='done' else 'queued',time.time()+300)
+        return result=='UPDATE 1'
     def route_key(self,bot_id,link):
         return hashlib.sha256(f'{bot_id}:{link}'.encode()).hexdigest()
     async def remember_media_route(self,bot_id,link,media_key):

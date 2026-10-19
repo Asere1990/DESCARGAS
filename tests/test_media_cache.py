@@ -22,7 +22,7 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
         async def publishing(key):
             if key in rows:raise AssertionError('Duplicate publication')
             rows[key]={'state':'publishing','payload':None}
-        async def ready(key,payload):rows[key]={'state':'ready','payload':payload}
+        async def ready(key,payload,backup=None):rows[key]={'state':'ready','payload':payload}
         repo=SimpleNamespace(media_lock=locked,media_cache=AsyncMock(side_effect=lookup),
             media_publishing=AsyncMock(side_effect=publishing),media_ready=AsyncMock(side_effect=ready),
             encode=lambda x:x,decode=lambda x:x,pace=AsyncMock(),remember_media_route=AsyncMock())
@@ -31,7 +31,7 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
             before_send=AsyncMock(),api=AsyncMock(return_value=[{'message_id':99}]))
         async def first(uid,client,key,items,seen):
             await asyncio.sleep(0.02)
-            await archive_once(service,CURRENT_MEDIA.get(),uid,'First user',[SimpleNamespace(id=10)])
+            await archive_once(service,CURRENT_MEDIA.get(),uid,'First user',[SimpleNamespace(id=10,photo=SimpleNamespace(id=12,access_hash=23,dc_id=2,file_reference=b'x',sizes=[SimpleNamespace(type='y',size=10)]),file=SimpleNamespace(size=10,ext='.jpg'))])
             seen.add(key)
             return 1
         service.deliver_items=AsyncMock(side_effect=first)

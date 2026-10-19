@@ -24,7 +24,12 @@ async def prepare_media(client, path, original):
     expected=getattr(getattr(original,'file',None),'size',None)
     if expected and path.stat().st_size != expected:
         raise ValueError('El archivo descargado no coincide con el tamaño original; no se envió.')
-    uploaded=await client.upload_file(str(path))
+    from .progress import ACTIVE,ITEM_INDEX
+    observer=ACTIVE.get();index=ITEM_INDEX.get()
+    async def progress(current,total):
+        if observer:observer.update(index,current,total,upload=True)
+    if observer:uploaded=await client.upload_file(str(path),progress_callback=progress)
+    else:uploaded=await client.upload_file(str(path))
     document=getattr(original,'document',None)
     if not document:
         if not original.photo:

@@ -10,7 +10,7 @@ Bot de descargas bajo petición con Mini App para conectar voluntariamente la cu
 6. Enviar hasta 5 enlaces al DM. El servidor descarga usando exclusivamente la sesión de ese usuario y el bot entrega fotos, videos y álbumes nativos al mismo usuario. Se preservan metadatos y miniaturas.
 7. `/desconectar` o la Mini App cierran la sesión en Telegram y borran el registro cifrado. El botón del DM pide una confirmación antes de desconectar. Telegram Ajustes → Dispositivos también permite revocarla.
 
-No requiere api_id/hash de cada usuario; usa las credenciales de la aplicación. No desbloquea contenido con Stars. No garantiza acceso a todos los mensajes, ni convierte formatos incompatibles. Límite: 100 MB por elemento y 500 MB por álbum. La exploración del álbum busca el mismo grouped_id entre los 100 ID cercanos por lado.
+No requiere api_id/hash de cada usuario; usa las credenciales de la aplicación. No desbloquea contenido con Stars sin comprar; requiere que la cuenta solicitante tenga acceso completo. No garantiza acceso a todos los mensajes, ni convierte formatos incompatibles. Límite: 500 MiB por elemento y 1 GiB por álbum. La exploración del álbum busca el mismo grouped_id entre los 100 ID cercanos por lado.
 
 ## Servicio independiente en Render
 Inicio: `python bot.py`. URL pública en `DESCARGAS_PUBLIC_URL`; disco persistente montado en `/var/data`.
@@ -57,3 +57,13 @@ Si falla el almacén, se registra el tipo de error y se informa de que el DM ya 
 
 ## Registro de usuarios
 Tabla SQLite `profiles` en el mismo disco persistente: uid (Telegram ID verificado), phone (E.164 cifrado con Fernet), phone_country (ISO del número; ZZ si desconocido), calling_code, created_at/updated_at (UTC Unix), consent_version. No es geolocalización ni residencia. Solo se crea tras conexión exitosa, consentimiento e identidad coincidente. Sin backfill silencioso de sesiones anteriores. /desconectar revoca y borra únicamente la sesión; conserva el perfil (ID, teléfono cifrado y país) en la base. No elimina copias de medios ya publicadas en ALMACEN. No hay endpoint público ni exportación de teléfonos. Sin servicio de base de datos adicional.
+
+
+### Progreso y respaldo independiente
+Las transferencias nuevas muestran un solo aviso editable con puntos, porcentaje de bytes descargados/subidos (no una estimación de tiempo), y una nota para que el usuario pueda salir del chat. Se actualiza cada 8 segundos; los callbacks de transferencia solo actualizan contadores en memoria. Las entregas desde caché no esperan este aviso.
+
+Al publicar por primera vez un contenido en ALMACEN, se guarda una tarea cifrada y única en `descarga_backups` en la misma transacción que deja la caché disponible. LADRON consume esa tarea por HTTPS autenticado, registra sus `file_id` y bot propietario en `public.descargas_backups` (Supabase de LADRON), y respalda en `/BOT DESCARGAS/<media_key>/01.ext`. La carpeta es determinista y se comprueba el hash de Dropbox. No se introducen identificadores de otro bot en las colas originales de LADRON.
+
+Variables internas: `DESCARGAS_BACKUP_KEY` compartida exclusivamente entre el web DESCARGAS y LADRON, y `DESCARGAS_BACKUP_URL` en LADRON (URL pública del web DESCARGAS). Nunca usar `DESCARGAS_SESSION_KEY` como clave del puente. La conexión de respaldo del bot se guarda cifrada y reutiliza; no se solicitan credenciales adicionales a los usuarios. Los archivos pasan por streaming y disco temporal, sin cargar videos completos en memoria. Un consumidor independiente hace el respaldo después de la entrega. No es una exportación retroactiva de cachés antiguas.
+
+La tabla de Supabase debe tener RLS activado y acceso solo `service_role`. La migración está en `migrations/descargas_backups.sql`. El despliegue no crea servicios pagados adicionales. El tráfico y espacio utilizados sí crecen con las descargas y los respaldos.
