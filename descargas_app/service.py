@@ -389,8 +389,8 @@ class Service:
         if len(archived)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
         await self.api('editMessageCaption',{'chat_id':self.almacen,
             'message_id':archived[0]['message_id'],'caption':caption,
-            'caption_entities':[{'type':'text_link','offset':entity.offset,
-                'length':entity.length,'url':entity.url} for entity in entities]})
+            'caption_entities':[{'type':'text_mention','offset':entity.offset,
+                'length':entity.length,'user':{'id':uid,'is_bot':False,'first_name':self.names.get(uid,f'Usuario {uid}')}} for entity in entities]})
 
     async def close(self):
         for task in self.tasks:task.cancel()

@@ -57,7 +57,7 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_two_workers_process_different_users_concurrently(self):
         service=self.service;started=set();both=asyncio.Event();release=asyncio.Event()
         payload=service.repo.encode({'name':'Test','links':['https://t.me/c/123/1'],'seen':[]})
-        jobs=[{'id':str(uid),'uid':uid,'generation':0,'payload':payload,'position':0,'count':0} for uid in (10,20)]
+        jobs=[{'id':str(uid),'uid':uid,'generation':0,'payload':payload,'position':0,'count':0,'created':0} for uid in (10,20)]
         async def claim(bot_id):return jobs.pop(0) if jobs else None
         @asynccontextmanager
         async def lock(uid):yield

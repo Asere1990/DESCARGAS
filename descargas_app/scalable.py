@@ -252,7 +252,7 @@ class ScaleService(Service):
                 if len(copied)!=len(data['ids']):raise RuntimeError('Incomplete archive')
                 caption,entities=archive_caption(data['name'],data['uid'])
                 await self.api('editMessageCaption',{'chat_id':self.almacen,'message_id':copied[0]['message_id'],
-                    'caption':caption,'caption_entities':[{'type':'text_link','offset':e.offset,'length':e.length,'url':e.url} for e in entities]})
+                    'caption':caption,'caption_entities':[{'type':'text_mention','offset':e.offset,'length':e.length,'user':{'id':data['uid'],'is_bot':False,'first_name':data['name']}} for e in entities]})
                 await self.repo.archive_state(job,'done')
             except asyncio.CancelledError:raise
             except Exception as exc:

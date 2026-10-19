@@ -30,6 +30,9 @@ class Archive(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(caption.args[1]['message_id'],501)
                 self.assertEqual(caption.args[1]['caption'],'Usuario: Test User\nTelegram ID: 10')
                 self.assertEqual(len(caption.args[1]['caption_entities']),2)
+                for entity in caption.args[1]['caption_entities']:
+                    self.assertEqual(entity['type'],'text_mention')
+                    self.assertEqual(entity['user']['id'],10)
                 self.assertIsNone(service.bot)
             finally:await service.close()
     async def test_partial_album_does_not_claim_success(self):
