@@ -31,6 +31,31 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(response.status,401)
         repo.backup_claim.assert_not_awaited()
 
+    async def test_bridge_streams_only_leased_stored_media(self):
+        from aiohttp import web
+        from aiohttp.test_utils import TestClient,TestServer
+        from unittest.mock import patch
+        class Iterator:
+            def __init__(self):self.parts=iter([b'abc',b'def']);self.closed=False
+            def __aiter__(self):return self
+            async def __anext__(self):
+                try:return next(self.parts)
+                except StopIteration:raise StopAsyncIteration
+            async def close(self):self.closed=True
+        iterator=Iterator()
+        payload={'items':[{'kind':'document','size':6,'location':{'id':1,'access_hash':2,'reference':'','thumb':''}}]}
+        repo=NS(backup_leased=AsyncMock(return_value={'payload':payload}),decode=lambda x:x)
+        bot=NS(iter_download=lambda *args,**kwargs:iterator)
+        app=web.Application();mount_backup(app,NS(ready=True,repo=repo,bot_id=123,backup_bot=bot))
+        with patch.dict('os.environ',{'DESCARGAS_BACKUP_KEY':'secret'}):
+            async with TestClient(TestServer(app)) as client:
+                response=await client.post('/internal/backups/file',json={'key':'a'*64,'lease':'b'*32,'index':0},headers={'Authorization':'Bearer secret'})
+                self.assertEqual(response.status,200);self.assertEqual(await response.read(),b'abcdef')
+                self.assertTrue(iterator.closed)
+                repo.backup_leased.return_value=None
+                response=await client.post('/internal/backups/file',json={'key':'a'*64,'lease':'c'*32,'index':0},headers={'Authorization':'Bearer secret'})
+                self.assertEqual(response.status,409)
+
 class FileIdTests(unittest.TestCase):
     def decode(self,value):
         encoded=base64.urlsafe_b64decode(value+'='*(-len(value)%4));out=bytearray();i=0

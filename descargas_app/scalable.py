@@ -156,7 +156,7 @@ class ScaleService(Service):
                     messages={'busy':'Espera a que termine tu descarga anterior.',
                         'disconnected':'Conecta primero tu cuenta desde el botón.',
                         'full':'Demasiadas solicitudes en cola. Inténtalo después.',
-                        'queued':f'Recibido: {len(links)} enlace(s). Tu solicitud está en cola.'}
+                        'queued':f'Recibido: {len(links)} enlace(s). Tu solicitud está en cola. Puedes hacer otras cosas; te dejaremos el contenido descargado aquí.'}
                     try:await self.tell(uid,messages[result],result=='disconnected')
                     except Exception:pass # Durable acceptance must not depend on acknowledgement delivery.
                 except ValueError as exc:await self.tell(uid,error_message(exc),True)
