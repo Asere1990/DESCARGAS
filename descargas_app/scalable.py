@@ -275,6 +275,7 @@ class ScaleService(Service):
                 LOG.warning('Scale queue claim failed (%s)',type(exc).__name__)
                 await asyncio.sleep(5);continue
             if not job:await asyncio.sleep(0.5);continue
+            LOG.warning('Scale job claimed queue_seconds=%.2f',max(0,time.time()-job['created']))
             heartbeat=asyncio.create_task(self.lease(job));marker=CURRENT_JOB.set(job)
             client=None
             try:

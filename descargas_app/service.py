@@ -16,6 +16,7 @@ from telethon import TelegramClient, errors, types, utils
 from telethon.sessions import StringSession
 from .media_upload import prepare_media
 from .paid_media import purchased_items
+from .transfer import prepare_album
 
 LOG=logging.getLogger(__name__)
 MAX_FILE=100*1024*1024
@@ -360,22 +361,16 @@ class Service:
         size=sum((m.file.size or 0) for m in items)
         if size>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):raise ValueError('El archivo supera 100 MB o el álbum supera 500 MB.')
         with tempfile.TemporaryDirectory(prefix='descargas-') as directory:
-            files=[];total=0
-            for index,item in enumerate(items):
-                ext=item.file.ext or '.bin'
-                if not re.fullmatch(r'\.[A-Za-z0-9]{1,10}',ext):ext='.bin'
-                async def progress(current,expected):
-                    if current>MAX_FILE or total+current>MAX_ALBUM:raise ValueError('El archivo supera el límite de descarga.')
-                target=Path(directory)/f'{index:02d}_{item.id}{ext}'
-                result=await client.download_media(item,file=str(target),progress_callback=progress)
-                if not result or not target.exists() or not target.stat().st_size:raise ValueError('El archivo no se descargó completo.')
-                total+=target.stat().st_size
-                files.append(target)
-            media=[await prepare_media_for_bot(self.bot,client,path,item) for path,item in zip(files,items)]
+            started=time.monotonic()
+            async def prepare(path,item):
+                return await prepare_media_for_bot(self.bot,client,path,item)
+            media=await prepare_album(client,items,directory,prepare,MAX_FILE,MAX_ALBUM)
+            LOG.warning('Transfer prepared items=%s bytes=%s seconds=%.2f',len(items),size,time.monotonic()-started)
             await self.before_send(uid,len(media))
             result=await self.bot.send_file(uid,media if len(media)>1 else media[0],
                 caption=[m.message or '' for m in items] if len(items)>1 else items[0].message or '',
                 formatting_entities=[m.entities or [] for m in items] if len(items)>1 else items[0].entities or [],parse_mode=None)
+            LOG.warning('Transfer delivered items=%s total_seconds=%.2f',len(items),time.monotonic()-started)
             delivered=result if isinstance(result,list) else [result]
             if len(delivered)!=len(items):raise ValueError('El álbum se entregó incompleto. Revisa lo recibido antes de repetir.')
             if self.almacen:
