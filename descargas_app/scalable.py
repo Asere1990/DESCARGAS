@@ -131,7 +131,7 @@ class ScaleService(Service):
                 name=' '.join((str(person.get('first_name',''))+' '+str(person.get('last_name',''))).split())[:128] or 'Usuario'
                 links=list(dict.fromkeys(text.split()))
                 try:
-                    if len(links)>20:raise ValueError('Envía un máximo de 20 enlaces por mensaje.')
+                    if len(links)>5:raise ValueError('Envía un máximo de 5 enlaces por mensaje. Divide los enlaces en lotes de cinco.')
                     for link in links:parse_link(link)
                     result=await self.repo.enqueue(self.bot_id,update['update_id'],uid,links,name,
                         int(os.environ.get('QUEUE_CAPACITY','10000')))

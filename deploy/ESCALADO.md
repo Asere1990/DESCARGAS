@@ -7,7 +7,7 @@ Código preparado en `scale-ready`. No se ha cambiado el servicio activo ni cont
 - Un frontend `python scale_web.py`: Mini App existente y recepción de enlaces. Mantener una sola instancia: las autorizaciones pendientes viven en memoria hasta 10 minutos.
 - PostgreSQL compartido: sesiones/perfiles cifrados, cola durable, deduplicación y cursores por bot. Ninguna dependencia del disco local para conservar estos datos.
 - Dos instancias `python scale_worker.py`, 3 transferencias cada una: hasta 6 usuarios procesados en paralelo. Se puede aumentar el número de trabajadores después de medir memoria y tráfico.
-- Hasta 10.000 solicitudes pendientes/activas, máximo 20 enlaces por solicitud, una solicitud activa por usuario. El límite de cola es explícito; al llenarse se pide reintentar.
+- Hasta 10.000 solicitudes pendientes/activas, máximo 5 enlaces por solicitud, una solicitud activa por usuario. El límite de cola es explícito; al llenarse se pide reintentar.
 - El frontend admite 50 conexiones de cuenta pendientes. Las conexiones de prueba ya guardadas pueden importarse si su SQLite original sigue disponible; las perdidas en almacenamiento efímero requieren reconexión.
 - Las copias al ALMACEN tienen una cola independiente y ritmo compartido. El usuario recibe su DM sin esperar a que se vacíe el almacén. La copia al grupo puede llegar mucho después si hay demanda elevada.
 - No hay promesa de miles de transferencias físicas simultáneas. La velocidad depende de tamaño, red, Telegram, ALMACEN y recursos contratados. La prueba de carga mide aceptación de solicitudes en PostgreSQL, no archivos descargados de Telegram.

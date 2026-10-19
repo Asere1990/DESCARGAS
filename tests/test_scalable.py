@@ -22,6 +22,15 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.service.update({'update_id':555,'message':{'chat':{'type':'private'},'from':{'id':10,'first_name':'Test'},'text':'https://t.me/c/123/5'}})
         args=self.service.repo.enqueue.call_args.args
         self.assertEqual(args[:3],(123,555,10));self.assertEqual(args[3],['https://t.me/c/123/5'])
+    async def test_five_link_batch_limit(self):
+        self.service.repo.enqueue=AsyncMock(return_value='queued')
+        message={'chat':{'type':'private'},'from':{'id':10}}
+        await self.service.update({'update_id':555,'message':dict(message,text='\n'.join(f'https://t.me/c/123/{i}' for i in range(6)))})
+        self.service.repo.enqueue.assert_not_awaited()
+        self.assertIn('máximo de 5 enlaces',self.service.tell.call_args.args[1])
+        await self.service.update({'update_id':556,'message':dict(message,text='\n'.join(f'https://t.me/c/123/{i}' for i in range(5)))})
+        self.assertEqual(len(self.service.repo.enqueue.call_args.args[3]),5)
+
     async def test_duplicate_is_not_acknowledged_twice(self):
         self.service.repo.enqueue=AsyncMock(return_value='duplicate')
         await self.service.update({'update_id':555,'message':{'chat':{'type':'private'},'from':{'id':10},'text':'https://t.me/c/123/5'}})

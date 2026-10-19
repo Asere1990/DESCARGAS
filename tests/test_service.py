@@ -95,6 +95,16 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.s.queue.qsize(),1)
         uid,links,epoch=self.s.queue.get_nowait();self.s.queue.task_done()
         self.assertEqual(uid,10)
+    async def test_five_link_batch_limit(self):
+        self.save(10,'session');self.s.tell=AsyncMock()
+        message={'chat':{'type':'private'},'from':{'id':10}}
+        await self.s.update({'update_id':900,'message':dict(message,text='\n'.join(f'https://t.me/c/123/{i}' for i in range(6)))})
+        self.assertEqual(self.s.queue.qsize(),0)
+        self.assertIn('máximo de 5 enlaces',self.s.tell.call_args.args[1])
+        await self.s.update({'update_id':901,'message':dict(message,text='\n'.join(f'https://t.me/c/123/{i}' for i in range(5)))})
+        self.assertEqual(self.s.queue.qsize(),1)
+        self.assertEqual(len(self.s.queue.get_nowait()[1]),5);self.s.queue.task_done()
+
     async def test_identity_verified_before_saving(self):
         client=SimpleNamespace(sign_in=AsyncMock(),get_me=AsyncMock(return_value=SimpleNamespace(id=10)),disconnect=AsyncMock(),session=SimpleNamespace(save=lambda:'authorized-A'))
         self.s.pending[10]={'client':client,'phone':'+15555555555','hash':'h','created':time.monotonic()};self.s.tell=AsyncMock()
