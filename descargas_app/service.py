@@ -218,7 +218,7 @@ class Service:
         elif text.startswith('https://'):
             links=list(dict.fromkeys(text.split()))
             try:
-                if len(links)>20:raise ValueError('Envía un máximo de 20 enlaces por mensaje.')
+                if len(links)>5:raise ValueError('Envía un máximo de 5 enlaces por mensaje. Divide los enlaces en lotes de cinco.')
                 for link in links:parse_link(link)
                 if not self.session(uid):raise ValueError('Conecta primero tu cuenta desde el botón.')
                 if uid in self.active:raise ValueError('Espera a que termine tu descarga anterior.')

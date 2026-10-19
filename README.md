@@ -7,7 +7,7 @@ Bot de descargas bajo petición con Mini App para conectar voluntariamente la cu
 3. **Usar mi número de Telegram** solicita permiso mediante `requestContact`, o país y teléfono manuales. El país no se deduce por idioma ni ubicación.
 4. Código oculto (opción Ver) y contraseña de dos pasos si la cuenta la exige. Se envían por HTTPS al servidor, nunca como mensajes al bot ni como `sendData`.
 5. Se valida que `get_me().id` de la cuenta coincida con el usuario autenticado mediante initData firmado.
-6. Enviar hasta 20 enlaces al DM. El servidor descarga usando exclusivamente la sesión de ese usuario y el bot entrega fotos, videos y álbumes nativos al mismo usuario. Se preservan metadatos y miniaturas.
+6. Enviar hasta 5 enlaces al DM. El servidor descarga usando exclusivamente la sesión de ese usuario y el bot entrega fotos, videos y álbumes nativos al mismo usuario. Se preservan metadatos y miniaturas.
 7. `/desconectar` o la Mini App cierran la sesión en Telegram y borran el registro cifrado. El botón del DM pide una confirmación antes de desconectar. Telegram Ajustes → Dispositivos también permite revocarla.
 
 No requiere api_id/hash de cada usuario; usa las credenciales de la aplicación. No desbloquea contenido con Stars. No garantiza acceso a todos los mensajes, ni convierte formatos incompatibles. Límite: 100 MB por elemento y 500 MB por álbum. La exploración del álbum busca el mismo grouped_id entre los 100 ID cercanos por lado.
