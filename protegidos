@@ -1,22 +1,27 @@
-# Grupos y canales de los que no se aceptan descargas.
-# Un ID completo por línea. Ejemplo de formato: -1001234567890
-# Añade aquí los IDs que quieras proteger; no se incluyen ejemplos activos.
+# Secundarios actuales de CUSTOMER-SERVICE. Instantánea: 20-10-2026.
+# MAIN_TO_DERIVED de bot.py, reemplazando cada lista con su registro
+# en Telegram Stripe.public.membership_group_overrides cuando existe.
+# No incluye principales ni destinos de GALLERY. CUSTOMER-SERVICE: solo lectura.
 
-# Grupos secundarios declarados en CUSTOMER-SERVICE/main/bot.py.
-# Los grupos principales no forman parte de esta importación.
+# Secundarios del principal -1003711183473
 -1003431747248
+
+# Secundarios del principal -1003720427589
 -1003736578032
 -1003238413148
 -1003279295849
 -1002641640398
 -1004429273910
 -1004455969219
--1003916053009
--1003482795001
+
+# Secundarios del principal -1003716284604
 -1003381170605
 -1003153267514
 -1003484699520
 -1003293684959
+-1003995229175
+
+# Secundarios del principal -1003886874628
 -1003019391474
 -1003449370256
 -1003432967322
@@ -25,40 +30,10 @@
 -1003395084214
 -1003488300663
 -1003281699302
+
+# Secundarios del principal -1003816370471
 -1003363576347
--1003621086826
 -1003751804239
 -1003180960156
 -1003715472779
-
-# Catálogo de destinos habilitados de programados: GALLERY.gallery_destinations.
-# Consulta de solo lectura: 20-10-2026.
--1004322133552 # aguacero
--1003990665284 # avilenasvip
--1003723977094 # becadas
--1004437243348 # camagueyvip
--1004474004364 # cienfuegosvip
--1004385036109 # cubabella
--1004499416801 # cubaenlacasa
--1003699175326 # cubalmacen
--1004367588105 # cubalseros
--1004393756647 # cubanasyuma
--1003794654764 # cubaneando
--1004376061132 # farandulahabana
--1003616308610 # galeria_actual
--1003327488417 # granmavip
--1004334573815 # holguinvip
--1003391718862 # jineteras
--1003841989663 # lastunasvip
--1004469643800 # lataberna
--1004312121756 # lavaqueria
--1003436178536 # matanzasvip
--1003808701450 # pinarvip
--1004343901356 # revolico
--1003369774688 # sanctispiritus
--1004389291013 # tierracaliente
--1003602595550 # tortilleras
-
-# Sustituciones actuales guardadas por CUSTOMER-SERVICE en membership_group_overrides.
--1004365704264 # viva_cuba
--1003995229175 # cubalseros
+-1004365704264

@@ -125,12 +125,12 @@ Compatibilidad actual de enlaces: `https://t.me/usuario_publico/123` y `https://
 
 ### Fuentes importadas de CUSTOMER-SERVICE
 
-La lista protege 53 IDs únicos: 26 históricos declarados como valores de MAIN_TO_DERIVED en CUSTOMER-SERVICE/main/bot.py y 27 adicionales del catálogo habilitado de programados y de las sustituciones guardadas en Supabase. Se conserva la protección histórica. Las consultas fueron de solo lectura; CUSTOMER-SERVICE no se modificó. La lista es una instantánea, no una sincronización automática.
+La lista protege 25 secundarios actuales de CUSTOMER-SERVICE: parte de MAIN_TO_DERIVED en bot.py y reemplaza las listas de los principales con registros en Telegram Stripe.public.membership_group_overrides. No incluye grupos principales ni destinos del catálogo GALLERY. CUSTOMER-SERVICE y su base de datos solo se consultaron; no se modificaron. Es una instantánea, no una sincronización automática.
 
 `bots_protegidos` permite un ID positivo o @username por línea, con comentarios #. Es preferible usar el ID estable. La comprobación se realiza al admitir aliases, resolver la entidad y antes de entregar un origen de bot identificado. No habilita soporte nuevo para enlaces de conversaciones individuales: solo rechaza el origen protegido si el flujo consigue resolverlo. El archivo contiene los cuatro IDs de bots indicados por el administrador el 20-10-2026.
 
 
-Actualización de protegidos (20-10-2026): se consultaron en modo de solo lectura GALLERY.gallery_destinations, GALLERY.gallery_scheduled y Telegram Stripe.membership_group_overrides, y se contrastó program_schedules de Bot Ladron. El catálogo habilitado de programados y las sustituciones de membresías aportaron 27 IDs adicionales a los 26 históricos del código: 53 IDs únicos. Se mantienen los anteriores para proteger contenido antiguo. No se cambiaron las bases de datos ni CUSTOMER-SERVICE. Es una instantánea, no sincronización automática. bots_protegidos incluye los cuatro IDs aportados por el administrador.
+Corrección de protegidos (20-10-2026): se retiraron los destinos de GALLERY y los secundarios sustituidos que ya no forman parte del mapa efectivo de CUSTOMER-SERVICE. Solo quedan sus 25 secundarios actuales. bots_protegidos conserva los cuatro IDs indicados por el administrador.
 
 
 Los IDs presentes en admins.txt tienen acceso de administrador: no se aplican /ban, bloqueos por disputas/reembolsos, /pay, /lock, protegidos ni bots_protegidos a sus solicitudes. Las reglas almacenadas se conservan y vuelven a tener efecto si se retira ese ID de admins.txt. Se conserva su prioridad de cola. Esta exención no modifica permisos de Telegram, compras no realizadas, compatibilidad de enlaces, límites de tamaño, capacidad ni intervalos de Telegram. Los administradores también están exentos del límite de cinco enlaces por lote.
