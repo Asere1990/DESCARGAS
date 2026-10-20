@@ -17,6 +17,7 @@ from telethon.sessions import StringSession
 from .media_upload import prepare_media
 from .paid_media import purchased_items
 from .transfer import prepare_album
+from .bot_typography import format_bot_payload
 
 LOG=logging.getLogger(__name__)
 MAX_FILE=500*1024*1024
@@ -111,6 +112,7 @@ class Service:
             raise_last_call_error=True)
 
     async def api(self,method,payload):
+        payload=format_bot_payload(method,payload)
         async with self.http.post(f'https://api.telegram.org/bot{self.token}/{method}',json=payload) as response:
             result=await response.json()
         if not result.get('ok'):

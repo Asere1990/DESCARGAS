@@ -10,6 +10,7 @@ import time
 import aiohttp
 from telethon import errors
 from .service import Service,parse_link,error_message,archive_attribution
+from .bot_typography import format_bot_payload
 from .billing import Billing,PaymentRequired
 from .pg_store import Repository
 from .protected import ProtectedSource,require_entity,require_bot_alias
@@ -50,6 +51,7 @@ class ScaleService(Service):
         return session
 
     async def api(self,method,payload,opportunistic=False):
+        payload=format_bot_payload(method,payload)
         if method in ('sendMessage','copyMessages','editMessageCaption','editMessageText'):
             count=len(payload.get('message_ids',[])) if method=='copyMessages' else 1
             if opportunistic:
