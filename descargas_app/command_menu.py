@@ -1,4 +1,5 @@
 """Telegram command suggestions scoped to authorized administrators' private chats."""
+import json
 from . import moderation
 
 PUBLIC_COMMANDS = [{'command': 'mi_cuenta', 'description': 'Mi cuenta'}]
@@ -35,10 +36,10 @@ async def configure_commands(service):
     except OSError:
         admins = set()
     key = f'command_menu_admins:{service.bot_id}'
-    previous = await service.repo.setting(key) or []
+    previous = json.loads(await service.repo.setting(key) or '[]')
     for uid in sorted(admins | set(previous)):
         await service.api('setMyCommands', {
             'scope': {'type': 'chat', 'chat_id': uid},
             'commands': ADMIN_COMMANDS if uid in admins else PUBLIC_COMMANDS,
         })
-    await service.repo.set_setting(key, sorted(admins))
+    await service.repo.set_setting(key, json.dumps(sorted(admins)))

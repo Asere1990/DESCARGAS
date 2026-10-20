@@ -12,7 +12,7 @@ class CommandMenuTests(unittest.IsolatedAsyncioTestCase):
             path = Path(directory) / 'admins.txt'
             path.write_text('123 # owner\n456\n')
             service = SimpleNamespace(bot_id=99, api=AsyncMock(), repo=SimpleNamespace(
-                setting=AsyncMock(return_value=[789]), set_setting=AsyncMock()))
+                setting=AsyncMock(return_value='[789]'), set_setting=AsyncMock()))
             with patch('descargas_app.moderation.ADMIN_FILE', path):
                 await configure_commands(service)
             payloads = [call.args[1] for call in service.api.await_args_list]
@@ -23,4 +23,4 @@ class CommandMenuTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue({'datos', 'ban', 'search', 'mi_cuenta', 'comandos'} <= commands)
                 self.assertEqual(scoped[uid]['scope']['type'], 'chat')
             self.assertEqual([item['command'] for item in scoped[789]['commands']], ['mi_cuenta'])
-            service.repo.set_setting.assert_awaited_once_with('command_menu_admins:99', [123, 456])
+            service.repo.set_setting.assert_awaited_once_with('command_menu_admins:99', '[123, 456]')
