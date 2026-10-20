@@ -22,7 +22,7 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
         return response
     async def assets(request):
         name=request.match_info['name']
-        if name not in ('app.js','style.css'):raise web.HTTPNotFound()
+        if name not in ('app.js','style.css','descargas-logo.jpg'):raise web.HTTPNotFound()
         return web.FileResponse(WEB/name,headers={'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'})
     async def countries(request):
         return web.json_response([{'region':region,'code':phonenumbers.country_code_for_region(region)} for region in sorted(phonenumbers.SUPPORTED_REGIONS)])
