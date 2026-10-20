@@ -60,7 +60,7 @@ class Repository(BillingRepository):
     def encode(self,data):return self.cipher.encrypt(json.dumps(data,ensure_ascii=False).encode())
     def decode(self,data):return json.loads(self.cipher.decrypt(bytes(data)))
     async def is_blocked(self,bot_id,uid,source=None):
-        return bool(await self.pool.fetchval('SELECT 1 FROM descarga_blocks WHERE bot_id=$1 AND target=ANY($2::bigint[]) LIMIT 1',bot_id,[uid]+([source] if source is not None else [])))
+        return bool(await self.pool.fetchval('SELECT 1 FROM descarga_blocks WHERE bot_id=$1 AND target=ANY($2::bigint[]) UNION ALL SELECT 1 FROM descarga_dispute_blocks WHERE bot_id=$1 AND uid=ANY($2::bigint[]) LIMIT 1',bot_id,[uid]+([source] if source is not None else [])))
     async def set_blocks(self,bot_id,targets,blocked,actor):
         async with self.pool.acquire() as conn,conn.transaction():
             if blocked:

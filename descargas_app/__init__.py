@@ -38,6 +38,10 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
             if operation=='status':
                 async with service.locks[uid]:result=await service.login_status(uid)
                 return web.json_response(result,headers={'Cache-Control':'no-store'})
+            if operation in ('membership','cancel-membership') and hasattr(service,'billing'):
+                from .subscription_actions import summary,cancel
+                result=await (summary(service,uid) if operation=='membership' else cancel(service,uid))
+                return web.json_response(result,headers={'Cache-Control':'no-store'})
             if operation=='contact':
                 stored=service.contacts.get(uid)
                 phone=stored[0] if stored and time.monotonic()-stored[1]<600 else ''

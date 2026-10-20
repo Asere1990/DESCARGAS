@@ -128,7 +128,7 @@ class ScaleService(Service):
             try:
                 async with self.repo.leader(self.bot_id):
                     await self.api('deleteWebhook',{'drop_pending_updates':False})
-                    await self.api('setMyCommands',{'commands':[{'command':'start','description':'Conectar cuenta y descargar'},{'command':'estado','description':'Ver conexión de mi cuenta'},{'command':'suscripcion','description':'Ver o gestionar mi suscripción mensual'},{'command':'desconectar','description':'Cerrar mi sesión'}]})
+                    await self.api('setMyCommands',{'commands':[{'command':'start','description':'Conectar cuenta y descargar'},{'command':'estado','description':'Ver conexión de mi cuenta'},{'command':'suscripcion','description':'Ver o gestionar mi suscripción mensual'},{'command':'cancelar_membresia','description':'Cancelar la renovación de mi membresía'},{'command':'desconectar','description':'Cerrar mi sesión'}]})
                     await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'Mi cuenta','web_app':{'url':self.url}}})
                     key=f'offset:{self.bot_id}'
                     saved=await self.repo.setting(key)

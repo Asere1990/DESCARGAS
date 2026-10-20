@@ -3,6 +3,8 @@ import time
 import secrets
 
 SCHEMA='''
+CREATE TABLE IF NOT EXISTS descarga_disputes(id TEXT PRIMARY KEY,charge TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',available DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS descarga_dispute_blocks(bot_id BIGINT NOT NULL,uid BIGINT NOT NULL,dispute TEXT NOT NULL,PRIMARY KEY(bot_id,uid,dispute));
 CREATE TABLE IF NOT EXISTS descarga_policies(bot_id BIGINT NOT NULL,target BIGINT NOT NULL,pay BOOLEAN NOT NULL DEFAULT FALSE,locked BOOLEAN NOT NULL DEFAULT FALSE,actor BIGINT NOT NULL,PRIMARY KEY(bot_id,target));
 CREATE TABLE IF NOT EXISTS descarga_memberships(bot_id BIGINT NOT NULL,uid BIGINT NOT NULL,provider TEXT NOT NULL,subscription TEXT NOT NULL,paid_until DOUBLE PRECISION NOT NULL DEFAULT 0,state TEXT NOT NULL DEFAULT 'active',changed DOUBLE PRECISION NOT NULL DEFAULT 0,PRIMARY KEY(bot_id,provider,subscription));
 CREATE INDEX IF NOT EXISTS descarga_member_uid ON descarga_memberships(bot_id,uid,paid_until);

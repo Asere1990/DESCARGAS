@@ -80,6 +80,25 @@ class Billing:
             await self.s.api('answerPreCheckoutQuery',{'pre_checkout_query_id':pre['id'],'ok':ok,**({} if ok else {'error_message':'Este pago no corresponde a tu cuenta o ya tienes una suscripción activa.'})})
             return True
         message=update.get('message',{})
+        from .subscription_actions import menu,cancel
+        query=update.get('callback_query',{})
+        if query.get('data') in ('membership:cancel','membership:confirm'):
+            uid=query['from']['id']
+            await self.s.api('answerCallbackQuery',{'callback_query_id':query['id']})
+            if query.get('message',{}).get('chat',{}).get('id')!=uid:return True
+            if query['data']=='membership:cancel':
+                await self.s.api('sendMessage',{'chat_id':uid,'text':'¿Quieres cancelar la renovación de tu membresía? Conservarás el acceso hasta terminar el período pagado.',
+                    'reply_markup':{'inline_keyboard':[[{'text':'CONFIRMAR CANCELACIÓN','callback_data':'membership:confirm','style':'danger'}]]}})
+            else:
+                try:result=await cancel(self.s,uid);await self.s.tell(uid,result['message'])
+                except Exception:await self.s.tell(uid,'No se pudo confirmar la cancelación. Tu suscripción no figura como cancelada; inténtalo de nuevo más tarde.')
+            return True
+        if message.get('chat',{}).get('type')=='private':
+            uid=message['from']['id'];command=message.get('text','').split(' ',1)[0]
+            if command=='/cancelar_membresia':
+                await menu(self.s,uid);return True
+            if command in ('/start','/suscripcion') and await self.repo.member_until(self.s.bot_id,uid)>time.time():
+                await menu(self.s,uid);return True
         if message.get('successful_payment'):
             payment=message['successful_payment'];uid=message['from']['id'];until=payment.get('subscription_expiration_date',0)
             if message.get('chat',{}).get('type')!='private' or payment.get('currency')!='XTR' or payment.get('total_amount')!=STARS or not payment.get('is_recurring') or not isinstance(until,int):return True
@@ -117,6 +136,10 @@ class Billing:
         obj=event.get('data',{}).get('object',{});kind=event.get('type','')
         price=os.environ.get('DESCARGAS_STRIPE_PRICE_ID','');link=os.environ.get('DESCARGAS_STRIPE_LINK_ID','')
         if not price or not link:return None
+        if kind=='charge.dispute.created':
+            charge=object_id(obj.get('charge'))
+            if charge:await self.repo.pool.execute('INSERT INTO descarga_disputes(id,charge) VALUES($1,$2) ON CONFLICT DO NOTHING',obj['id'],charge)
+            return None
         if kind in ('checkout.session.completed','checkout.session.async_payment_succeeded'):
             if obj.get('mode')!='subscription' or object_id(obj.get('payment_link'))!=link or obj.get('payment_status')!='paid' or obj.get('currency')!='usd' or obj.get('amount_total')!=699:return None
             sub=object_id(obj.get('subscription'));token=obj.get('client_reference_id','')
@@ -190,6 +213,8 @@ class Billing:
                             await self.s.api('unbanChatMember',{'chat_id':group,'user_id':uid,'only_if_banned':True})
                         await self.repo.pool.execute('UPDATE descarga_payment_joins SET removed=TRUE WHERE bot_id=$1 AND uid=$2',self.s.bot_id,uid)
                 await enrich_pending(self.s)
+                from .subscription_actions import disputes
+                await disputes(self.s)
             except asyncio.CancelledError:raise
             except Exception:pass
             await asyncio.sleep(15)

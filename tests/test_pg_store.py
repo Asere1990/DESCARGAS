@@ -17,8 +17,15 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
+        await self.repo.pool.execute('TRUNCATE descarga_disputes,descarga_dispute_blocks,descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
     async def asyncTearDown(self):await self.repo.close()
+    async def test_dispute_block_survives_manual_unban(self):
+        await self.repo.pool.execute('INSERT INTO descarga_dispute_blocks VALUES(100,10,$1)','dp_test')
+        self.assertTrue(await self.repo.is_blocked(100,10))
+        await self.repo.set_blocks(100,[10],False,1)
+        self.assertTrue(await self.repo.is_blocked(100,10))
+        self.assertFalse(await self.repo.is_blocked(100,20))
+
     async def test_monthly_grants_replay_renewal_and_invoice_before_checkout(self):
         intent=await self.repo.payment_intent(100,10,'stars')
         self.assertTrue(await self.repo.grant_stars(100,10,intent['token'],'first',2000))

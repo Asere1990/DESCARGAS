@@ -27,3 +27,7 @@ $('contact').onclick=()=>perform(async()=>{
  throw Error('El número aún no llegó. Introdúcelo manualmente o vuelve a intentarlo.');
 });
 (async()=>{tg?.ready();tg?.expand();try{const response=await fetch('countries');countries=await response.json();const names=new Intl.DisplayNames(['es'],{type:'region'});countries.sort((a,b)=>names.of(a.region).localeCompare(names.of(b.region),'es')).forEach(c=>{const option=document.createElement('option');option.value=c.region;option.dataset.code=c.code;option.textContent=names.of(c.region)+' (+'+c.code+')';$('country').append(option);});if(!tg?.initData)throw Error('Abre esta página desde el botón CONECTAR MI CUENTA del bot.');const status=await api('status');outcome(status);}catch(e){$('notice').textContent=e.message;}})();
+
+async function loadMembership(){try{const info=await api('membership');$('membership').hidden=!info.active;if(info.active)$('membership-until').textContent='Activa hasta el '+info.until+'.';}catch(e){}}
+$('cancel-membership').onclick=()=>{const run=()=>perform(async()=>{const result=await api('cancel-membership');$('notice').textContent=result.message;await loadMembership();});if(tg?.showConfirm)tg.showConfirm('¿Cancelar la renovación? Conservarás el acceso hasta terminar el período pagado.',yes=>{if(yes)run();});else if(confirm('¿Cancelar la renovación de tu membresía?'))run();};
+if(tg?.initData)loadMembership();
