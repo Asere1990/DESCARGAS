@@ -1,6 +1,15 @@
 """Persistent download restrictions and trusted ALMACEN provenance."""
 from contextvars import ContextVar
 import re
+from pathlib import Path
+
+ADMIN_FILE=Path(__file__).resolve().parent.parent/'admins.txt'
+
+def authorized(uid):
+    try:
+        entries={int(token) for line in ADMIN_FILE.read_text().splitlines() for token in line.split('#',1)[0].replace(',',' ').split() if token.isdecimal()}
+        return uid in entries
+    except OSError:return False
 
 SOURCE=ContextVar('download_source',default=None)
 
@@ -17,20 +26,18 @@ async def command(service,message):
     if not match:return False
     chat=message.get('chat',{});actor=message.get('from',{})
     if chat.get('type')!='private' and chat.get('id')!=service.almacen:return True
-    # Trust only Telegram's own sender_chat for anonymous ALMACEN admins.
-    anonymous=message.get('sender_chat',{}).get('id')==service.almacen and chat.get('id')==service.almacen
     if match.group(2):
         me=await service.api('getMe',{})
         if match.group(2).lower()!=str(me.get('username','')).lower():return True
-    if not anonymous and (not actor.get('id') or actor.get('is_bot') or message.get('sender_chat')):return True
-    actor_id=service.almacen if anonymous else actor['id']
+    actor_id=actor.get('id')
     async def reply(text):
         await service.api('sendMessage',{'chat_id':chat['id'],'text':text,
             'reply_parameters':{'message_id':message['message_id']}})
     try:
-        member={'status':'administrator'} if anonymous else await service.api('getChatMember',{'chat_id':service.almacen,'user_id':actor_id})
-        if member.get('status') not in ('creator','administrator'):
-            await reply('Solo los administradores de ALMACEN pueden usar este comando.');return True
+        if message.get('sender_chat') or actor.get('is_bot'):
+            await reply('Envía este comando desde tu cuenta, sin modo anónimo.');return True
+        if not actor_id or not authorized(actor_id):
+            await reply('Comando disponible solo para administradores autorizados en admins.txt.');return True
         raw=(match.group(3) or '').strip()
         if raw:
             if not re.fullmatch(r'-?[1-9][0-9]{0,15}',raw):
