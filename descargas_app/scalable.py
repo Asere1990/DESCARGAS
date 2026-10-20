@@ -132,13 +132,31 @@ class ScaleService(Service):
         except Exception as exc:
             self.state='startup_error';LOG.error('Scale startup failed (%s)',type(exc).__name__)
 
+    async def configure_bot_menu(self):
+        while not self.stopping:
+            try:
+                await configure_commands(self)
+                await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'𝐌𝐈 𝐂𝐔𝐄𝐍𝐓𝐀','web_app':{'url':self.url}}})
+                return
+            except asyncio.CancelledError:raise
+            except Exception as exc:
+                LOG.warning('Menu configuration delayed (%s); polling remains independent',type(exc).__name__)
+                await asyncio.sleep(30)
+
     async def poll(self):
         while not self.stopping:
             try:
                 async with self.repo.leader(self.bot_id):
-                    await self.api('deleteWebhook',{'drop_pending_updates':False})
-                    await configure_commands(self)
-                    await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'𝐌𝐈 𝐂𝐔𝐄𝐍𝐓𝐀','web_app':{'url':self.url}}})
+                    if not getattr(self,'menu_configuration_started',False):
+                        self.tasks.append(asyncio.create_task(self.configure_bot_menu()))
+                        self.menu_configuration_started=True
+                    if not getattr(self,'webhook_cleared',False):
+                        try:
+                            await self.api('deleteWebhook',{'drop_pending_updates':False})
+                            self.webhook_cleared=True
+                        except TelegramDeliveryError:
+                            LOG.warning('Webhook setup unavailable; attempting getUpdates directly')
+
                     key=f'offset:{self.bot_id}'
                     saved=await self.repo.setting(key)
                     if saved is None:
@@ -148,6 +166,9 @@ class ScaleService(Service):
                     else:offset=int(saved)
                     while not self.stopping:
                         updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','callback_query','pre_checkout_query','chat_member']})
+                        if not getattr(self,'polling_confirmed',False):
+                            LOG.warning('Scale polling active; Telegram updates received successfully')
+                            self.polling_confirmed=True
                         for update in updates:
                             # Offset advances only after persistent acceptance. Duplicate update IDs are safe.
                             try:await self.update(update)
