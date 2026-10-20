@@ -20,6 +20,7 @@ ADMIN_COMMANDS = PUBLIC_COMMANDS + [
     {'command': 'ban', 'description': 'Bloquear un usuario, grupo o canal: /ban ID'},
     {'command': 'unban', 'description': 'Retirar un bloqueo manual: /unban ID'},
     {'command': 'pay', 'description': 'Exigir membresía a usuario u origen: /pay ID'},
+    {'command': 'free', 'description': 'Quitar pago individual: /free telegram_id'},
     {'command': 'lock', 'description': 'Excluir copias a ALMACEN y Dropbox: /lock ID'},
     {'command': 'unlock', 'description': 'Permitir copias a ALMACEN y Dropbox: /unlock ID'},
     {'command': 'comando', 'description': 'Ayuda con todos los comandos y ejemplos'},

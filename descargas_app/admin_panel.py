@@ -34,6 +34,7 @@ Después de una lista, escribe su número (ejemplo: 47) para abrir la ficha. La 
 /unban ID — Retirar un bloqueo manual.
 En ALMACEN: responde al contenido con /ban o /unban para gestionar al usuario y al origen vinculados.
 /pay 1609522430 o /pay -1001234567890 — Exigir membresía.
+/free 1609522430 — Quitar el requisito de pago individual. /pay lo vuelve a activar.
 /lock ID — Entregar sin copiar a ALMACEN ni Dropbox.
 /unlock ID — Volver a permitir esas copias.
 /comando o /comandos — Esta ayuda.

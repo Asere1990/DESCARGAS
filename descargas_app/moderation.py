@@ -26,7 +26,7 @@ async def ensure_allowed(service,uid,source=None):
 
 async def command(service,message):
     text=message.get('text','').strip()
-    match=re.match(r'^/(ban|unban|pay|lock|unlock)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$',text,re.S)
+    match=re.match(r'^/(ban|unban|pay|free|lock|unlock)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$',text,re.S)
     if not match:return False
     chat=message.get('chat',{});actor=message.get('from',{})
     if chat.get('type')!='private' and chat.get('id')!=service.almacen:return True
@@ -59,12 +59,14 @@ async def command(service,message):
             targets=[origin['uid'],origin['source']]
         if any(not (-2**63<t<2**63) or t==0 for t in targets):raise ValueError('ID no válido.')
         operation=match.group(1)
+        if operation=='free' and any(target<0 for target in targets):
+            await reply('Usa /free telegram_id con el ID positivo del usuario.');return True
         if operation in ('ban','unban'):
             await service.repo.set_blocks(service.bot_id,targets,operation=='ban',actor_id)
             action='Bloqueado' if operation=='ban' else 'Desbloqueado'
         else:
-            for target in targets:await service.repo.policy_set(service.bot_id,target,'pay' if operation=='pay' else 'locked',operation!='unlock',actor_id)
-            action={'pay':'Pago mensual activado para','lock':'Almacenamiento bloqueado para','unlock':'Almacenamiento permitido para'}[operation]
+            for target in targets:await service.repo.policy_set(service.bot_id,target,'pay' if operation in ('pay','free') else 'locked',operation not in ('free','unlock'),actor_id)
+            action={'pay':'Pago mensual activado para','free':'Requisito de pago retirado para','lock':'Almacenamiento bloqueado para','unlock':'Almacenamiento permitido para'}[operation]
         await reply('\n'.join(f'{action}: {"usuario" if t>0 else "grupo"} {t}' for t in targets))
     except ValueError as exc:await reply(str(exc))
     return True
