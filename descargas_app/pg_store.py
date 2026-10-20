@@ -8,6 +8,12 @@ import uuid
 import asyncpg
 
 SCHEMA='''
+CREATE TABLE IF NOT EXISTS descarga_blocks(
+ bot_id BIGINT NOT NULL,target BIGINT NOT NULL,actor BIGINT NOT NULL,created DOUBLE PRECISION NOT NULL,
+ PRIMARY KEY(bot_id,target));
+CREATE TABLE IF NOT EXISTS descarga_origins(
+ bot_id BIGINT NOT NULL,almacen BIGINT NOT NULL,message_id BIGINT NOT NULL,
+ uid BIGINT NOT NULL,source BIGINT NOT NULL,PRIMARY KEY(bot_id,almacen,message_id));
 CREATE TABLE IF NOT EXISTS descarga_accounts(
  uid BIGINT PRIMARY KEY, session BYTEA, profile BYTEA, generation BIGINT NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS descarga_jobs(
@@ -50,6 +56,25 @@ class Repository:
         if self.pool:await self.pool.close()
     def encode(self,data):return self.cipher.encrypt(json.dumps(data,ensure_ascii=False).encode())
     def decode(self,data):return json.loads(self.cipher.decrypt(bytes(data)))
+    async def is_blocked(self,bot_id,uid,source=None):
+        return bool(await self.pool.fetchval('SELECT 1 FROM descarga_blocks WHERE bot_id=$1 AND target=ANY($2::bigint[]) LIMIT 1',bot_id,[uid]+([source] if source is not None else [])))
+    async def set_blocks(self,bot_id,targets,blocked,actor):
+        async with self.pool.acquire() as conn,conn.transaction():
+            if blocked:
+                await conn.executemany('INSERT INTO descarga_blocks VALUES($1,$2,$3,$4) ON CONFLICT(bot_id,target) DO UPDATE SET actor=excluded.actor,created=excluded.created',[(bot_id,t,actor,time.time()) for t in targets])
+            else:await conn.execute('DELETE FROM descarga_blocks WHERE bot_id=$1 AND target=ANY($2::bigint[])',bot_id,targets)
+    async def register_origins(self,bot_id,almacen,ids,uid,source):
+        if source is None:raise ValueError('Missing source provenance')
+        await self.pool.executemany('INSERT INTO descarga_origins VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',[(bot_id,almacen,mid,uid,source) for mid in ids])
+    async def bind_cached_origin(self,bot_id,almacen,ids,source,identity):
+        # Preserve the first requester's attribution when enriching older cached albums.
+        row=await self.pool.fetchrow('SELECT payload FROM descarga_backups WHERE key=$1 AND bot_id=$2',identity,bot_id)
+        if row:
+            uid=self.decode(row['payload']).get('uid')
+            if isinstance(uid,int) and uid>0:await self.register_origins(bot_id,almacen,ids,uid,source)
+    async def archive_origin(self,bot_id,almacen,message_id):
+        return await self.pool.fetchrow('SELECT uid,source FROM descarga_origins WHERE bot_id=$1 AND almacen=$2 AND message_id=$3',bot_id,almacen,message_id)
+
     async def account(self,uid):
         row=await self.pool.fetchrow('SELECT * FROM descarga_accounts WHERE uid=$1',uid)
         return row

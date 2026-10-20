@@ -132,10 +132,10 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_login_hint_deleted_after_successful_connection(self):
         client=SimpleNamespace(sign_in=AsyncMock(),get_me=AsyncMock(return_value=SimpleNamespace(id=10)),disconnect=AsyncMock(),session=SimpleNamespace(save=lambda:'authorized'))
         self.s.pending[10]={'client':client,'phone':'+15555555555','hash':'h','created':time.monotonic()}
-        self.s.api=AsyncMock(return_value={'message_id':42});self.s.tell=AsyncMock()
+        self.s.api=AsyncMock(return_value={'message_id':42,'first_name':'Juan'});self.s.tell=AsyncMock()
         await self.s.login_hint(10)
         text=self.s.api.call_args.args[1]['text']
-        self.assertIn('𝐌𝐢 𝐂𝐮𝐞𝐧𝐭𝐚',text);self.assertIn('No envíes el código',text)
+        self.assertIn('Juan revisa en tus chats',text);self.assertIn('𝐌𝐢 𝐂𝐮𝐞𝐧𝐭𝐚',text);self.assertIn('No envíes el código',text)
         self.assertEqual(self.s.pending[10]['hint_message_id'],42)
         await self.s.verify(10,{'code':'11111'})
         self.s.api.assert_any_await('deleteMessage',{'chat_id':10,'message_id':42})

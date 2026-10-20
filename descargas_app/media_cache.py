@@ -3,6 +3,7 @@ from contextvars import ContextVar
 import hashlib
 import json
 import logging
+from .moderation import SOURCE,ensure_allowed
 from .service import archive_attribution,MAX_FILE,MAX_ALBUM
 
 LOG=logging.getLogger(__name__)
@@ -45,6 +46,8 @@ async def deliver_cached(service,uid,client,link,seen):
     # This fetch uses this requesting user's session on EVERY request, including hits.
     # Paid previews and inaccessible messages are rejected before any cache lookup.
     key,items=await service.source_items(client,link)
+    await ensure_allowed(service,uid,key[0])
+    SOURCE.set(key[0])
     if key in seen:return 0
     if sum(m.file.size or 0 for m in items)>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):
         raise ValueError('El archivo supera 500 MB o el álbum supera 1 GB.')
@@ -53,6 +56,7 @@ async def deliver_cached(service,uid,client,link,seen):
         await service.repo.remember_media_route(service.bot_id,link,identity)
         saved=service.repo.decode(row['payload'])
         ids=saved['ids']
+        await service.repo.bind_cached_origin(service.bot_id,service.almacen,ids,key[0],identity)
         if len(ids)!=len(items):raise ValueError('El álbum guardado está incompleto y necesita revisión.')
         await service.before_send(uid,len(items))
         copied=await service.api('copyMessages',{'chat_id':uid,'from_chat_id':service.almacen,
@@ -95,9 +99,11 @@ async def archive_once(service,identity,uid,name,delivered):
         'message_ids':[m.id for m in delivered],'remove_caption':True})
     if len(copied)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
     ids=[m['message_id'] for m in copied]
+    await service.repo.register_origins(service.bot_id,service.almacen,ids,uid,SOURCE.get())
     from .backup import backup_payload
     backup=backup_payload(service,identity,uid,delivered,ids)
     await service.repo.media_ready(identity,{'ids':ids},backup=backup)
     attribution=await archive_attribution(service,uid,name)
+    attribution['caption']+=f'\nGrupo de origen: {SOURCE.get()}'
     await service.api('editMessageCaption',{'chat_id':service.almacen,'message_id':ids[0],**attribution})
     LOG.warning('Media cache stored items=%s',len(ids))

@@ -11,6 +11,7 @@ import aiohttp
 from telethon import errors
 from .service import Service,parse_link,error_message,archive_attribution
 from .pg_store import Repository
+from .moderation import SOURCE,DownloadBlocked,ensure_allowed,command as moderation_command
 from .media_cache import CURRENT_MEDIA,CACHE_ONLY,CacheMiss,deliver_cached,archive_once
 
 LOG=logging.getLogger(__name__)
@@ -146,6 +147,7 @@ class ScaleService(Service):
 
     async def update(self,update):
         message=update.get('message',{})
+        if await moderation_command(self,message):return
         if message.get('chat',{}).get('type')=='private' and not message.get('from',{}).get('is_bot'):
             uid=message['from']['id'];text=message.get('text','').strip()
             if text.startswith('https://'):
@@ -154,7 +156,9 @@ class ScaleService(Service):
                 links=list(dict.fromkeys(text.split()))
                 try:
                     if len(links)>5:raise ValueError('Envía un máximo de 5 enlaces por mensaje. Divide los enlaces en lotes de cinco.')
-                    for link in links:parse_link(link)
+                    for link in links:
+                        peer,_=parse_link(link)
+                        await ensure_allowed(self,uid,peer if isinstance(peer,int) else None)
                     result=await self.repo.enqueue(self.bot_id,update['update_id'],uid,links,name,
                         int(os.environ.get('QUEUE_CAPACITY','10000')))
                     if result in ('duplicate','queued'):return
@@ -163,6 +167,7 @@ class ScaleService(Service):
                         'full':'Demasiadas solicitudes en cola. Inténtalo después.'}
                     try:await self.tell(uid,messages[result],result=='disconnected')
                     except Exception:pass # Durable acceptance must not depend on acknowledgement delivery.
+                except DownloadBlocked:await self.tell(uid,'Bot fuera de servicio')
                 except ValueError as exc:await self.tell(uid,error_message(exc),True)
                 return
             if text=='/desconectar':
@@ -233,6 +238,7 @@ class ScaleService(Service):
             self.contacts.pop(uid,None)
 
     async def before_send(self,uid,count=1):
+        await ensure_allowed(self,uid,SOURCE.get())
         job=CURRENT_JOB.get()
         if not job:raise RuntimeError('Missing durable job')
         stored=await self.repo.setting('runtime_config')
@@ -244,10 +250,21 @@ class ScaleService(Service):
         await self.repo.state(job,'sending')
         await self.repo.pace('bot-send',0.06*count)
 
+    async def source_items(self,client,link):
+        key,items=await super().source_items(client,link)
+        job=CURRENT_JOB.get()
+        if job:await ensure_allowed(self,job['uid'],key[0])
+        SOURCE.set(key[0])
+        return key,items
+
     async def deliver(self,uid,client,link,seen):
-        if CACHE_ONLY.get() and not self.almacen:raise CacheMiss()
-        if not self.almacen:return await super().deliver(uid,client,link,seen)
-        return await deliver_cached(self,uid,client,link,seen)
+        await ensure_allowed(self,uid)
+        marker=SOURCE.set(None)
+        try:
+            if CACHE_ONLY.get() and not self.almacen:raise CacheMiss()
+            if not self.almacen:return await super().deliver(uid,client,link,seen)
+            return await deliver_cached(self,uid,client,link,seen)
+        finally:SOURCE.reset(marker)
 
     async def archive(self,uid,delivered):
         job=CURRENT_JOB.get()
@@ -331,6 +348,9 @@ class ScaleService(Service):
             except asyncio.CancelledError:
                 # Leave lease + durable phase for the recovery process; never replay uncertain sends.
                 raise
+            except DownloadBlocked:
+                await self.repo.state(job,'cancelled')
+                await self.tell(job['uid'],'Bot fuera de servicio')
             except CacheMiss:
                 try:
                     await self.repo.reroute(job,'slow')

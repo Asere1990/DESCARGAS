@@ -67,3 +67,10 @@ Al publicar por primera vez un contenido en ALMACEN, se guarda una tarea cifrada
 Variables internas: `DESCARGAS_BACKUP_KEY` compartida exclusivamente entre el web DESCARGAS y LADRON, y `DESCARGAS_BACKUP_URL` en LADRON (URL pública del web DESCARGAS). Nunca usar `DESCARGAS_SESSION_KEY` como clave del puente. La conexión de respaldo del bot se guarda cifrada y reutiliza; no se solicitan credenciales adicionales a los usuarios. Los archivos pasan por streaming y disco temporal, sin cargar videos completos en memoria. Un consumidor independiente respalda dos archivos en paralelo después de la entrega y drena hasta tres álbumes seguidos por turno. No es una exportación retroactiva de cachés antiguas.
 
 La tabla de Supabase debe tener RLS activado y acceso solo `service_role`. La migración está en `migrations/descargas_backups.sql`. El despliegue no crea servicios pagados adicionales. El tráfico y espacio utilizados sí crecen con las descargas y los respaldos.
+
+
+### Moderación de DESCARGAS
+
+Los administradores actuales de ALMACEN pueden usar `/ban ID` y `/unban ID`, en el DM del bot o en ALMACEN. Un ID positivo identifica a un usuario; uno negativo identifica a un grupo/canal. En ALMACEN, responder con `/ban` a cualquier elemento registrado de un álbum bloquea al solicitante original y al grupo de origen; `/unban` por respuesta revierte ambos. Los administradores anónimos del propio ALMACEN también están admitidos.
+
+Los bloqueos se guardan en PostgreSQL por bot y se revisan antes de aceptar solicitudes, al resolver el origen y antes de enviar, incluyendo caché. La respuesta al solicitante es exactamente `Bot fuera de servicio`. No expulsa miembros de Telegram ni borra contenido ya entregado. Cada elemento nuevo del almacén conserva una referencia verificable al solicitante y al origen; no se confía en captions para aplicar bloqueos. Los álbumes antiguos se enriquecen al reutilizarlos si existe su registro de backup; si no hay procedencia verificable, el comando pide los IDs por separado.

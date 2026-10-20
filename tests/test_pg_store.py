@@ -17,8 +17,24 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
+        await self.repo.pool.execute('TRUNCATE descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
     async def asyncTearDown(self):await self.repo.close()
+    async def test_persistent_blocks_and_album_provenance(self):
+        await self.repo.register_origins(100,-100999,[91,92],10,-100123)
+        self.assertEqual(dict(await self.repo.archive_origin(100,-100999,92)),{'uid':10,'source':-100123})
+        self.assertIsNone(await self.repo.archive_origin(200,-100999,92))
+        await self.repo.register_origins(100,-100999,[91],20,-100456)
+        self.assertEqual((await self.repo.archive_origin(100,-100999,91))['uid'],10)
+        await self.repo.set_blocks(100,[10,-100123],True,50)
+        self.assertTrue(await self.repo.is_blocked(100,10))
+        self.assertTrue(await self.repo.is_blocked(100,20,-100123))
+        self.assertFalse(await self.repo.is_blocked(200,10,-100123))
+        await self.repo.set_blocks(100,[10],False,50)
+        self.assertFalse(await self.repo.is_blocked(100,10))
+        self.assertTrue(await self.repo.is_blocked(100,10,-100123))
+        await self.repo.set_blocks(100,[-100123],False,50)
+        self.assertFalse(await self.repo.is_blocked(100,10,-100123))
+
     async def test_backup_atomic_outbox_claim_retry_and_fencing(self):
         identity='a'*64
         payload={'bot_id':100,'items':[{'file_id':'private-file-id'}]}
