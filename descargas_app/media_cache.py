@@ -3,7 +3,7 @@ from contextvars import ContextVar
 import hashlib
 import json
 import logging
-from .service import archive_caption,MAX_FILE,MAX_ALBUM
+from .service import archive_attribution,MAX_FILE,MAX_ALBUM
 
 LOG=logging.getLogger(__name__)
 CURRENT_MEDIA=ContextVar('descargas_media_cache',default=None)
@@ -98,8 +98,6 @@ async def archive_once(service,identity,uid,name,delivered):
     from .backup import backup_payload
     backup=backup_payload(service,identity,uid,delivered,ids)
     await service.repo.media_ready(identity,{'ids':ids},backup=backup)
-    caption,entities=archive_caption(name,uid)
-    await service.api('editMessageCaption',{'chat_id':service.almacen,'message_id':ids[0],
-        'caption':caption,'caption_entities':[{'type':'text_mention','offset':e.offset,'length':e.length,
-            'user':{'id':uid,'is_bot':False,'first_name':name}} for e in entities]})
+    attribution=await archive_attribution(service,uid,name)
+    await service.api('editMessageCaption',{'chat_id':service.almacen,'message_id':ids[0],**attribution})
     LOG.warning('Media cache stored items=%s',len(ids))

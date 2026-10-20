@@ -37,7 +37,10 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         from unittest.mock import patch
         class Iterator:
             def __init__(self):self.parts=iter([b'abc',b'def']);self.closed=False
-            def __aiter__(self):return self
+            def __aiter__(self):
+                # Telethon resets its request iterator on each __aiter__ call.
+                self.parts=iter([b'abc',b'def'])
+                return self
             async def __anext__(self):
                 try:return next(self.parts)
                 except StopIteration:raise StopAsyncIteration

@@ -9,7 +9,7 @@ import sqlite3
 import time
 import aiohttp
 from telethon import errors
-from .service import Service,parse_link,error_message,archive_caption
+from .service import Service,parse_link,error_message,archive_attribution
 from .pg_store import Repository
 from .media_cache import CURRENT_MEDIA,CACHE_ONLY,CacheMiss,deliver_cached,archive_once
 
@@ -270,9 +270,8 @@ class ScaleService(Service):
                 copied=await self.api('copyMessages',{'chat_id':self.almacen,'from_chat_id':data['uid'],
                     'message_ids':data['ids'],'remove_caption':True})
                 if len(copied)!=len(data['ids']):raise RuntimeError('Incomplete archive')
-                caption,entities=archive_caption(data['name'],data['uid'])
-                await self.api('editMessageCaption',{'chat_id':self.almacen,'message_id':copied[0]['message_id'],
-                    'caption':caption,'caption_entities':[{'type':'text_mention','offset':e.offset,'length':e.length,'user':{'id':data['uid'],'is_bot':False,'first_name':data['name']}} for e in entities]})
+                attribution=await archive_attribution(self,data['uid'],data['name'])
+                await self.api('editMessageCaption',{'chat_id':self.almacen,'message_id':copied[0]['message_id'],**attribution})
                 await self.repo.archive_state(job,'done')
             except asyncio.CancelledError:raise
             except Exception as exc:

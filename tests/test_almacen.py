@@ -22,17 +22,17 @@ class Archive(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'ALMACEN':'-100123456','DESCARGAS_DATA_DIR':directory}):
             service=Service();service.names[10]='Test User'
             from types import SimpleNamespace
-            service.api=AsyncMock(side_effect=[[{'message_id':501},{'message_id':502}],{}])
+            service.api=AsyncMock(side_effect=[[{'message_id':501},{'message_id':502}],{'username':'Test_User'},{}])
             try:
                 await service.archive(10,[SimpleNamespace(id=101),SimpleNamespace(id=102)])
-                copy,caption=service.api.call_args_list
+                copy,profile,caption=service.api.call_args_list
                 self.assertEqual(copy.args,('copyMessages',{'chat_id':-100123456,'from_chat_id':10,'message_ids':[101,102],'remove_caption':True}))
                 self.assertEqual(caption.args[1]['message_id'],501)
                 self.assertEqual(caption.args[1]['caption'],'Usuario: Test User\nTelegram ID: 10')
                 self.assertEqual(len(caption.args[1]['caption_entities']),2)
                 for entity in caption.args[1]['caption_entities']:
-                    self.assertEqual(entity['type'],'text_mention')
-                    self.assertEqual(entity['user']['id'],10)
+                    self.assertEqual(entity['type'],'text_link')
+                    self.assertEqual(entity['url'],'https://t.me/Test_User')
                 self.assertIsNone(service.bot)
             finally:await service.close()
     async def test_partial_album_does_not_claim_success(self):

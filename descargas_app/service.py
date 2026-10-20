@@ -407,15 +407,13 @@ class Service:
             return len(items)
 
     async def archive(self,uid,delivered):
-        caption,entities=archive_caption(self.names.get(uid,f'Usuario {uid}'),uid)
         # Bot API resolves destination IDs without a Telethon entity/access-hash cache.
         archived=await self.api('copyMessages',{'chat_id':self.almacen,'from_chat_id':uid,
             'message_ids':[item.id for item in delivered],'remove_caption':True})
         if len(archived)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
+        attribution=await archive_attribution(self,uid,self.names.get(uid,f'Usuario {uid}'))
         await self.api('editMessageCaption',{'chat_id':self.almacen,
-            'message_id':archived[0]['message_id'],'caption':caption,
-            'caption_entities':[{'type':'text_mention','offset':entity.offset,
-                'length':entity.length,'user':{'id':uid,'is_bot':False,'first_name':self.names.get(uid,f'Usuario {uid}')}} for entity in entities]})
+            'message_id':archived[0]['message_id'],**attribution})
 
     async def close(self):
         for task in self.tasks:task.cancel()
@@ -426,13 +424,25 @@ class Service:
         self.db.close()
 
 
-def archive_caption(name,uid):
+async def archive_attribution(service,uid,name):
+    username=None
+    try:
+        chat=await service.api('getChat',{'chat_id':uid})
+        if isinstance(chat,dict):username=chat.get('username')
+    except Exception as exc:
+        LOG.warning('Archive public profile unavailable (%s)',type(exc).__name__)
+    caption,entities=archive_caption(name,uid,username)
+    return {'caption':caption,'caption_entities':[{'type':'text_link','offset':e.offset,
+        'length':e.length,'url':e.url} for e in entities]}
+
+
+def archive_caption(name,uid,username=None):
     name=' '.join(name.split())[:128] or f'Usuario {uid}'
     prefix='Usuario: '
     middle='\nTelegram ID: '
     text=prefix+name+middle+str(uid)
     units=lambda value:len(value.encode('utf-16-le'))//2
-    url=f'tg://user?id={uid}'
+    url=f'https://t.me/{username}' if username and re.fullmatch(r'[A-Za-z0-9_]{1,32}',username) else f'tg://user?id={uid}'
     return text,[types.MessageEntityTextUrl(offset=units(prefix),length=units(name),url=url),
                  types.MessageEntityTextUrl(offset=units(prefix+name+middle),length=len(str(uid)),url=url)]
 

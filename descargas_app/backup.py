@@ -10,6 +10,7 @@ import base64
 import hmac
 import os
 import struct
+import time
 from telethon.tl.tlobject import TLObject
 from telethon import types
 from aiohttp import web
@@ -110,7 +111,38 @@ def mount_backup(app,service):
                         except Exception:pass
                 accounts.append(result)
             return web.json_response({'accounts':accounts},headers={'Cache-Control':'no-store'})
+        if op=='repair-attribution':
+            keys=data.get('keys',[]);uid=data.get('uid')
+            import re
+            if type(uid) is not int or not isinstance(keys,list) or not 1<=len(keys)<=10 or any(not isinstance(k,str) or not re.fullmatch('[a-f0-9]{64}',k) for k in keys):raise web.HTTPBadRequest()
+            from .service import archive_attribution
+            profile=await service.api('getChat',{'chat_id':uid})
+            name=' '.join((str(profile.get('first_name',''))+' '+str(profile.get('last_name',''))).split()) or 'Usuario'
+            result=[]
+            for key in keys:
+                row=await service.repo.pool.fetchrow('SELECT payload FROM descarga_backups WHERE key=$1 AND bot_id=$2',key,service.bot_id)
+                if not row:continue
+                payload=service.repo.decode(row['payload'])
+                if payload['uid']!=uid:raise web.HTTPForbidden()
+                attribution=await archive_attribution(service,uid,name)
+                edited=await service.api('editMessageCaption',{'chat_id':service.almacen,
+                    'message_id':payload['items'][0]['message_id'],**attribution})
+                result.append({'key':key,'message_id':payload['items'][0]['message_id'],
+                    'entities':[{'type':e['type'],'url':e.get('url')} for e in edited.get('caption_entities',[])]})
+            return web.json_response({'repaired':result},headers={'Cache-Control':'no-store'})
+        if op=='backup-control':
+            action=data.get('action','status')
+            if action=='pause':await service.repo.set_setting('backup_pause_until',time.time()+600)
+            elif action=='resume':
+                await service.repo.set_setting('backup_pause_until',0)
+                await service.repo.pool.execute("UPDATE descarga_backups SET available=0 WHERE state='queued' AND bot_id=$1",service.bot_id)
+            elif action!='status':raise web.HTTPBadRequest()
+            paused=float(await service.repo.setting('backup_pause_until') or 0)>time.time()
+            rows=await service.repo.pool.fetch('SELECT state,count(*) AS count FROM descarga_backups WHERE bot_id=$1 GROUP BY state',service.bot_id)
+            return web.json_response({'paused':paused,'counts':{row['state']:row['count'] for row in rows}},headers={'Cache-Control':'no-store'})
         if op=='claim':
+            if float(await service.repo.setting('backup_pause_until') or 0)>time.time():
+                return web.json_response({'job':None},headers={'Cache-Control':'no-store'})
             row=await service.repo.backup_claim(service.bot_id)
             result=None
             if row:
@@ -140,13 +172,15 @@ def mount_backup(app,service):
                         source=constructor(media.id,media.access_hash,media.file_reference,location['thumb'])
                 response=web.StreamResponse(headers={'Content-Type':'application/octet-stream','Cache-Control':'no-store'})
                 if item['size']:response.content_length=item['size']
-                iterator=bot.iter_download(source,request_size=512*1024,file_size=item['size'] or None)
+                iterator=aiter(bot.iter_download(source,request_size=512*1024,file_size=item['size'] or None))
                 # Fetch first chunk before sending headers, so auth/media errors return an HTTP failure.
                 try:
                     first=await anext(iterator)
                     await response.prepare(request)
                     await response.write(bytes(first));written=len(first)
-                    async for chunk in iterator:
+                    while True:
+                        try:chunk=await anext(iterator)
+                        except StopAsyncIteration:break
                         written+=len(chunk)
                         if item['size'] and written>item['size']:raise ValueError('Invalid backup size')
                         await response.write(bytes(chunk))
