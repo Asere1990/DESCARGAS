@@ -49,7 +49,7 @@ class Billing:
         if authorized(uid):return
         policy=await self.repo.policy(self.s.bot_id,uid,source)
         if policy['pay'] and await self.repo.member_until(self.s.bot_id,uid)<=time.time():raise PaymentRequired()
-    async def prompt(self,uid):
+    async def prompt(self,uid,message_id=None):
         from .moderation import authorized
         if authorized(uid):return await self.s.tell(uid,'✅ Acceso de administrador. No necesitas una membresía para descargar.')
         if await self.repo.member_until(self.s.bot_id,uid)>time.time():
@@ -69,7 +69,7 @@ class Billing:
             buttons.extend([[{'text':'🍎 PAGAR Apple/Google PAY','callback_data':'pay:stripe','style':'primary'}],
                 [{'text':'💳 PAGAR CON DÉBITO/CRÉDITO','callback_data':'pay:stripe','style':'primary'}]])
         extra='\n🍎𝐀𝐩𝐩𝐥𝐞/𝐆𝐨𝐨𝐠𝐥𝐞 𝐏𝐚𝐲: $6.99 USD mensuales.\n💳𝐃𝐞́𝐛𝐢𝐭𝐨/𝐂𝐫𝐞́𝐝𝐢𝐭𝐨: $6.99 USD mensuales.' if stripe_ready else ''
-        await self.s.api('sendMessage',{'chat_id':uid,'text':'💳 𝐀𝐂𝐓𝐈𝐕𝐀𝐑 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\n\n'
+        await self.s.api('editMessageText' if message_id else 'sendMessage',{'chat_id':uid,**({'message_id':message_id} if message_id else {}),'text':'💳 𝐀𝐂𝐓𝐈𝐕𝐀𝐑 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\n\n'
             '⭐️𝐓𝐞𝐥𝐞𝐠𝐫𝐚𝐦 𝐒𝐭𝐚𝐫𝐬: 500⭐ cada 30 días.'+extra+'\n\n'
             'Tu período de prueba ha expirado. Activa tu suscripción para continuar descargando contenido. Puedes cancelar la suscripción en cualquier momento.',
             'reply_markup':{'inline_keyboard':buttons}})
@@ -118,6 +118,13 @@ class Billing:
             if fresh:await self.s.tell(uid,'✅ SUSCRIPCIÓN ACTIVA\nTu acceso mensual está desbloqueado. Vuelve a enviar tus enlaces.\nPuedes gestionar o cancelar la renovación desde Telegram → Ajustes → Mis estrellas → Suscripciones.')
             return True
         query=update.get('callback_query',{})
+        if query.get('data')=='pay:methods':
+            uid=query['from']['id']
+            await self.s.api('answerCallbackQuery',{'callback_query_id':query['id']})
+            message=query.get('message',{})
+            if message.get('chat',{}).get('id')!=uid:return True
+            await self.prompt(uid,message.get('message_id'))
+            return True
         if query.get('data')=='pay:stripe':
             uid=query['from']['id']
             await self.s.api('answerCallbackQuery',{'callback_query_id':query['id']})
@@ -130,8 +137,9 @@ class Billing:
             link=os.environ.get('DESCARGAS_PAYMENT_LINK','')
             if not link:await self.s.tell(uid,'El pago con tarjeta no está disponible en este momento.');return True
             url=link+('&' if '?' in link else '?')+urlencode({'client_reference_id':intent['token']})
-            await self.s.api('sendMessage',{'chat_id':uid,'text':'💳𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈𝐎𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋\n\n𝐏𝐫𝐞𝐜𝐢𝐨: $6.99 USD/mes\n\nAl completar tu pago de forma segura, serás redirigido a la página de confirmación para activar tu suscripción inmediatamente.',
-                'reply_markup':{'inline_keyboard':[[{'text':'💳 CONTINUAR AL PAGO','url':url,'style':'success'}]]}})
+            payment_message_id=query.get('message',{}).get('message_id')
+            await self.s.api('editMessageText' if payment_message_id else 'sendMessage',{'chat_id':uid,**({'message_id':payment_message_id} if payment_message_id else {}),'text':'💳𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈𝐎𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋\n\n𝐏𝐫𝐞𝐜𝐢𝐨: $6.99 USD/mes\n\nAl completar tu pago de forma segura, serás redirigido a la página de confirmación para activar tu suscripción inmediatamente.',
+                'reply_markup':{'inline_keyboard':[[{'text':'💳 CONTINUAR AL PAGO','url':url,'style':'success'}],[{'text':'⬅️ CAMBIAR MÉTODO DE PAGO','callback_data':'pay:methods','style':'danger'}]]}})
             return True
         if message.get('chat',{}).get('type')=='private' and message.get('text','').strip()=='/suscripcion':
             uid=message['from']['id'];until=await self.repo.member_until(self.s.bot_id,uid)
