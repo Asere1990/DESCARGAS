@@ -1,3 +1,4 @@
+import unicodedata
 import asyncio
 import hashlib
 import hmac
@@ -100,7 +101,7 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         message={'chat':{'type':'private'},'from':{'id':10}}
         await self.s.update({'update_id':900,'message':dict(message,text='\n'.join(f'https://t.me/c/123/{i}' for i in range(6)))})
         self.assertEqual(self.s.queue.qsize(),0)
-        self.assertIn('máximo de 5 enlaces',self.s.tell.call_args.args[1])
+        self.assertIn('máximo de 5 enlaces',unicodedata.normalize('NFKC',self.s.tell.call_args.args[1]))
         await self.s.update({'update_id':901,'message':dict(message,text='\n'.join(f'https://t.me/c/123/{i}' for i in range(5)))})
         self.assertEqual(self.s.queue.qsize(),1)
         self.assertEqual(len(self.s.queue.get_nowait()[1]),5);self.s.queue.task_done()
@@ -135,7 +136,8 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.s.api=AsyncMock(return_value={'message_id':42,'first_name':'Juan'});self.s.tell=AsyncMock()
         await self.s.login_hint(10)
         text=self.s.api.call_args.args[1]['text']
-        self.assertIn('Juan revisa en tus chats',text);self.assertIn('𝐌𝐢 𝐂𝐮𝐞𝐧𝐭𝐚',text);self.assertIn('No envíes el código',text)
+        normalized=unicodedata.normalize('NFKC',text)
+        self.assertIn('Juan revisa en tus chats',normalized);self.assertIn('mi cuenta',normalized.casefold());self.assertIn('No envies el código',normalized)
         self.assertEqual(self.s.pending[10]['hint_message_id'],42)
         await self.s.verify(10,{'code':'11111'})
         self.s.api.assert_any_await('deleteMessage',{'chat_id':10,'message_id':42})

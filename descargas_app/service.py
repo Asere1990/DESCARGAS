@@ -8,6 +8,7 @@ import re
 import sqlite3
 import tempfile
 import time
+import unicodedata
 from urllib.parse import urlparse
 import aiohttp
 from cryptography.fernet import Fernet
@@ -54,7 +55,7 @@ def error_message(exc):
     if isinstance(exc,(errors.ChannelPrivateError,errors.ChatAdminRequiredError)):return 'Tu cuenta no tiene acceso a ese contenido.'
     if isinstance(exc,ValueError):
         allowed=('Envía ','Copia ','Acepta ','La cuenta ','Conecta ','El archivo ','El contenido ','El código ','No hay ','Espera ','Demasiadas ','La sesión ','El álbum ')
-        if str(exc).startswith(allowed):return str(exc)
+        if unicodedata.normalize('NFKC',str(exc)).startswith(allowed+('Crea ',)):return str(exc)
     return f'No se pudo completar la operación ({type(exc).__name__}).'
 
 
