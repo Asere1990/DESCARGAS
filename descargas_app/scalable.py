@@ -12,9 +12,12 @@ from telethon import errors
 from .service import Service,parse_link,error_message,archive_attribution
 from .billing import Billing,PaymentRequired
 from .pg_store import Repository
-from .moderation import SOURCE,DownloadBlocked,ensure_allowed,command as moderation_command
+from .protected import ProtectedSource
+from .moderation import authorized,SOURCE,DownloadBlocked,ensure_allowed,command as moderation_command
 from .media_cache import CURRENT_MEDIA,CACHE_ONLY,CacheMiss,deliver_cached,archive_once
 
+METRIC_SOURCE=ContextVar('metric_source',default=None)
+METRIC_NAME=ContextVar('metric_name',default=None)
 LOG=logging.getLogger(__name__)
 class TelegramDeliveryError(RuntimeError):
     pass
@@ -107,12 +110,15 @@ class ScaleService(Service):
                         await asyncio.sleep(exc.seconds+1)
                         self.state='starting'
                 LOG.warning('Scale startup role=worker phase=authorized')
-                self.tasks.extend(asyncio.create_task(self.work('slow')) for _ in range(self.concurrency))
-                self.tasks.extend(asyncio.create_task(self.work('fast')) for _ in range(self.fast_concurrency))
+                self.download_tasks=[asyncio.create_task(self.work('slow')) for _ in range(self.concurrency)]+[asyncio.create_task(self.work('fast')) for _ in range(self.fast_concurrency)]
+                self.tasks.extend(self.download_tasks)
                 self.tasks.append(asyncio.create_task(self.maintenance()))
                 self.tasks.append(asyncio.create_task(self.watch_config()))
                 self.tasks.append(asyncio.create_task(self.archive_loop()))
             elif self.role=='web':
+                from .admin_panel import AdminPanel
+                self.admin_panel=AdminPanel(self);await self.admin_panel.start()
+                self.tasks.append(asyncio.create_task(self.admin_backfill()))
                 await self.billing.configure()
                 self.tasks.append(asyncio.create_task(self.billing.maintenance()))
                 self.tasks.append(asyncio.create_task(self.poll()))
@@ -151,6 +157,7 @@ class ScaleService(Service):
 
     async def update(self,update):
         message=update.get('message',{})
+        if getattr(self,'admin_panel',None) and await self.admin_panel.update(update):return
         if await self.billing.update(update):return
         if await moderation_command(self,message):return
         if message.get('chat',{}).get('type')=='private' and not message.get('from',{}).get('is_bot'):
@@ -165,13 +172,14 @@ class ScaleService(Service):
                         peer,_=parse_link(link)
                         await ensure_allowed(self,uid,peer if isinstance(peer,int) else None)
                     result=await self.repo.enqueue(self.bot_id,update['update_id'],uid,links,name,
-                        int(os.environ.get('QUEUE_CAPACITY','10000')))
+                        int(os.environ.get('QUEUE_CAPACITY','10000')),priority=1 if authorized(uid) else 0)
                     if result in ('duplicate','queued'):return
                     messages={'busy':'Espera a que termine tu descarga anterior.',
                         'disconnected':'Conecta primero tu cuenta desde el botón.',
                         'full':'Demasiadas solicitudes en cola. Inténtalo después.'}
                     try:await self.tell(uid,messages[result],result=='disconnected')
                     except Exception:pass # Durable acceptance must not depend on acknowledgement delivery.
+                except ProtectedSource as exc:await self.tell(uid,str(exc))
                 except PaymentRequired:await self.billing.prompt(uid)
                 except DownloadBlocked:await self.tell(uid,'Bot fuera de servicio')
                 except ValueError as exc:await self.tell(uid,error_message(exc),True)
@@ -225,6 +233,7 @@ class ScaleService(Service):
             await self.repo.save_account(uid,client.session.save(),{'phone':pending['phone'],
                 'phone_country':phonenumbers.region_code_for_number(number) or 'ZZ',
                 'calling_code':number.country_code,'updated_at':int(time.time())})
+        await self.repo.remember_person(self.bot_id,uid,' '.join(filter(None,[getattr(me,'first_name',''),getattr(me,'last_name','')])),phonenumbers.region_code_for_number(number) or 'ZZ')
         await self.clear_pending(uid)
         try:await self.tell(uid,'✅ CUENTA CONECTADA\nAhora envía aquí enlaces de fotos, videos o álbumes.')
         except Exception:pass
@@ -257,11 +266,16 @@ class ScaleService(Service):
         await self.repo.pace('bot-send',0.06*count)
         await ensure_allowed(self,uid,SOURCE.get())
 
+    async def resolve(self,client,peer):
+        entity=await super().resolve(client,peer)
+        METRIC_NAME.set(getattr(entity,'title',None) or getattr(entity,'username',None))
+        return entity
+
     async def source_items(self,client,link):
         key,items=await super().source_items(client,link)
         job=CURRENT_JOB.get()
         if job:await ensure_allowed(self,job['uid'],key[0])
-        SOURCE.set(key[0])
+        SOURCE.set(key[0]);METRIC_SOURCE.set(key[0])
         return key,items
 
     async def deliver(self,uid,client,link,seen):
@@ -345,10 +359,11 @@ class ScaleService(Service):
                     seen={tuple(key) for key in payload.get('seen',[])};count=job['count']
                     requeued=False
                     for position in range(job['position'],len(payload['links'])):
+                        METRIC_SOURCE.set(None);METRIC_NAME.set(None)
                         async with asyncio.timeout(3600):
                             count+=await self.deliver(uid,client,payload['links'][position],seen)
                         payload['seen']=[list(key) for key in seen]
-                        await self.repo.checkpoint(job,position+1,count,payload)
+                        await self.repo.checkpoint(job,position+1,count,payload,source=METRIC_SOURCE.get(),source_name=METRIC_NAME.get())
                         if lane=='slow' and position+1<len(payload['links']):
                             await self.repo.reroute(job,'fast');requeued=True;break
                         if lane!='fast' and position+1<len(payload['links']):await asyncio.sleep(2)
@@ -357,8 +372,14 @@ class ScaleService(Service):
                     try:await self.tell(uid,f'✅ Terminado. {count} elemento(s) entregado(s).')
                     except Exception:pass
             except asyncio.CancelledError:
-                # Leave lease + durable phase for the recovery process; never replay uncertain sends.
+                try:
+                    await self.repo.pool.execute("UPDATE descarga_jobs SET state='queued',owner=NULL,heartbeat=NULL WHERE id=$1 AND owner=$2 AND state='preparing'",job['id'],job['owner'])
+                except Exception:pass
                 raise
+            except ProtectedSource as exc:
+                try:
+                    await self.repo.state(job,'cancelled');await self.tell(job['uid'],str(exc))
+                except Exception:pass
             except PaymentRequired:
                 try:
                     await self.repo.state(job,'cancelled')
@@ -384,6 +405,26 @@ class ScaleService(Service):
                 heartbeat.cancel();await asyncio.gather(heartbeat,return_exceptions=True)
                 if client:await client.disconnect()
                 self.names.pop(job['uid'],None);CURRENT_JOB.reset(marker);CACHE_ONLY.reset(cache_marker)
+
+    async def admin_backfill(self):
+        # Small batches, outside the update poll and download workers.
+        while not self.stopping:
+            try:
+                cursor_key=f'admin_profile_cursor:{self.bot_id}'
+                cursor=int(await self.repo.setting(cursor_key) or 0)
+                rows=await self.repo.pool.fetch('SELECT uid,profile FROM descarga_accounts WHERE profile IS NOT NULL AND uid>$1 ORDER BY uid LIMIT 100',cursor)
+                for row in rows:
+                    profile=self.repo.decode(row['profile'])
+                    await self.repo.remember_person(self.bot_id,row['uid'],country=profile.get('phone_country') or 'ZZ')
+                if rows:await self.repo.set_setting(cursor_key,rows[-1]['uid'])
+                jobs=await self.repo.pool.fetch("SELECT * FROM descarga_jobs j WHERE bot_id=$1 AND state='done' AND count>0 AND NOT EXISTS(SELECT 1 FROM descarga_delivery_events e WHERE e.job=j.id) ORDER BY created LIMIT 100",self.bot_id)
+                for job in jobs:
+                    payload=self.repo.decode(job['payload'])
+                    await self.repo.remember_person(self.bot_id,job['uid'],payload.get('name'))
+                    await self.repo.record_delivery(job,-1,job['count'])
+            except asyncio.CancelledError:raise
+            except Exception as exc:LOG.warning('Admin history paused (%s)',type(exc).__name__)
+            await asyncio.sleep(30)
 
     async def watch_config(self):
         while True:
@@ -424,6 +465,10 @@ class ScaleService(Service):
 
     async def close(self):
         self.stopping=True
+        downloads=getattr(self,'download_tasks',[])
+        if downloads:
+            await asyncio.wait(downloads,timeout=min(240,max(0,float(os.environ.get('DOWNLOAD_DRAIN_SECONDS','20')))))
+        if getattr(self,'admin_panel',None):await self.admin_panel.close()
         if getattr(self,'backup_bot',None):await self.backup_bot.disconnect()
         await super().close()
         if self.repo.pool:await asyncio.wait_for(self.repo.close(),20)

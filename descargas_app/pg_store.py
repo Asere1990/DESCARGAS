@@ -7,6 +7,7 @@ import time
 import uuid
 import asyncpg
 from .billing_store import BillingRepository,SCHEMA as BILLING_SCHEMA
+from .admin_store import AdminRepository,SCHEMA as ADMIN_SCHEMA
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS descarga_blocks(
@@ -43,9 +44,9 @@ CREATE TABLE IF NOT EXISTS descarga_backups(
 CREATE INDEX IF NOT EXISTS descarga_backup_pending ON descarga_backups(bot_id,available) WHERE state<>'done';
 '''
 
-SCHEMA+=BILLING_SCHEMA
+SCHEMA+=BILLING_SCHEMA+ADMIN_SCHEMA
 
-class Repository(BillingRepository):
+class Repository(BillingRepository,AdminRepository):
     def __init__(self,url,cipher,pool_size=10):
         self.url=url;self.cipher=cipher;self.pool_size=pool_size;self.pool=None
         self.owner=uuid.uuid4().hex
@@ -144,7 +145,7 @@ class Repository(BillingRepository):
             await conn.execute('SELECT pg_advisory_lock($1)',-bot_id)
             try:yield
             finally:await conn.execute('SELECT pg_advisory_unlock($1)',-bot_id)
-    async def enqueue(self,bot_id,update_id,uid,links,name,limit=10000):
+    async def enqueue(self,bot_id,update_id,uid,links,name,limit=10000,priority=0):
         async with self.pool.acquire() as conn,conn.transaction():
             await conn.execute('SELECT pg_advisory_xact_lock(0)')
             if await conn.fetchval('SELECT 1 FROM descarga_jobs WHERE bot_id=$1 AND update_id=$2',bot_id,update_id):return 'duplicate'
@@ -155,14 +156,15 @@ class Repository(BillingRepository):
             # A routing hint is never access authorization. Workers still fetch the
             # source with the requester's session before delivering cached media.
             known=await conn.fetchval("SELECT 1 FROM descarga_media_routes r LEFT JOIN descarga_media_cache c ON c.key=r.media_key LEFT JOIN descarga_private_cache p ON p.key=r.media_key WHERE r.key=$1 AND (c.state='ready' OR p.key IS NOT NULL)",self.route_key(bot_id,links[0]))
-            await conn.execute('''INSERT INTO descarga_jobs(id,bot_id,update_id,uid,generation,payload,created,lane)
-                VALUES($1,$2,$3,$4,$5,$6,$7,$8)''',uuid.uuid4().hex,bot_id,update_id,uid,account['generation'],
-                self.encode({'links':links,'name':name,'seen':[]}),time.time(),'fast' if known else 'slow')
+            await conn.execute('''INSERT INTO descarga_jobs(id,bot_id,update_id,uid,generation,payload,created,lane,priority)
+                VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)''',uuid.uuid4().hex,bot_id,update_id,uid,account['generation'],
+                self.encode({'links':links,'name':name,'seen':[]}),time.time(),'fast' if known else 'slow',priority)
+            await conn.execute('INSERT INTO descarga_directory(bot_id,uid,name) VALUES($1,$2,$3) ON CONFLICT(bot_id,uid) DO UPDATE SET name=excluded.name',bot_id,uid,self.encode({'name':name}))
             return 'queued'
     async def claim(self,bot_id,lane=None):
         return await self.pool.fetchrow('''WITH candidate AS (
             SELECT id FROM descarga_jobs WHERE state='queued' AND bot_id=$1 AND ($4::text IS NULL OR lane=$4)
-            ORDER BY created FOR UPDATE SKIP LOCKED LIMIT 1)
+            ORDER BY priority DESC,created FOR UPDATE SKIP LOCKED LIMIT 1)
             UPDATE descarga_jobs j SET state='preparing',owner=$2,heartbeat=$3
             FROM candidate c WHERE j.id=c.id RETURNING j.*''',bot_id,uuid.uuid4().hex,time.time(),lane)
     async def reroute(self,job,lane):
@@ -174,9 +176,14 @@ class Repository(BillingRepository):
     async def state(self,job,state):
         result=await self.pool.execute('UPDATE descarga_jobs SET state=$3,heartbeat=$4 WHERE id=$1 AND owner=$2',job['id'],job['owner'],state,time.time())
         if result!='UPDATE 1':raise RuntimeError('Lost job ownership')
-    async def checkpoint(self,job,position,count,payload):
-        result=await self.pool.execute("UPDATE descarga_jobs SET position=$3,count=$4,payload=$5,state='preparing',heartbeat=$6 WHERE id=$1 AND owner=$2",job['id'],job['owner'],position,count,self.encode(payload),time.time())
-        if result!='UPDATE 1':raise RuntimeError('Lost job ownership')
+    async def checkpoint(self,job,position,count,payload,source=0,source_name=None):
+        async with self.pool.acquire() as conn,conn.transaction():
+            old=await conn.fetchrow('SELECT count,position FROM descarga_jobs WHERE id=$1 AND owner=$2 FOR UPDATE',job['id'],job['owner'])
+            if not old:raise RuntimeError('Lost job ownership')
+            await conn.execute("UPDATE descarga_jobs SET position=$3,count=$4,payload=$5,state='preparing',heartbeat=$6 WHERE id=$1 AND owner=$2",job['id'],job['owner'],position,count,self.encode(payload),time.time())
+            await self.record_delivery_on(conn,job,position-1,count-old['count'],source)
+            if source and source_name:
+                await conn.execute('UPDATE descarga_source_totals SET name=$3 WHERE bot_id=$1 AND source=$2',job['bot_id'],source,self.encode({'name':source_name}))
     async def recover(self):
         # No automatic replay after sending starts: Telegram may already have accepted it.
         async with self.pool.acquire() as conn,conn.transaction():

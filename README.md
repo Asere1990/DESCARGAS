@@ -101,3 +101,18 @@ Los miembros activos ven la fecha `DD-Mes-AAAA` en español (zona America/New_Yo
 El webhook recibe charge.dispute.created y guarda la disputa para resolverla contra el cargo, factura y suscripción vinculados al Telegram ID. El bloqueo permanente se almacena aparte y /unban no lo elimina. Se reintenta si falta la clave o aún no existe la vinculación; el webhook nunca asigna una disputa por coincidencia de nombre/email. Solo se afectan las suscripciones de DESCARGAS.
 
 Los reembolsos de Stars confirmados por Telegram mediante refunded_payment también crean un bloqueo permanente. Se comprueba el recibo y su propietario, incluidas renovaciones; pedir información o cancelar la renovación no genera ese bloqueo.
+
+
+### Panel de administradores y estadísticas
+
+Solo los IDs de `admins.txt` pueden consultar `/datos`, `/usuario[s]`, `/grupo[s]`, `/telefono[s] país` y `/comando[s]`, en privado o en ALMACEN. Cada listado de usuarios queda asociado durante 15 minutos a ese administrador y a ese chat; enviar el número de fila abre la ficha con los datos disponibles. No se exponen sesiones ni credenciales. Los nombres son menciones de Telegram y los países se infieren del teléfono (no geolocalización).
+
+Los contadores permanentes se actualizan de forma idempotente junto al checkpoint de entrega, cuentan archivos entregados y también los aciertos de caché. El histórico recuperable de trabajos terminados se incorpora en lotes de 100; no se inventan orígenes que no se guardaron antes. La información anterior puede ser parcial. Los nombres de grupos/canales se toman de la entidad que devuelve Telegram cuando está disponible. Las ganancias son cobros brutos conocidos del bot, sin comisiones/impuestos/disputas de Stripe y sin convertir Stars a USD.
+
+El panel corre fuera del polling y de las colas de descarga: dos consultas concurrentes, máximo 20 pendientes, pool propio de dos conexiones y timeout SQL de cinco segundos. Las consultas son acotadas y los rankings tienen índices. Los admins tienen prioridad dentro de las colas rápida/lenta; no interrumpen envíos que ya comenzaron. No se aumentaron workers ni costes.
+
+`protegidos` contiene un ID canónico por línea (`-100...`), permite comentarios `#` y se aplica en admisión, resolución del origen y antes de cada entrega, también con caché. El archivo se distribuye con el código. No hay excepciones para administradores.
+
+Los workers dejan de tomar trabajos al recibir SIGTERM y esperan hasta 20 segundos por las descargas activas (`DOWNLOAD_DRAIN_SECONDS`, máximo 240). Se reencolan inmediatamente los trabajos cuya fase todavía permite reintento seguro; no se repiten automáticamente los envíos ambiguos. Para ampliar esa espera, el tiempo de apagado de Render debe ser mayor que DOWNLOAD_DRAIN_SECONDS. Mantener PostgreSQL y despliegues con solapamiento, sin disco adjunto al servicio. No se garantiza ausencia absoluta de interrupciones en subidas largas, fallos de red o cambios incompatibles; los envíos ambiguos siguen en revisión para evitar duplicados.
+
+Compatibilidad actual de enlaces: `https://t.me/usuario_publico/123` y `https://t.me/c/123456/789` para grupos/canales a los que la cuenta conectada tenga acceso. No se aceptan invitaciones ni enlaces a conversaciones individuales, Mensajes guardados o enlaces específicos de temas/comentarios. Se admiten fotos, videos, álbumes y documentos según el tipo y los límites configurados; no es garantía de que toda variante de contenido sea descargable. El contenido de Stars solo se procesa si la cuenta solicitante ya tiene acceso a la compra.

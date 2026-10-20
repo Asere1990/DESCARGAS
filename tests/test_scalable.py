@@ -18,6 +18,26 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service.tell=AsyncMock();self.service.repo.is_blocked=AsyncMock(return_value=False);self.service.repo.policy=AsyncMock(return_value={'pay':False,'locked':False})
     async def asyncTearDown(self):
         await self.service.close();self.env.stop();self.directory.cleanup()
+    async def test_admin_download_gets_queue_priority(self):
+        self.service.repo.enqueue=AsyncMock(return_value='queued')
+        await self.service.update({'update_id':900,'message':{'chat':{'type':'private'},'from':{'id':1609522430},'text':'https://t.me/c/123/5'}})
+        self.assertEqual(self.service.repo.enqueue.call_args.kwargs['priority'],1)
+
+    async def test_protected_source_rejected_before_enqueue(self):
+        from descargas_app.protected import MESSAGE
+        self.service.repo.enqueue=AsyncMock()
+        with patch('descargas_app.protected.sources',return_value={-100123}):
+            await self.service.update({'update_id':901,'message':{'chat':{'type':'private'},'from':{'id':10},'text':'https://t.me/c/123/5'}})
+        self.service.repo.enqueue.assert_not_awaited()
+        self.service.tell.assert_awaited_once_with(10,MESSAGE)
+
+    async def test_graceful_shutdown_finishes_short_active_download(self):
+        done=asyncio.Event()
+        async def active():await asyncio.sleep(0.01);done.set()
+        task=asyncio.create_task(active());self.service.download_tasks=[task]
+        await self.service.close()
+        self.assertTrue(done.is_set());self.assertFalse(task.cancelled())
+
     async def test_private_request_bound_to_sender(self):
         self.service.repo.enqueue=AsyncMock(return_value='queued')
         await self.service.update({'update_id':555,'message':{'chat':{'type':'private'},'from':{'id':10,'first_name':'Test'},'text':'https://t.me/c/123/5'}})
