@@ -55,7 +55,8 @@ def error_message(exc):
     if isinstance(exc,(errors.ChannelPrivateError,errors.ChatAdminRequiredError)):return 'Tu cuenta no tiene acceso a ese contenido.'
     if isinstance(exc,ValueError):
         allowed=('Envía ','Copia ','Acepta ','La cuenta ','Conecta ','El archivo ','El contenido ','El código ','No hay ','Espera ','Demasiadas ','La sesión ','El álbum ')
-        if unicodedata.normalize('NFKC',str(exc)).startswith(allowed+('Crea ',)):return str(exc)
+        plain=lambda value: ''.join(c for c in unicodedata.normalize('NFKD',value) if not unicodedata.combining(c))
+        if plain(str(exc)).startswith(tuple(plain(value) for value in allowed+('Crea ',))):return str(exc)
     return f'No se pudo completar la operación ({type(exc).__name__}).'
 
 
