@@ -307,7 +307,7 @@ class Service:
         try:
             message=await self.api('sendMessage',{'chat_id':uid,'text':
                 '🔐 CONTINÚA EN MI CUENTA\n\n'
-                'Cuando recibas el código de 5 cifras de Telegram, toca «Mi cuenta», abajo a la izquierda, e introdúcelo en la ventana que se abre.\n\n'
+                'Cuando recibas el código de 5 cifras de Telegram, toca «𝐌𝐢 𝐂𝐮𝐞𝐧𝐭𝐚», abajo a la izquierda, e introdúcelo en la ventana que se abre.\n\n'
                 'No envíes el código como mensaje en este chat. Este aviso desaparecerá cuando tu cuenta quede conectada.'})
             pending['hint_message_id']=message['message_id']
         except Exception:
