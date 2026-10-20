@@ -80,6 +80,12 @@ class Billing:
             await self.s.api('answerPreCheckoutQuery',{'pre_checkout_query_id':pre['id'],'ok':ok,**({} if ok else {'error_message':'Este pago no corresponde a tu cuenta o ya tienes una suscripción activa.'})})
             return True
         message=update.get('message',{})
+        refund=message.get('refunded_payment')
+        if refund:
+            if refund.get('currency')=='XTR' and refund.get('total_amount',0)>0 and refund.get('telegram_payment_charge_id'):
+                uid=await self.repo.refund_stars(self.s.bot_id,refund.get('invoice_payload',''),refund['telegram_payment_charge_id'])
+                if uid:await self.s.tell(uid,'Bot fuera de servicio')
+            return True
         from .subscription_actions import menu,cancel
         query=update.get('callback_query',{})
         if query.get('data') in ('membership:cancel','membership:confirm'):

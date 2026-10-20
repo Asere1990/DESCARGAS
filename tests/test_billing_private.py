@@ -54,6 +54,12 @@ class BillingTests(unittest.IsolatedAsyncioTestCase):
         await enrich_rows(NS(repo=repo),client,[{'invoice':'in_test','payload':b'encrypted'}])
         self.assertIn('available=',repo.pool.execute.call_args.args[0])
 
+    async def test_refunded_stars_uses_verified_receipt_owner_not_sender(self):
+        s=self.service();s.repo.refund_stars=AsyncMock(return_value=10)
+        await s.billing.update({'message':{'from':{'id':999},'refunded_payment':{'currency':'XTR','total_amount':500,'invoice_payload':'d_own','telegram_payment_charge_id':'charge'}}})
+        s.repo.refund_stars.assert_awaited_once_with(123,'d_own','charge')
+        s.tell.assert_awaited_once_with(10,'Bot fuera de servicio')
+
     def test_signature_rejects_tampering_and_expiry(self):
         raw=json.dumps({'id':'evt','created':1000}).encode();signature=hmac.new(b'only-test',b'1000.'+raw,hashlib.sha256).hexdigest()
         self.assertEqual(verified_event(raw,'t=1000,v1='+signature,'only-test',now=1000)['id'],'evt')

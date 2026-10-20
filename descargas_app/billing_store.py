@@ -3,6 +3,7 @@ import time
 import secrets
 
 SCHEMA='''
+CREATE TABLE IF NOT EXISTS descarga_star_receipts(bot_id BIGINT NOT NULL,charge TEXT NOT NULL,uid BIGINT NOT NULL,token TEXT NOT NULL,PRIMARY KEY(bot_id,charge));
 CREATE TABLE IF NOT EXISTS descarga_disputes(id TEXT PRIMARY KEY,charge TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',available DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS descarga_dispute_blocks(bot_id BIGINT NOT NULL,uid BIGINT NOT NULL,dispute TEXT NOT NULL,PRIMARY KEY(bot_id,uid,dispute));
 CREATE TABLE IF NOT EXISTS descarga_policies(bot_id BIGINT NOT NULL,target BIGINT NOT NULL,pay BOOLEAN NOT NULL DEFAULT FALSE,locked BOOLEAN NOT NULL DEFAULT FALSE,actor BIGINT NOT NULL,PRIMARY KEY(bot_id,target));
@@ -43,11 +44,23 @@ class BillingRepository:
             row=await c.fetchrow("SELECT * FROM descarga_payment_intents WHERE token=$1 AND bot_id=$2 AND uid=$3 AND provider='stars' FOR UPDATE",token,bot_id,uid)
             if not row:raise ValueError('Invalid payment owner')
             fresh=await c.fetchval("INSERT INTO descarga_payment_events VALUES('stars',$1) ON CONFLICT DO NOTHING RETURNING id",charge)
+            await c.execute('INSERT INTO descarga_star_receipts VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',bot_id,charge,uid,token)
             if not fresh:return False
             subscription=row['subscription'] or charge
             await c.execute('UPDATE descarga_payment_intents SET subscription=$2 WHERE token=$1',token,subscription)
             await c.execute("INSERT INTO descarga_memberships(bot_id,uid,provider,subscription,paid_until,state,changed) VALUES($1,$2,'stars',$3,$4,'active',$5) ON CONFLICT(bot_id,provider,subscription) DO UPDATE SET paid_until=GREATEST(descarga_memberships.paid_until,excluded.paid_until),state='active'",bot_id,uid,subscription,until,time.time())
             return True
+    async def refund_stars(self,bot_id,token,charge):
+        async with self.pool.acquire() as c,c.transaction():
+            row=await c.fetchrow("SELECT uid,subscription FROM descarga_payment_intents WHERE bot_id=$1 AND token=$2 AND provider='stars' FOR UPDATE",bot_id,token)
+            if not row or not row['subscription']:return None
+            owner=await c.fetchval('SELECT uid FROM descarga_star_receipts WHERE bot_id=$1 AND charge=$2 AND token=$3',bot_id,charge,token)
+            if owner is None and row['subscription']==charge:owner=row['uid']
+            if owner!=row['uid']:return None
+            await c.execute('INSERT INTO descarga_dispute_blocks VALUES($1,$2,$3) ON CONFLICT DO NOTHING',bot_id,owner,'stars:'+charge)
+            await c.execute("UPDATE descarga_memberships SET state='refunded' WHERE bot_id=$1 AND uid=$2 AND provider='stars' AND subscription=$3",bot_id,owner,row['subscription'])
+            return owner
+
     async def stripe_event(self,event,checkout=None,period=None,state=None,require_group=False):
         async with self.pool.acquire() as c,c.transaction():
             # Event ordering and invoice-before-checkout are handled in one transaction.
