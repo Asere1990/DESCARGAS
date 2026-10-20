@@ -226,7 +226,7 @@ class Service:
         text=message.get('text','').strip()
         if text.startswith('/start') or text.split('@',1)[0]=='/mi_cuenta':
             if await self.get_session(uid):
-                await self.tell(uid,'✅ 𝘾𝙐𝙀𝙉𝙏𝘼 𝘾𝙍𝙀𝘼𝘿𝘼\n\𝙀𝙣𝙫𝙞𝙖 𝙖𝙦𝙪𝙞 𝙝𝙖𝙨𝙩𝙖 5 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙙𝙚 𝙛𝙤𝙩𝙤𝙨, 𝙫𝙞𝙙𝙚𝙤𝙨, 𝙖𝙡𝙗𝙪𝙢𝙨, 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨. 𝙍𝙚𝙘𝙪𝙚𝙧𝙙𝙖, 𝙪𝙣 𝙢𝙖́𝙭𝙞𝙢𝙤 𝙙𝙚 5 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙥𝙤𝙧 𝙢𝙚𝙣𝙨𝙖𝙟𝙚.',True)
+                await self.tell(uid,"👤𝐂𝐔𝐄𝐍𝐓𝐀 𝐂𝐑𝐄𝐀𝐃𝐀\nEnvía a este chat hasta 5 enlaces de fotos, videos, albums o archivos en un mensaje. Recuerda, un máximo 5 enlaces por mensaje.",True)
                 return
             await self.tell(uid,"📥𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\n\n𝘾𝙧𝙚𝙖 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙥𝙖𝙧𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙛𝙤𝙩𝙤𝙨, 𝙫𝙞𝙙𝙚𝙤𝙨, 𝙖𝙡𝙗𝙪𝙢𝙨, 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨 𝙤 𝙜𝙞𝙛𝙨 𝙙𝙚 𝙜𝙧𝙪𝙥𝙤𝙨, 𝙘𝙖𝙣𝙖𝙡𝙚𝙨 𝙤 𝙗𝙤𝙩𝙨 𝙖𝙪𝙣𝙦𝙪𝙚 𝙩𝙚𝙣𝙜𝙖𝙣 𝙧𝙚𝙨𝙩𝙧𝙞𝙘𝙘𝙞𝙤́𝙣 𝙙𝙚 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙨. 𝘾𝙪𝙖𝙣𝙙𝙤 𝙩𝙚𝙧𝙢𝙞𝙣𝙚𝙨 𝙙𝙚 𝙘𝙧𝙚𝙖𝙧 𝙡𝙖 𝙘𝙪𝙚𝙣𝙩𝙖, 𝙨𝙤𝙡𝙤 𝙚𝙣𝙫𝙞𝙖 𝙚𝙡 𝙚𝙣𝙡𝙖𝙘𝙚 𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙖𝙦𝙪𝙞 𝙥𝙖𝙧𝙖 𝙙𝙚𝙫𝙤𝙡𝙫𝙚𝙧𝙩𝙚 𝙚𝙡 𝙖𝙧𝙘𝙝𝙞𝙫𝙤 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙙𝙤 𝙚𝙣 𝙨𝙚𝙜𝙪𝙣𝙙𝙤𝙨.",True)
         elif text=='/estado':
