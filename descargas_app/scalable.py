@@ -113,6 +113,8 @@ class ScaleService(Service):
                 self.tasks.append(asyncio.create_task(self.watch_config()))
                 self.tasks.append(asyncio.create_task(self.archive_loop()))
             elif self.role=='web':
+                await self.billing.configure()
+                self.tasks.append(asyncio.create_task(self.billing.maintenance()))
                 self.tasks.append(asyncio.create_task(self.poll()))
                 self.tasks.append(asyncio.create_task(self.expire()))
             else:raise ValueError('Invalid DESCARGAS_ROLE')
@@ -131,12 +133,12 @@ class ScaleService(Service):
                     key=f'offset:{self.bot_id}'
                     saved=await self.repo.setting(key)
                     if saved is None:
-                        last=await self.api('getUpdates',{'offset':-1,'timeout':0,'allowed_updates':['message','callback_query','pre_checkout_query']})
+                        last=await self.api('getUpdates',{'offset':-1,'timeout':0,'allowed_updates':['message','callback_query','pre_checkout_query','chat_member']})
                         offset=last[-1]['update_id']+1 if last else 0
                         await self.repo.set_setting(key,offset)
                     else:offset=int(saved)
                     while not self.stopping:
-                        updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','callback_query','pre_checkout_query']})
+                        updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','callback_query','pre_checkout_query','chat_member']})
                         for update in updates:
                             # Offset advances only after persistent acceptance. Duplicate update IDs are safe.
                             try:await self.update(update)

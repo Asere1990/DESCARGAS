@@ -1,4 +1,5 @@
 """Monthly subscriptions: Telegram receipts and signed Stripe lifecycle events."""
+import asyncio
 import calendar
 from datetime import datetime,timezone
 import hashlib
@@ -39,6 +40,10 @@ def line_price(line):
 
 class Billing:
     def __init__(self,service):self.s=service;self.repo=service.repo
+    async def configure(self):
+        config={'url':os.environ.get('DESCARGAS_PAYMENT_LINK',''),'group':int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0')),
+            'ready':bool(os.environ.get('DESCARGAS_PAYMENT_LINK') and os.environ.get('DESCARGAS_STRIPE_WEBHOOK_SECRET') and os.environ.get('DESCARGAS_STRIPE_PRICE_ID') and os.environ.get('DESCARGAS_STRIPE_LINK_ID'))}
+        await self.repo.set_setting('payment_config',json.dumps(config))
     async def require(self,uid,source=None):
         policy=await self.repo.policy(self.s.bot_id,uid,source)
         if policy['pay'] and await self.repo.member_until(self.s.bot_id,uid)<=time.time():raise PaymentRequired()
@@ -54,7 +59,8 @@ class Billing:
                 'provider_token':'','subscription_period':PERIOD})
             await self.repo.invoice_url(intent['token'],url)
         buttons=[[{'text':'⭐️ PAGAR CON STARS','url':url,'style':'success'}]]
-        stripe_ready=bool(os.environ.get('DESCARGAS_PAYMENT_LINK'))
+        config=json.loads(await self.repo.setting('payment_config') or '{}')
+        stripe_ready=bool(config.get('ready'))
         if stripe_ready:
             buttons.extend([[{'text':'🍎 PAGAR Apple/Google PAY','callback_data':'pay:stripe','style':'primary'}],
                 [{'text':'💳 PAGAR CON DÉBITO/CRÉDITO','callback_data':'pay:stripe','style':'primary'}]])
@@ -64,6 +70,7 @@ class Billing:
             'Suscripción personal con renovación automática. Puedes cancelarla antes de la próxima renovación. Una suscripción activa desbloquea las descargas que requieren pago.',
             'reply_markup':{'inline_keyboard':buttons}})
     async def update(self,update):
+        if await self.group_update(update):return True
         pre=update.get('pre_checkout_query')
         if pre:
             uid=pre['from']['id'];row=await self.repo.intent(pre.get('invoice_payload',''))
@@ -93,7 +100,7 @@ class Billing:
             link=os.environ.get('DESCARGAS_PAYMENT_LINK','')
             if not link:await self.s.tell(uid,'El pago con tarjeta no está disponible en este momento.');return True
             url=link+('&' if '?' in link else '?')+urlencode({'client_reference_id':intent['token']})
-            await self.s.api('sendMessage',{'chat_id':uid,'text':'💳 𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈Ó𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋\n\n$6.99 USD al mes, con renovación automática. El acceso se activa al confirmar Stripe el pago.',
+            await self.s.api('sendMessage',{'chat_id':uid,'text':'💳 𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈Ó𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋\n\n$6.99 USD al mes, con renovación automática. Después del pago, Stripe te llevará al grupo de confirmación para vincular tu Telegram ID y activar el acceso mensual.',
                 'reply_markup':{'inline_keyboard':[[{'text':'💳 CONTINUAR AL PAGO','url':url,'style':'success'}]]}})
             return True
         if message.get('chat',{}).get('type')=='private' and message.get('text','').strip()=='/suscripcion':
@@ -114,7 +121,11 @@ class Billing:
             if obj.get('mode')!='subscription' or object_id(obj.get('payment_link'))!=link or obj.get('payment_status')!='paid' or obj.get('currency')!='usd' or obj.get('amount_total')!=699:return None
             sub=object_id(obj.get('subscription'));token=obj.get('client_reference_id','')
             if not sub or not token.startswith('d_'):return None
-            return await self.repo.stripe_event(event,checkout=(token,sub,next_month(obj.get('created',event['created']))))
+            uid=await self.repo.stripe_event(event,checkout=(token,sub,next_month(obj.get('created',event['created']))),require_group=bool(int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))))
+            if uid:
+                await self.repo.queue_buyer(object_id(obj.get('invoice')) or obj['id'],self.s.bot_id,uid,{'session_id':obj['id'],'invoice_id':object_id(obj.get('invoice')),'subscription_id':sub,'customer_id':object_id(obj.get('customer')),'name':(obj.get('customer_details') or {}).get('name'),'email':(obj.get('customer_details') or {}).get('email'),'billing_address':(obj.get('customer_details') or {}).get('address')})
+                await self.try_confirm_group(uid)
+            return uid
         if kind in ('invoice.paid','invoice.payment_failed'):
             lines=[line for line in obj.get('lines',{}).get('data',[]) if line_price(line)==price]
             sub=invoice_subscription(obj)
@@ -123,10 +134,65 @@ class Billing:
             if obj.get('status')!='paid' or obj.get('currency')!='usd' or obj.get('amount_paid',0)<699:return None
             until=max(line.get('period',{}).get('end',0) for line in lines)
             if not until:return None
-            return await self.repo.stripe_event(event,period=(sub,obj['id'],until))
+            uid=await self.repo.stripe_event(event,period=(sub,obj['id'],until))
+            if uid:await self.repo.queue_buyer(obj['id'],self.s.bot_id,uid,{'invoice_id':obj['id'],'subscription_id':sub,'customer_id':object_id(obj.get('customer')),'name':obj.get('customer_name'),'email':obj.get('customer_email'),'billing_address':obj.get('customer_address')})
+            return uid
         if kind.startswith('customer.subscription.'):
             if not any(object_id(i.get('price'))==price for i in obj.get('items',{}).get('data',[])):return None
             return await self.repo.stripe_event(event,state=(obj['id'],obj.get('status','canceled')))
+
+    async def try_confirm_group(self,uid):
+        group=int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))
+        if not group:return
+        try:
+            member=await self.s.api('getChatMember',{'chat_id':group,'user_id':uid})
+            if member.get('status') in ('member','administrator','creator') or member.get('is_member'):
+                await self.repo.confirm_payment_join(self.s.bot_id,uid)
+        except Exception:pass
+    async def group_update(self,update):
+        group=int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))
+        if not group:return False
+        message=update.get('message',{});change=update.get('chat_member',{})
+        users=[]
+        if message.get('chat',{}).get('id')==group:users=message.get('new_chat_members',[])
+        elif change.get('chat',{}).get('id')==group:
+            member=change.get('new_chat_member',{})
+            old=change.get('old_chat_member',{})
+            if member.get('status') in ('member','administrator','creator') and old.get('status') in ('left','kicked','restricted'):
+                users=[member.get('user',{})]
+        if not users:return False
+        for user in users:
+            if user.get('is_bot') or not user.get('id'):continue
+            uid=user['id']
+            if not await self.repo.confirm_payment_join(self.s.bot_id,uid):continue
+            if await self.repo.member_until(self.s.bot_id,uid)>time.time():
+                await self.s.tell(uid,'✅ Pago y Telegram ID vinculados. Tu suscripción mensual está activa. Vuelve a enviar tus enlaces aquí.')
+                try:
+                    me=await self.s.api('getMe',{})
+                    await self.s.api('sendMessage',{'chat_id':group,'text':'✅ SUSCRIPCIÓN ACTIVADA\nTu pago quedó vinculado a tu cuenta. Puedes volver a DESCARGAS. Saldrás de este grupo automáticamente en cinco minutos.',
+                        'ephemeral_message_parameters':{'receiver_user_id':uid},
+                        'reply_markup':{'inline_keyboard':[[{'text':'✅ IR A DESCARGAS','url':'https://t.me/'+me['username'],'style':'success'}]]}})
+                except Exception:pass
+            else:await self.s.tell(uid,'Estamos esperando la confirmación del pago de Stripe. La entrada al grupo por sí sola no activa la suscripción.')
+        return True
+    async def maintenance(self):
+        from .buyer_profiles import enrich_pending
+        while not self.s.stopping:
+            try:
+                group=int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))
+                if group:
+                    rows=await self.repo.pool.fetch('SELECT uid FROM descarga_payment_joins WHERE bot_id=$1 AND remove_after<$2 AND removed=FALSE LIMIT 20',self.s.bot_id,time.time())
+                    for row in rows:
+                        uid=row['uid']
+                        member=await self.s.api('getChatMember',{'chat_id':group,'user_id':uid})
+                        if member.get('status') not in ('creator','administrator'):
+                            await self.s.api('banChatMember',{'chat_id':group,'user_id':uid})
+                            await self.s.api('unbanChatMember',{'chat_id':group,'user_id':uid,'only_if_banned':True})
+                        await self.repo.pool.execute('UPDATE descarga_payment_joins SET removed=TRUE WHERE bot_id=$1 AND uid=$2',self.s.bot_id,uid)
+                await enrich_pending(self.s)
+            except asyncio.CancelledError:raise
+            except Exception:pass
+            await asyncio.sleep(15)
 
 def mount_payments(app,service):
     async def webhook(request):
@@ -136,7 +202,9 @@ def mount_payments(app,service):
         except (ValueError,TypeError):return web.Response(status=400,text='Invalid event')
         uid=await service.billing.stripe(event)
         if uid:
-            try:await service.tell(uid,'✅ Pago mensual confirmado. Tu acceso está desbloqueado. Vuelve a enviar tus enlaces.')
+            try:
+                active=await service.repo.member_until(service.bot_id,uid)>time.time()
+                await service.tell(uid,'✅ Pago mensual confirmado. Tu acceso está desbloqueado. Vuelve a enviar tus enlaces.' if active else '✅ Pago confirmado. Entra al grupo intermedio para terminar de vincular tu Telegram ID: '+os.environ.get('DESCARGAS_PAYMENT_GROUP_LINK',''))
             except Exception:pass
         return web.json_response({'received':True})
     app.router.add_post('/payments/stripe',webhook)

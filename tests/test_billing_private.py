@@ -8,7 +8,7 @@ class BillingTests(unittest.IsolatedAsyncioTestCase):
     def service(self):
         repo=NS(policy=AsyncMock(return_value={'pay':True,'locked':False}),member_until=AsyncMock(return_value=0),
             intent=AsyncMock(return_value={'bot_id':123,'uid':10,'provider':'stars','subscription':None}),
-            is_blocked=AsyncMock(return_value=False),grant_stars=AsyncMock(return_value=True),stripe_event=AsyncMock())
+            is_blocked=AsyncMock(return_value=False),grant_stars=AsyncMock(return_value=True),stripe_event=AsyncMock(),queue_buyer=AsyncMock())
         s=NS(repo=repo,bot_id=123,api=AsyncMock(),tell=AsyncMock());s.billing=Billing(s);return s
     async def test_subscription_expiry_and_personal_scope(self):
         s=self.service()
@@ -28,6 +28,32 @@ class BillingTests(unittest.IsolatedAsyncioTestCase):
         s=self.service();until=int(time.time()+2592000)
         await s.billing.update({'message':{'chat':{'type':'private'},'from':{'id':10},'successful_payment':{'currency':'XTR','total_amount':500,'is_recurring':True,'subscription_expiration_date':until,'invoice_payload':'d_token','telegram_payment_charge_id':'charge'}}})
         s.repo.grant_stars.assert_awaited_once_with(123,10,'d_token','charge',until)
+    async def test_group_entry_is_scoped_and_duplicate_updates_are_silent(self):
+        s=self.service();s.repo.confirm_payment_join=AsyncMock(return_value=True)
+        event={'message':{'chat':{'id':-100123},'new_chat_members':[{'id':10}]}}
+        with patch.dict('os.environ',{'DESCARGAS_PAYMENT_GROUP':'-100123'}):
+            self.assertTrue(await s.billing.group_update(event))
+            s.repo.confirm_payment_join.assert_awaited_once_with(123,10)
+            self.assertIn('esperando',s.tell.call_args.args[1])
+            s.tell.reset_mock();s.repo.confirm_payment_join.return_value=False
+            await s.billing.group_update(event);s.tell.assert_not_awaited()
+            event['message']['chat']['id']=-100999
+            self.assertFalse(await s.billing.group_update(event))
+
+    async def test_buyer_profile_keeps_only_verified_charge_summary(self):
+        from descargas_app.buyer_profiles import enrich_rows
+        from unittest.mock import Mock
+        data={'invoice_id':'in_test','customer_id':'cus_test'}
+        repo=NS(decode=Mock(return_value=dict(data)),encode=Mock(side_effect=lambda x:x),pool=NS(execute=AsyncMock()))
+        charge={'id':'ch_test','customer':'cus_test','paid':True,'billing_details':{'name':'Buyer','email':'buyer@example.test'},'payment_method_details':{'type':'card','card':{'last4':'4242','brand':'visa','funding':'credit','fingerprint':'test_fingerprint'}}}
+        client=NS(v1=NS(invoice_payments=NS(list_async=AsyncMock(return_value={'data':[{'payment':{'payment_intent':'pi_test'}}]})),payment_intents=NS(retrieve_async=AsyncMock(return_value={'latest_charge':charge}))))
+        await enrich_rows(NS(repo=repo),client,[{'invoice':'in_test','payload':b'encrypted'}])
+        summary=repo.pool.execute.call_args.args[2]
+        self.assertEqual(summary['card_last4'],'4242');self.assertEqual(summary['card_fingerprint'],'test_fingerprint')
+        repo.pool.execute.reset_mock();charge['customer']='cus_foreign'
+        await enrich_rows(NS(repo=repo),client,[{'invoice':'in_test','payload':b'encrypted'}])
+        self.assertIn('available=',repo.pool.execute.call_args.args[0])
+
     def test_signature_rejects_tampering_and_expiry(self):
         raw=json.dumps({'id':'evt','created':1000}).encode();signature=hmac.new(b'only-test',b'1000.'+raw,hashlib.sha256).hexdigest()
         self.assertEqual(verified_event(raw,'t=1000,v1='+signature,'only-test',now=1000)['id'],'evt')

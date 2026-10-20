@@ -17,7 +17,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
+        await self.repo.pool.execute('TRUNCATE descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
     async def asyncTearDown(self):await self.repo.close()
     async def test_monthly_grants_replay_renewal_and_invoice_before_checkout(self):
         intent=await self.repo.payment_intent(100,10,'stars')
@@ -37,6 +37,20 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         await self.repo.stripe_event({'id':'old-active','created':103},state=('sub_own','active'))
         self.assertEqual(await self.repo.pool.fetchval("SELECT state FROM descarga_memberships WHERE provider='stripe'"),'canceled')
         self.assertEqual(await self.repo.member_until(100,20),5000)
+
+    async def test_paid_membership_requires_own_group_entry_and_keeps_encrypted_profile(self):
+        intent=await self.repo.payment_intent(100,10,'stripe')
+        until=time.time()+1000
+        await self.repo.stripe_event({'id':'paid','created':int(time.time())},checkout=(intent['token'],'sub_group',until),require_group=True)
+        self.assertEqual(await self.repo.member_until(100,10),0)
+        await self.repo.confirm_payment_join(100,20)
+        self.assertEqual(await self.repo.member_until(100,10),0)
+        await self.repo.confirm_payment_join(100,10)
+        self.assertEqual(await self.repo.member_until(100,10),until)
+        await self.repo.queue_buyer('in_own',100,10,{'email':'buyer@example.test','card_fingerprint':'sensitive'})
+        row=await self.repo.pool.fetchrow('SELECT payload FROM descarga_buyer_profiles')
+        self.assertNotIn(b'buyer@example.test',bytes(row['payload']))
+        self.assertEqual(self.repo.decode(row['payload'])['email'],'buyer@example.test')
 
     async def test_pay_and_lock_independent_and_encrypted_private_cache(self):
         await self.repo.policy_set(100,-100123,'pay',True,50)
