@@ -1,0 +1,5 @@
+# Bots cuyo contenido no debe descargarse.
+# Un ID positivo de bot o @username por línea. Se recomienda el ID,
+# porque sigue siendo válido aunque el bot cambie de nombre.
+# No añadas tokens. Las líneas que empiezan por # son comentarios.
+# Pendiente de los bots concretos que indique el administrador.

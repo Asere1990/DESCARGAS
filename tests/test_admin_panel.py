@@ -49,6 +49,20 @@ class AdminTests(unittest.IsolatedAsyncioTestCase):
         with patch('descargas_app.admin_panel.authorized',return_value=True):await p.run(10,-1009,'selection','1')
         p.detail.assert_awaited_once_with(-1009,77)
         self.assertEqual(p.pool.fetchrow.call_args.args[1:4],(123,10,-1009))
+    def test_protected_bot_ids_aliases_and_canonical_entity(self):
+        from descargas_app.protected import require_bot_alias,require_entity,BOT_USERNAME
+        token=BOT_USERNAME.set(None)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                path=Path(d)/'bots_protegidos';path.write_text('42 # stable ID\n@ExampleProtectedBot\n')
+                with patch('descargas_app.protected.BOTS_FILE',path):
+                    with self.assertRaises(ProtectedSource):require_bot_alias('exampleprotectedbot')
+                    with self.assertRaises(ProtectedSource):require_entity(NS(id=42,bot=True,username='RenamedBot'))
+                    with self.assertRaises(ProtectedSource):require_entity(NS(id=43,bot=True,username='ExampleProtectedBot'))
+                    require_entity(NS(id=44,bot=False,username='NormalUser'))
+                    require_source(44)
+        finally:BOT_USERNAME.reset(token)
+
     def test_protected_ids_with_comments_and_exact_response(self):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'protegidos';path.write_text('# comment\n-100123 # group\n')

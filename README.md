@@ -121,3 +121,10 @@ Compatibilidad actual de enlaces: `https://t.me/usuario_publico/123` y `https://
 `/search telegram_id` abre la ficha administrativa con todos los campos disponibles de perfil, contacto, membresía, políticas, métricas y resumen de la compra (incluidos metadatos de tarjeta proporcionados por Stripe). Nunca muestra códigos, contraseñas, tokens ni sesiones. Disponible solo para admins en privado y ALMACEN; también aparece en /comandos.
 
 `/datos` muestra usuarios registrados, usuarios con interacción en los últimos cinco minutos y usuarios con trabajos preparando/enviando. Telegram no comunica que un usuario simplemente tenga abierto el chat; no se presenta ese dato como medible. Solo se registra actividad de mensajes/botones en privado y peticiones autenticadas de Mi cuenta, con escrituras limitadas a una por usuario cada 30 segundos. El historial anterior no permite reconstruir esta actividad. Los admins también tienen un botón /datos dentro de Mi cuenta; el servidor verifica admins.txt en cada petición.
+
+
+### Fuentes importadas de CUSTOMER-SERVICE
+
+Se copiaron exclusivamente los 26 IDs declarados como valores de MAIN_TO_DERIVED en CUSTOMER-SERVICE/main/bot.py, sin cambiar ese repositorio. No se incluyeron los IDs principales (las claves del mapa). Es una copia del código, no una sincronización automática ni una lectura de posibles overrides de Supabase.
+
+`bots_protegidos` permite un ID positivo o @username por línea, con comentarios #. Es preferible usar el ID estable. La comprobación se realiza al admitir aliases, resolver la entidad y antes de entregar un origen de bot identificado. No habilita soporte nuevo para enlaces de conversaciones individuales: solo rechaza el origen protegido si el flujo consigue resolverlo. El archivo queda inicialmente vacío hasta que el administrador indique qué bots bloquear.

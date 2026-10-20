@@ -12,7 +12,7 @@ from telethon import errors
 from .service import Service,parse_link,error_message,archive_attribution
 from .billing import Billing,PaymentRequired
 from .pg_store import Repository
-from .protected import ProtectedSource
+from .protected import ProtectedSource,require_entity,require_bot_alias
 from .moderation import authorized,SOURCE,DownloadBlocked,ensure_allowed,command as moderation_command
 from .media_cache import CURRENT_MEDIA,CACHE_ONLY,CacheMiss,deliver_cached,archive_once
 
@@ -177,6 +177,7 @@ class ScaleService(Service):
                     if len(links)>5:raise ValueError('Envía un máximo de 5 enlaces por mensaje. Divide los enlaces en lotes de cinco.')
                     for link in links:
                         peer,_=parse_link(link)
+                        require_bot_alias(peer)
                         await ensure_allowed(self,uid,peer if isinstance(peer,int) else None)
                     result=await self.repo.enqueue(self.bot_id,update['update_id'],uid,links,name,
                         int(os.environ.get('QUEUE_CAPACITY','10000')),priority=1 if authorized(uid) else 0)
@@ -275,6 +276,7 @@ class ScaleService(Service):
 
     async def resolve(self,client,peer):
         entity=await super().resolve(client,peer)
+        require_entity(entity)
         METRIC_NAME.set(getattr(entity,'title',None) or getattr(entity,'username',None))
         return entity
 
