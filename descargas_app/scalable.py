@@ -11,6 +11,7 @@ import aiohttp
 from telethon import errors
 from .service import Service,parse_link,error_message,archive_attribution
 from .bot_typography import format_bot_payload
+from .command_menu import configure_commands
 from .billing import Billing,PaymentRequired
 from .pg_store import Repository
 from .protected import ProtectedSource,require_entity,require_bot_alias
@@ -136,7 +137,7 @@ class ScaleService(Service):
             try:
                 async with self.repo.leader(self.bot_id):
                     await self.api('deleteWebhook',{'drop_pending_updates':False})
-                    await self.api('setMyCommands',{'commands':[{'command':'mi_cuenta','description':'Mi cuenta'}]})
+                    await configure_commands(self)
                     await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'𝐌𝐈 𝐂𝐔𝐄𝐍𝐓𝐀','web_app':{'url':self.url}}})
                     key=f'offset:{self.bot_id}'
                     saved=await self.repo.setting(key)
