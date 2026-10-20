@@ -27,7 +27,7 @@ class Progress:
             result=await self.service.api('sendMessage',{'chat_id':self.uid,'text':last_text})
             self.message=result['message_id']
             while True:
-                await asyncio.sleep(1.5)
+                await asyncio.sleep(0.8)
                 text=self.text()
                 if text==last_text:continue
                 sender=getattr(self.service,'progress_api',self.service.api)

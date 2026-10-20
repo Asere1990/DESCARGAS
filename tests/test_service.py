@@ -110,6 +110,25 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.s.pending[10]={'client':client,'phone':'+15555555555','hash':'h','created':time.monotonic()};self.s.tell=AsyncMock()
         result=await self.s.verify(10,{'code':'11111'})
         self.assertTrue(result['connected']);self.assertEqual(self.s.session(10),'authorized-A');self.assertNotIn(10,self.s.pending)
+    async def test_login_resume_stages_expiry_and_user_isolation(self):
+        pending={'client':SimpleNamespace(disconnect=AsyncMock()),'phone':'+15555555555','hash':'private-hash','created':time.monotonic()}
+        self.s.pending[10]=pending
+        self.assertEqual(await self.s.login_status(10),{'connected':False,'step':'code'})
+        self.assertEqual(await self.s.login_status(20),{'connected':False,'step':'phone'})
+        pending['step']='password'
+        self.assertEqual(await self.s.login_status(10),{'connected':False,'step':'password'})
+        pending['created']-=601
+        self.assertEqual(await self.s.login_status(10),{'connected':False,'step':'phone'})
+        self.save(10,'authorized')
+        self.assertEqual(await self.s.login_status(10),{'connected':True})
+
+    async def test_password_stage_survives_reopening(self):
+        from telethon import errors
+        client=SimpleNamespace(sign_in=AsyncMock(side_effect=errors.SessionPasswordNeededError(request=None)),disconnect=AsyncMock())
+        self.s.pending[10]={'client':client,'phone':'+15555555555','hash':'h','created':time.monotonic()}
+        self.assertEqual(await self.s.verify(10,{'code':'11111'}),{'step':'password'})
+        self.assertEqual(await self.s.login_status(10),{'connected':False,'step':'password'})
+
     async def test_api_authorization(self):
         app=web.Application();service=mount(app)
         service.start=AsyncMock();service.ready=True

@@ -34,7 +34,9 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
         try:
             data=await request.json()
             if not isinstance(data,dict):raise ValueError()
-            if operation=='status':return web.json_response({'connected':bool(await service.get_session(uid))},headers={'Cache-Control':'no-store'})
+            if operation=='status':
+                async with service.locks[uid]:result=await service.login_status(uid)
+                return web.json_response(result,headers={'Cache-Control':'no-store'})
             if operation=='contact':
                 stored=service.contacts.get(uid)
                 phone=stored[0] if stored and time.monotonic()-stored[1]<600 else ''

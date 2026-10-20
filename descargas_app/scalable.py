@@ -190,7 +190,7 @@ class ScaleService(Service):
         client=self.client();await client.connect()
         try:sent=await client.send_code_request(phone)
         except BaseException:await client.disconnect();raise
-        self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic()}
+        self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic(),'step':'code'}
         return {'step':'code','message':'Revisa el código que recibiste en Telegram.'}
 
     async def verify(self,uid,data,password=False):
@@ -201,7 +201,9 @@ class ScaleService(Service):
         try:
             if password:await client.sign_in(password=str(data.get('password','')))
             else:await client.sign_in(phone=pending['phone'],code=str(data.get('code','')),phone_code_hash=pending['hash'])
-        except errors.SessionPasswordNeededError:return {'step':'password'}
+        except errors.SessionPasswordNeededError:
+            pending['step']='password'
+            return {'step':'password'}
         me=await client.get_me()
         if me.id!=uid:
             await client.log_out();await self.clear_pending(uid)
