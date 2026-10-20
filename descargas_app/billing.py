@@ -54,11 +54,13 @@ class Billing:
                 'provider_token':'','subscription_period':PERIOD})
             await self.repo.invoice_url(intent['token'],url)
         buttons=[[{'text':'⭐️ PAGAR CON STARS','url':url,'style':'success'}]]
-        if os.environ.get('DESCARGAS_PAYMENT_LINK'):
+        stripe_ready=bool(os.environ.get('DESCARGAS_PAYMENT_LINK'))
+        if stripe_ready:
             buttons.extend([[{'text':'🍎 PAGAR Apple/Google PAY','callback_data':'pay:stripe','style':'primary'}],
                 [{'text':'💳 PAGAR CON DÉBITO/CRÉDITO','callback_data':'pay:stripe','style':'primary'}]])
+        extra='\n🍎 Apple/Google Pay: $6.99 USD mensuales.\n💳 Débito/Crédito: $6.99 USD mensuales.' if stripe_ready else ''
         await self.s.api('sendMessage',{'chat_id':uid,'text':'💳 𝐀𝐂𝐓𝐈𝐕𝐀𝐑 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\n\n'
-            '⭐️ Telegram Stars: 500 ⭐ cada 30 días.\n🍎 Apple/Google Pay: $6.99 USD mensuales.\n💳 Débito/Crédito: $6.99 USD mensuales.\n\n'
+            '⭐️ Telegram Stars: 500 ⭐ cada 30 días.'+extra+'\n\n'
             'Suscripción personal con renovación automática. Puedes cancelarla antes de la próxima renovación. Una suscripción activa desbloquea las descargas que requieren pago.',
             'reply_markup':{'inline_keyboard':buttons}})
     async def update(self,update):
