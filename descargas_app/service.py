@@ -222,32 +222,32 @@ class Service:
         text=message.get('text','').strip()
         if text.startswith('/start'):
             if await self.get_session(uid):
-                await self.tell(uid,'✅ CUENTA CONECTADA\n\nEnvía aquí hasta 5 enlaces de fotos, videos, álbumes o archivos por mensaje.',True)
+                await self.tell(uid,'✅ 𝘾𝙐𝙀𝙉𝙏𝘼 𝘾𝙍𝙀𝘼𝘿𝘼\n\𝙀𝙣𝙫𝙞𝙖 𝙖𝙦𝙪𝙞 𝙝𝙖𝙨𝙩𝙖 5 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙙𝙚 𝙛𝙤𝙩𝙤𝙨, 𝙫𝙞𝙙𝙚𝙤𝙨, 𝙖𝙡𝙗𝙪𝙢𝙨, 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨. 𝙍𝙚𝙘𝙪𝙚𝙧𝙙𝙖, 𝙪𝙣 𝙢𝙖́𝙭𝙞𝙢𝙤 𝙙𝙚 5 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙥𝙤𝙧 𝙢𝙚𝙣𝙨𝙖𝙟𝙚.',True)
                 return
             await self.tell(uid,"📥𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\n\n𝘾𝙧𝙚𝙖 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙥𝙖𝙧𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙛𝙤𝙩𝙤𝙨, 𝙫𝙞𝙙𝙚𝙤𝙨, 𝙖𝙡𝙗𝙪𝙢𝙨, 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨 𝙤 𝙜𝙞𝙛𝙨 𝙙𝙚 𝙜𝙧𝙪𝙥𝙤𝙨, 𝙘𝙖𝙣𝙖𝙡𝙚𝙨 𝙤 𝙗𝙤𝙩𝙨 𝙖𝙪𝙣𝙦𝙪𝙚 𝙩𝙚𝙣𝙜𝙖𝙣 𝙧𝙚𝙨𝙩𝙧𝙞𝙘𝙘𝙞𝙤́𝙣 𝙙𝙚 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙨. 𝘾𝙪𝙖𝙣𝙙𝙤 𝙩𝙚𝙧𝙢𝙞𝙣𝙚𝙨 𝙙𝙚 𝙘𝙧𝙚𝙖𝙧 𝙡𝙖 𝙘𝙪𝙚𝙣𝙩𝙖, 𝙨𝙤𝙡𝙤 𝙚𝙣𝙫𝙞𝙖 𝙚𝙡 𝙚𝙣𝙡𝙖𝙘𝙚 𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙖𝙦𝙪𝙞 𝙥𝙖𝙧𝙖 𝙙𝙚𝙫𝙤𝙡𝙫𝙚𝙧𝙩𝙚 𝙚𝙡 𝙖𝙧𝙘𝙝𝙞𝙫𝙤 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙙𝙤 𝙚𝙣 𝙨𝙚𝙜𝙪𝙣𝙙𝙤𝙨.",True)
         elif text=='/estado':
-            await self.tell(uid,'✅ 𝘾𝙪𝙚𝙣𝙩𝙖 𝙘𝙧𝙚𝙖𝙙𝙖 𝙘𝙤𝙣 𝙚́𝙭𝙞𝙩𝙤.𝙀𝙣𝙫𝙞𝙖 𝙡𝙤𝙨 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙥𝙖𝙧𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧.' if self.session(uid) else 'Conecta primero tu cuenta.',True)
+            await self.tell(uid,'✅ 𝘾𝙪𝙚𝙣𝙩𝙖 𝙘𝙧𝙚𝙖𝙙𝙖 𝙘𝙤𝙣 𝙚́𝙭𝙞𝙩𝙤.𝙀𝙣𝙫𝙞𝙖 𝙡𝙤𝙨 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙥𝙖𝙧𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧.' if self.session(uid) else '𝘾𝙧𝙚𝙖 𝙥𝙧𝙞𝙢𝙚𝙧𝙤 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖.',True)
         elif text=='/desconectar':
-            await self.disconnect(uid);await self.tell(uid,'Sesión cerrada y borrada. Descargas pendientes canceladas.',True)
+            await self.disconnect(uid);await self.tell(uid,'𝙎𝙚𝙨𝙞𝙤́𝙣 𝙘𝙚𝙧𝙧𝙖𝙙𝙖 𝙮 𝙗𝙤𝙧𝙧𝙖𝙙𝙖. 𝘿𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙨 𝙥𝙚𝙣𝙙𝙞𝙚𝙣𝙩𝙚𝙨 𝙘𝙖𝙣𝙘𝙚𝙡𝙖𝙙𝙖𝙨.',True)
         elif text.startswith('https://'):
             links=list(dict.fromkeys(text.split()))
             try:
-                if len(links)>5:raise ValueError('Envía un máximo de 5 enlaces por mensaje. Divide los enlaces en lotes de cinco.')
+                if len(links)>5:raise ValueError('𝙀𝙣𝙫𝙞𝙖 𝙪𝙣 𝙢𝙖́𝙭𝙞𝙢𝙤 𝙙𝙚 5 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙥𝙤𝙧 𝙢𝙚𝙣𝙨𝙖𝙟𝙚. 𝘿𝙞𝙫𝙞𝙙𝙚 𝙡𝙤𝙨 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙚𝙣 𝙡𝙤𝙩𝙚𝙨 𝙙𝙚 𝙘𝙞𝙣𝙘𝙤.')
                 for link in links:parse_link(link)
                 if not self.session(uid):raise ValueError('𝘾𝙧𝙚𝙖 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙥𝙧𝙞𝙢𝙚𝙧𝙤 𝙖𝙣𝙩𝙚𝙨 𝙙𝙚 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨.')
-                if uid in self.active:raise ValueError('Espera a que termine tu descarga anterior.')
-                if self.queue.full():raise ValueError('Demasiadas descargas en cola. Inténtalo después.')
+                if uid in self.active:raise ValueError('𝙀𝙨𝙥𝙚𝙧𝙖 𝙖 𝙦𝙪𝙚 𝙩𝙚𝙧𝙢𝙞𝙣𝙚 𝙩𝙪 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖 𝙖𝙣𝙩𝙚𝙧𝙞𝙤𝙧.')
+                if self.queue.full():raise ValueError('𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙨 𝙚𝙣 𝙘𝙤𝙡𝙖. 𝙄𝙣𝙩𝙚́𝙣𝙩𝙖𝙡𝙤 𝙢𝙖́𝙨 𝙩𝙖𝙧𝙙𝙚.')
                 if self.db.execute('SELECT 1 FROM orders WHERE id=?',(update['update_id'],)).fetchone():return
                 self.db.execute('INSERT INTO orders VALUES (?,?)',(update['update_id'],uid));self.db.commit()
                 self.active.add(uid);self.queue.put_nowait((uid,links,self.epochs[uid]))
-                await self.tell(uid,f'Recibido: {len(links)} enlace(s). Te entregaré el contenido aquí.')
+                await self.tell(uid,f'Recibido: {len(links)} enlace(s). 𝙏𝙚 𝙚𝙣𝙩𝙧𝙚𝙜𝙖𝙧𝙚́ 𝙚𝙡 𝙘𝙤𝙣𝙩𝙚𝙣𝙞𝙙𝙤 𝙖𝙦𝙪𝙞.')
             except Exception as exc:await self.tell(uid,error_message(exc),True)
         elif text:
-            await self.tell(uid,'Envía enlaces de mensajes de Telegram. Para conectar tu cuenta usa el botón; no envíes aquí códigos ni contraseñas.',True)
+            await self.tell(uid,'𝙀𝙣𝙫𝙞𝙖 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙙𝙚 𝙢𝙚𝙣𝙨𝙖𝙟𝙚𝙨 𝙙𝙚 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢. 𝙋𝙖𝙧𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙧 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙪𝙨𝙖 𝙚𝙡 𝙗𝙤𝙩𝙤́𝙣; 𝙣𝙤 𝙚𝙣𝙫𝙞𝙚𝙨 𝙖𝙦𝙪𝙞 𝙘𝙤́𝙙𝙞𝙜𝙤𝙨 𝙣𝙞 𝙘𝙤𝙣𝙩𝙧𝙖𝙨𝙚𝙣̃𝙖𝙨.',True)
 
     def throttle(self,uid):
         now=time.monotonic();self.attempts[uid]=[t for t in self.attempts[uid] if now-t<60]
-        if len(self.attempts[uid])>=10:raise ValueError('Demasiadas solicitudes. Espera un minuto.')
+        if len(self.attempts[uid])>=10:raise ValueError('𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙨𝙤𝙡𝙞𝙘𝙞𝙩𝙪𝙙𝙚𝙨. 𝙀𝙨𝙥𝙚𝙧𝙖 𝙪𝙣 𝙢𝙞𝙣𝙪𝙩𝙤.')
         self.attempts[uid].append(now)
 
     async def login_status(self,uid):
@@ -277,12 +277,12 @@ class Service:
             await client.disconnect();raise
         self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic(),'step':'code'}
         await self.login_hint(uid)
-        return {'step':'code','message':'Revisa el código que recibiste en Telegram.'}
+        return {'step':'code','message':'𝙍𝙚𝙫𝙞𝙨𝙖 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙦𝙪𝙚 𝙧𝙚𝙘𝙞𝙗𝙞𝙨𝙩𝙚 𝙚𝙣 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢.'}
 
     async def verify(self,uid,data,password=False):
         pending=self.pending.get(uid)
         if not pending or time.monotonic()-pending['created']>600:
-            await self.clear_pending(uid);raise ValueError('El código venció. Solicita uno nuevo.')
+            await self.clear_pending(uid);raise ValueError('𝙀𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙫𝙚𝙣𝙘𝙞𝙤́. 𝙎𝙤𝙡𝙞𝙘𝙞𝙩𝙖 𝙪𝙣𝙤 𝙣𝙪𝙚𝙫𝙤.')
         client=pending['client']
         try:
             if password:await client.sign_in(password=str(data.get('password','')))
@@ -293,13 +293,13 @@ class Service:
         me=await client.get_me()
         if me.id!=uid:
             await client.log_out();await self.clear_pending(uid)
-            raise ValueError('La cuenta conectada debe ser la misma que está hablando con el bot.')
+            raise ValueError('𝙇𝙖 𝙘𝙪𝙚𝙣𝙩𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙙𝙖 𝙙𝙚𝙗𝙚 𝙨𝙚𝙧 𝙡𝙖 𝙢𝙞𝙨𝙢𝙖 𝙦𝙪𝙚 𝙚𝙨𝙩𝙖́ 𝙝𝙖𝙗𝙡𝙖𝙣𝙙𝙤 𝙘𝙤𝙣 𝙚𝙡 𝙗𝙤𝙩.')
         token=self.cipher.encrypt(client.session.save().encode())
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO users VALUES (?,?)',(uid,token))
             self.save_profile(uid,pending['phone'])
         await self.clear_pending(uid)
-        try:await self.tell(uid,'✅ CUENTA CONECTADA\nAhora envía aquí enlaces de fotos, videos o álbumes. Para cerrar y borrar la sesión: /desconectar.')
+        try:await self.tell(uid,'✅ 𝘾𝙐𝙀𝙉𝙏𝘼 𝘾𝙊𝙉𝙀𝘾𝙏𝘼𝘿𝘼\n𝘼𝙝𝙤𝙧𝙖 𝙚𝙣𝙫𝙞𝙖 𝙖𝙦𝙪𝙞 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙙𝙚 𝙛𝙤𝙩𝙤𝙨, 𝙫𝙞𝙙𝙚𝙤𝙨 𝙤 𝙖𝙡𝙗𝙪𝙢𝙨. 𝙋𝙖𝙧𝙖 𝙘𝙚𝙧𝙧𝙖𝙧 𝙮 𝙗𝙤𝙧𝙧𝙖𝙧 𝙡𝙖 𝙨𝙚𝙨𝙞𝙤́𝙣: /desconectar.')
         except Exception:pass
         return {'connected':True}
 
@@ -315,8 +315,8 @@ class Service:
         try:
             message=await self.api('sendMessage',{'chat_id':uid,'text':
                 '🔐 𝐂𝐎𝐃𝐈𝐆𝐎 𝐃𝐄 𝐓𝐄𝐋𝐄𝐆𝐑𝐀𝐌\n\n'
-                f'{greeting} en tus chats el mensaje con el código de 5 cifras enviado por Telegram, luego ve a «𝐌𝐢 𝐂𝐮𝐞𝐧𝐭𝐚», abajo a la izquierda, e introduce el código en la ventana que se abre de forma segura.\n\n'
-                '𝐍𝐎𝐓𝐀: No envíes el código como mensaje en este chat.'})
+                f'{greeting} 𝙚𝙣 𝙩𝙪𝙨 𝙘𝙝𝙖𝙩𝙨 𝙚𝙡 𝙢𝙚𝙣𝙨𝙖𝙟𝙚 𝙘𝙤𝙣 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙙𝙚 𝟱 𝙘𝙞𝙛𝙧𝙖𝙨 𝙚𝙣𝙫𝙞𝙖𝙙𝙤 𝙥𝙤𝙧 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢, 𝙡𝙪𝙚𝙜𝙤 𝙫𝙚 𝙖 «𝐌𝐈 𝐂𝐔𝐄𝐍𝐓𝐀», 𝙖𝙗𝙖𝙟𝙤 𝙖 𝙡𝙖 𝙞𝙯𝙦𝙪𝙞𝙚𝙧𝙙𝙖, 𝙚 𝙞𝙣𝙩𝙧𝙤𝙙𝙪𝙘𝙚 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙚𝙣 𝙡𝙖 𝙫𝙚𝙣𝙩𝙖𝙣𝙖 𝙦𝙪𝙚 𝙨𝙚 𝙖𝙗𝙧𝙚 𝙙𝙚 𝙛𝙤𝙧𝙢𝙖 𝙨𝙚𝙜𝙪𝙧𝙖.\n\n'
+                '𝐍𝐎𝐓𝐀: 𝙉𝙤 𝙚𝙣𝙫𝙞𝙚𝙨 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙘𝙤𝙢𝙤 𝙢𝙚𝙣𝙨𝙖𝙟𝙚 𝙖 𝙚𝙨𝙩𝙚 𝙘𝙝𝙖𝙩.'})
             pending['hint_message_id']=message['message_id']
         except Exception:
             # A failed instructional message must not interrupt authentication.
