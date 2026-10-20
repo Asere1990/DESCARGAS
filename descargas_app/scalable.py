@@ -191,6 +191,7 @@ class ScaleService(Service):
         try:sent=await client.send_code_request(phone)
         except BaseException:await client.disconnect();raise
         self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic(),'step':'code'}
+        await self.login_hint(uid)
         return {'step':'code','message':'Revisa el código que recibiste en Telegram.'}
 
     async def verify(self,uid,data,password=False):

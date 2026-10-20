@@ -274,6 +274,7 @@ class Service:
         except BaseException:
             await client.disconnect();raise
         self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic(),'step':'code'}
+        await self.login_hint(uid)
         return {'step':'code','message':'Revisa el código que recibiste en Telegram.'}
 
     async def verify(self,uid,data,password=False):
@@ -300,9 +301,27 @@ class Service:
         except Exception:pass
         return {'connected':True}
 
+    async def login_hint(self,uid):
+        pending=self.pending.get(uid)
+        if not pending:return
+        try:
+            message=await self.api('sendMessage',{'chat_id':uid,'text':
+                '🔐 CONTINÚA EN MI CUENTA\n\n'
+                'Cuando recibas el código de 5 cifras de Telegram, toca «Mi cuenta», abajo a la izquierda, e introdúcelo en la ventana que se abre.\n\n'
+                'No envíes el código como mensaje en este chat. Este aviso desaparecerá cuando tu cuenta quede conectada.'})
+            pending['hint_message_id']=message['message_id']
+        except Exception:
+            # A failed instructional message must not interrupt authentication.
+            pass
+
     async def clear_pending(self,uid):
         pending=self.pending.pop(uid,None)
-        if pending:await pending['client'].disconnect()
+        if not pending:return
+        try:
+            if pending.get('hint_message_id'):
+                try:await self.api('deleteMessage',{'chat_id':uid,'message_id':pending['hint_message_id']})
+                except Exception:pass
+        finally:await pending['client'].disconnect()
 
     async def disconnect(self,uid):
         self.epochs[uid]+=1

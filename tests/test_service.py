@@ -129,6 +129,30 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.s.verify(10,{'code':'11111'}),{'step':'password'})
         self.assertEqual(await self.s.login_status(10),{'connected':False,'step':'password'})
 
+    async def test_login_hint_deleted_after_successful_connection(self):
+        client=SimpleNamespace(sign_in=AsyncMock(),get_me=AsyncMock(return_value=SimpleNamespace(id=10)),disconnect=AsyncMock(),session=SimpleNamespace(save=lambda:'authorized'))
+        self.s.pending[10]={'client':client,'phone':'+15555555555','hash':'h','created':time.monotonic()}
+        self.s.api=AsyncMock(return_value={'message_id':42});self.s.tell=AsyncMock()
+        await self.s.login_hint(10)
+        text=self.s.api.call_args.args[1]['text']
+        self.assertIn('Mi cuenta',text);self.assertIn('No envíes el código',text)
+        self.assertEqual(self.s.pending[10]['hint_message_id'],42)
+        await self.s.verify(10,{'code':'11111'})
+        self.s.api.assert_any_await('deleteMessage',{'chat_id':10,'message_id':42})
+        self.assertEqual(self.s.session(10),'authorized')
+        client.disconnect.assert_awaited_once()
+
+    async def test_login_hint_failures_do_not_block_authentication_cleanup(self):
+        client=SimpleNamespace(disconnect=AsyncMock())
+        self.s.pending[10]={'client':client}
+        self.s.api=AsyncMock(side_effect=RuntimeError('unavailable'))
+        await self.s.login_hint(10)
+        self.assertNotIn('hint_message_id',self.s.pending[10])
+        self.s.pending[10]['hint_message_id']=42
+        await self.s.clear_pending(10)
+        client.disconnect.assert_awaited_once()
+        self.assertNotIn(10,self.s.pending)
+
     async def test_api_authorization(self):
         app=web.Application();service=mount(app)
         service.start=AsyncMock();service.ready=True
