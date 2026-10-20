@@ -179,6 +179,13 @@ class Repository:
     async def archive_heartbeat(self,job):
         await self.pool.execute('UPDATE descarga_archives SET heartbeat=$3 WHERE id=$1 AND owner=$2',job['id'],job['owner'],time.time())
 
+    async def try_pace(self,key,interval):
+        # Decorative updates may consume an idle slot, never extend an existing send queue.
+        now=time.time()
+        slot=await self.pool.fetchval('''INSERT INTO descarga_rate VALUES($1,$2)
+            ON CONFLICT(key) DO UPDATE SET next_at=$2 WHERE descarga_rate.next_at<=$3
+            RETURNING key''',key,now+interval,now)
+        return slot is not None
     async def pace(self,key,interval):
         async with self.pool.acquire() as conn,conn.transaction():
             now=time.time()

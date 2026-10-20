@@ -1,7 +1,6 @@
-"""Low-frequency, best-effort status; transfer callbacks never perform network I/O."""
+"""Best-effort status; transfer callbacks never perform network I/O."""
 import asyncio
 from contextvars import ContextVar
-import time
 
 ITEM_INDEX=ContextVar('descargas_item_index',default=0)
 ACTIVE=ContextVar('descargas_progress',default=None)
@@ -24,11 +23,16 @@ class Progress:
     async def run(self):
         # Start independently; a slow status request cannot hold up media transfer.
         try:
-            result=await self.service.api('sendMessage',{'chat_id':self.uid,'text':self.text()})
+            last_text=self.text()
+            result=await self.service.api('sendMessage',{'chat_id':self.uid,'text':last_text})
             self.message=result['message_id']
             while True:
-                await asyncio.sleep(8)
-                await self.service.api('editMessageText',{'chat_id':self.uid,'message_id':self.message,'text':self.text()})
+                await asyncio.sleep(1.5)
+                text=self.text()
+                if text==last_text:continue
+                sender=getattr(self.service,'progress_api',self.service.api)
+                result=await sender('editMessageText',{'chat_id':self.uid,'message_id':self.message,'text':text})
+                if result is not None:last_text=text
         except asyncio.CancelledError:raise
         except Exception:pass
     def start(self):self.task=asyncio.create_task(self.run());return self

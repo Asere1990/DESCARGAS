@@ -60,7 +60,7 @@ Tabla SQLite `profiles` en el mismo disco persistente: uid (Telegram ID verifica
 
 
 ### Progreso y respaldo independiente
-Las transferencias nuevas muestran un solo aviso editable con puntos, porcentaje de bytes descargados/subidos (no una estimación de tiempo), y una nota para que el usuario pueda salir del chat. Se actualiza cada 8 segundos; los callbacks de transferencia solo actualizan contadores en memoria. Las entregas desde caché no esperan este aviso.
+Las transferencias nuevas muestran un solo aviso editable con puntos, porcentaje de bytes descargados/subidos (no una estimación de tiempo), y una nota para que el usuario pueda salir del chat. Los puntos se actualizan cada 1,5 segundos; el porcentaje depende solo de los bytes reales, y se omiten fotogramas si Telegram tiene envíos pendientes; los callbacks de transferencia solo actualizan contadores en memoria. Las entregas desde caché no esperan este aviso. No se envía un aviso separado de «Recibido/en cola».
 
 Al publicar por primera vez un contenido en ALMACEN, se guarda una tarea cifrada y única en `descarga_backups` en la misma transacción que deja la caché disponible. LADRON consume esa tarea por HTTPS autenticado, registra sus `file_id` y bot propietario en `public.descargas_backups` (Supabase de LADRON), y respalda en `/𝐁𝐎𝐓 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒/<media_key>/01.ext`. La carpeta es determinista y se comprueba el hash de Dropbox. No se introducen identificadores de otro bot en las colas originales de LADRON.
 

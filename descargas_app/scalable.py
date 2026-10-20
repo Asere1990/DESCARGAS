@@ -43,10 +43,12 @@ class ScaleService(Service):
         self.db.commit()
         return session
 
-    async def api(self,method,payload):
+    async def api(self,method,payload,opportunistic=False):
         if method in ('sendMessage','copyMessages','editMessageCaption','editMessageText'):
             count=len(payload.get('message_ids',[])) if method=='copyMessages' else 1
-            await self.repo.pace('bot-send',0.06*max(1,count))
+            if opportunistic:
+                if not await self.repo.try_pace('bot-send',0.06*max(1,count)):return None
+            else:await self.repo.pace('bot-send',0.06*max(1,count))
         # Retry only explicit Telegram 429 rejections, never ambiguous network sends.
         for attempt in range(3):
             try:
@@ -60,6 +62,9 @@ class ScaleService(Service):
                 continue
             LOG.error('DESCARGAS API %s rejected code=%s',method,result.get('error_code'))
             raise TelegramDeliveryError('Telegram rechazó la operación')
+
+    async def progress_api(self,method,payload):
+        return await self.api(method,payload,opportunistic=True)
 
     async def start(self):
         if not self.repo.url or not self.cipher:return
@@ -152,11 +157,10 @@ class ScaleService(Service):
                     for link in links:parse_link(link)
                     result=await self.repo.enqueue(self.bot_id,update['update_id'],uid,links,name,
                         int(os.environ.get('QUEUE_CAPACITY','10000')))
-                    if result=='duplicate':return
+                    if result in ('duplicate','queued'):return
                     messages={'busy':'Espera a que termine tu descarga anterior.',
                         'disconnected':'Conecta primero tu cuenta desde el botón.',
-                        'full':'Demasiadas solicitudes en cola. Inténtalo después.',
-                        'queued':f'Recibido: {len(links)} enlace(s). Tu solicitud está en cola. Puedes hacer otras cosas; te dejaremos el contenido descargado aquí.'}
+                        'full':'Demasiadas solicitudes en cola. Inténtalo después.'}
                     try:await self.tell(uid,messages[result],result=='disconnected')
                     except Exception:pass # Durable acceptance must not depend on acknowledgement delivery.
                 except ValueError as exc:await self.tell(uid,error_message(exc),True)

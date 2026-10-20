@@ -23,6 +23,7 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.service.update({'update_id':555,'message':{'chat':{'type':'private'},'from':{'id':10,'first_name':'Test'},'text':'https://t.me/c/123/5'}})
         args=self.service.repo.enqueue.call_args.args
         self.assertEqual(args[:3],(123,555,10));self.assertEqual(args[3],['https://t.me/c/123/5'])
+        self.service.tell.assert_not_awaited()
     async def test_five_link_batch_limit(self):
         self.service.repo.enqueue=AsyncMock(return_value='queued')
         message={'chat':{'type':'private'},'from':{'id':10}}

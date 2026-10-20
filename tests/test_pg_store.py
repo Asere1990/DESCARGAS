@@ -41,6 +41,12 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await self.repo.backup_update(identity,final['lease'],'done'))
         await self.repo.backup_enqueue(identity,100,payload)
         self.assertIsNone(await self.repo.backup_claim(100))
+    async def test_decorative_progress_never_extends_a_busy_send_queue(self):
+        self.assertTrue(await self.repo.try_pace('bot-send',.06))
+        reserved=time.time()+20
+        await self.repo.pool.execute("UPDATE descarga_rate SET next_at=$1 WHERE key='bot-send'",reserved)
+        self.assertFalse(await self.repo.try_pace('bot-send',.06))
+        self.assertEqual(await self.repo.pool.fetchval("SELECT next_at FROM descarga_rate WHERE key='bot-send'"),reserved)
     async def account(self,uid):await self.repo.save_account(uid,'authorized-session',{'phone':'+14155552671','phone_country':'US'})
     async def test_cache_cross_process_lock_and_encrypted_reference(self):
         other=Repository(URL,self.repo.cipher,pool_size=4);await other.start()
