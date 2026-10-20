@@ -125,9 +125,10 @@ class Service:
         payload={'chat_id':uid,'text':text}
         if menu:
             connected=bool(await self.get_session(uid))
-            payload['reply_markup']={'inline_keyboard':[
-                [{'text':'👤 MI CUENTA' if connected else '🔗 CONECTAR MI CUENTA','web_app':{'url':self.url},'style':'primary'}],
-                [{'text':'🔒 DESCONECTAR MI CUENTA','callback_data':'disconnect','style':'danger'}]]}
+            buttons=[[{'text':'👤 MI CUENTA' if connected else '📥𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝐀𝐇𝐎𝐑𝐀','web_app':{'url':self.url},'style':'primary'}]]
+            if connected:
+                buttons.append([{'text':'🔒 DESCONECTAR MI CUENTA','callback_data':'disconnect','style':'danger'}])
+            payload['reply_markup']={'inline_keyboard':buttons}
         await self.api('sendMessage',payload)
 
     async def start(self):
