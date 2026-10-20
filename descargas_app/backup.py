@@ -90,6 +90,26 @@ def mount_backup(app,service):
         data=await request.json()
         if not isinstance(data,dict):raise web.HTTPBadRequest()
         op=request.match_info['operation']
+        if op=='account-status':
+            # Backend-only diagnostics. Never return session bytes, phone numbers or login codes.
+            uids=data.get('uids',[])
+            if not isinstance(uids,list) or not 1<=len(uids)<=10 or any(type(uid) is not int or not 0<uid<2**53 for uid in uids):raise web.HTTPBadRequest()
+            accounts=[]
+            for uid in uids:
+                row=await service.repo.account(uid)
+                result={'uid':uid,'exists':bool(row),'stored_session':bool(row and row['session'])}
+                if row:
+                    result['generation']=row['generation']
+                    result['decryptable']=False
+                    if row['session']:
+                        try:
+                            result['decryptable']=bool(service.cipher.decrypt(bytes(row['session'])).decode())
+                        except Exception:pass
+                    if row['profile']:
+                        try:result['connected_at']=service.repo.decode(row['profile']).get('updated_at')
+                        except Exception:pass
+                accounts.append(result)
+            return web.json_response({'accounts':accounts},headers={'Cache-Control':'no-store'})
         if op=='claim':
             row=await service.repo.backup_claim(service.bot_id)
             result=None

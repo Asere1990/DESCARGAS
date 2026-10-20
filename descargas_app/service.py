@@ -124,8 +124,9 @@ class Service:
     async def tell(self,uid,text,menu=False):
         payload={'chat_id':uid,'text':text}
         if menu:
+            connected=bool(await self.get_session(uid))
             payload['reply_markup']={'inline_keyboard':[
-                [{'text':'🔗 CONECTAR MI CUENTA','web_app':{'url':self.url},'style':'primary'}],
+                [{'text':'👤 MI CUENTA' if connected else '🔗 CONECTAR MI CUENTA','web_app':{'url':self.url},'style':'primary'}],
                 [{'text':'🔒 DESCONECTAR MI CUENTA','callback_data':'disconnect','style':'danger'}]]}
         await self.api('sendMessage',payload)
 
@@ -218,6 +219,9 @@ class Service:
             self.contacts[uid]=(contact['phone_number'],time.monotonic());return
         text=message.get('text','').strip()
         if text.startswith('/start'):
+            if await self.get_session(uid):
+                await self.tell(uid,'✅ CUENTA CONECTADA\n\nEnvía aquí hasta 5 enlaces de fotos, videos, álbumes o archivos por mensaje.',True)
+                return
             await self.tell(uid,'DESCARGAS\n\nConecta tu cuenta para descargar fotos, videos y álbumes de conversaciones a las que tienes acceso. Después envía aquí los enlaces.\n\nLa conexión crea una sesión adicional con acceso amplio a tu cuenta. Puedes revocarla cuando quieras. Las descargas también se guardan en el almacén del servicio con tu nombre e ID. No envíes códigos ni contraseñas como mensajes.',True)
         elif text=='/estado':
             await self.tell(uid,'✅ Cuenta conectada. Envía los enlaces.' if self.session(uid) else 'Conecta primero tu cuenta.',True)
