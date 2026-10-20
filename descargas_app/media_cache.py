@@ -52,6 +52,28 @@ async def deliver_cached(service,uid,client,link,seen):
     if sum(m.file.size or 0 for m in items)>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):
         raise ValueError('El archivo supera 500 MB o el álbum supera 1 GB.')
     identity=cache_key(service.bot_id,service.almacen,key,items)
+    from .private_cache import PRIVATE,send_private
+    if (await service.repo.policy(service.bot_id,uid,key[0]))['locked']:
+        async def private_hit(payload):
+            result=await send_private(service,uid,payload,items)
+            await service.repo.remember_media_route(service.bot_id,link,identity)
+            seen.add(key)
+            return result
+        saved=await service.repo.private_cache(identity)
+        if not saved:
+            saved=await service.repo.cached_file_payload(identity,service.bot_id)
+            if saved:await service.repo.private_ready(identity,service.bot_id,saved)
+        if saved:return await private_hit(saved)
+        if CACHE_ONLY.get():raise CacheMiss()
+        async with service.repo.media_lock('private:'+identity):
+            saved=await service.repo.private_cache(identity)
+            if saved:return await private_hit(saved)
+            marker=CURRENT_MEDIA.set(identity);privacy=PRIVATE.set(True)
+            try:
+                result=await service.deliver_items(uid,client,key,items,seen)
+                await service.repo.remember_media_route(service.bot_id,link,identity)
+                return result
+            finally:PRIVATE.reset(privacy);CURRENT_MEDIA.reset(marker)
     async def send_saved(row):
         await service.repo.remember_media_route(service.bot_id,link,identity)
         saved=service.repo.decode(row['payload'])

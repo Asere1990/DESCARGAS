@@ -10,6 +10,7 @@ import time
 import aiohttp
 from telethon import errors
 from .service import Service,parse_link,error_message,archive_attribution
+from .billing import Billing,PaymentRequired
 from .pg_store import Repository
 from .moderation import SOURCE,DownloadBlocked,ensure_allowed,command as moderation_command
 from .media_cache import CURRENT_MEDIA,CACHE_ONLY,CacheMiss,deliver_cached,archive_once
@@ -27,6 +28,7 @@ class ScaleService(Service):
         self.db.execute('CREATE TABLE users(uid INTEGER PRIMARY KEY,session BLOB)')
         self.repo=Repository(os.environ.get('DATABASE_URL',''),self.cipher,
             pool_size=int(os.environ.get('DB_POOL_SIZE','12')))
+        self.billing=Billing(self)
         self.role=os.environ.get('DESCARGAS_ROLE','web')
         self.concurrency=max(1,min(8,int(os.environ.get('DOWNLOAD_CONCURRENCY','3'))))
         self.fast_concurrency=max(1,min(4,int(os.environ.get('FAST_CONCURRENCY','2'))))
@@ -124,17 +126,17 @@ class ScaleService(Service):
             try:
                 async with self.repo.leader(self.bot_id):
                     await self.api('deleteWebhook',{'drop_pending_updates':False})
-                    await self.api('setMyCommands',{'commands':[{'command':'start','description':'Conectar cuenta y descargar'},{'command':'estado','description':'Ver conexión de mi cuenta'},{'command':'desconectar','description':'Cerrar mi sesión'}]})
+                    await self.api('setMyCommands',{'commands':[{'command':'start','description':'Conectar cuenta y descargar'},{'command':'estado','description':'Ver conexión de mi cuenta'},{'command':'suscripcion','description':'Ver o gestionar mi suscripción mensual'},{'command':'desconectar','description':'Cerrar mi sesión'}]})
                     await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'Mi cuenta','web_app':{'url':self.url}}})
                     key=f'offset:{self.bot_id}'
                     saved=await self.repo.setting(key)
                     if saved is None:
-                        last=await self.api('getUpdates',{'offset':-1,'timeout':0,'allowed_updates':['message','callback_query']})
+                        last=await self.api('getUpdates',{'offset':-1,'timeout':0,'allowed_updates':['message','callback_query','pre_checkout_query']})
                         offset=last[-1]['update_id']+1 if last else 0
                         await self.repo.set_setting(key,offset)
                     else:offset=int(saved)
                     while not self.stopping:
-                        updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','callback_query']})
+                        updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','callback_query','pre_checkout_query']})
                         for update in updates:
                             # Offset advances only after persistent acceptance. Duplicate update IDs are safe.
                             try:await self.update(update)
@@ -147,6 +149,7 @@ class ScaleService(Service):
 
     async def update(self,update):
         message=update.get('message',{})
+        if await self.billing.update(update):return
         if await moderation_command(self,message):return
         if message.get('chat',{}).get('type')=='private' and not message.get('from',{}).get('is_bot'):
             uid=message['from']['id'];text=message.get('text','').strip()
@@ -167,6 +170,7 @@ class ScaleService(Service):
                         'full':'Demasiadas solicitudes en cola. Inténtalo después.'}
                     try:await self.tell(uid,messages[result],result=='disconnected')
                     except Exception:pass # Durable acceptance must not depend on acknowledgement delivery.
+                except PaymentRequired:await self.billing.prompt(uid)
                 except DownloadBlocked:await self.tell(uid,'Bot fuera de servicio')
                 except ValueError as exc:await self.tell(uid,error_message(exc),True)
                 return
@@ -271,6 +275,10 @@ class ScaleService(Service):
         job=CURRENT_JOB.get()
         identity=CURRENT_MEDIA.get()
         if identity:
+            from .private_cache import PRIVATE,store_private
+            policy=await self.repo.policy(self.bot_id,uid,SOURCE.get())
+            if PRIVATE.get() or policy['locked']:
+                return await store_private(self,identity,uid,delivered)
             payload=self.repo.decode(job['payload'])
             return await archive_once(self,identity,uid,payload['name'],delivered)
         name=self.repo.decode(job['payload'])['name'] if job else self.names.get(uid,'Usuario')
@@ -349,6 +357,11 @@ class ScaleService(Service):
             except asyncio.CancelledError:
                 # Leave lease + durable phase for the recovery process; never replay uncertain sends.
                 raise
+            except PaymentRequired:
+                try:
+                    await self.repo.state(job,'cancelled')
+                    await self.billing.prompt(job['uid'])
+                except Exception:pass
             except DownloadBlocked:
                 try:
                     await self.repo.state(job,'cancelled')

@@ -15,7 +15,7 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
         self.env=patch.dict(os.environ,{'TOKEN':'123:test','ID':'123','HASH':'a'*32,
             'DESCARGAS_SESSION_KEY':Fernet.generate_key().decode(),'DESCARGAS_DATA_DIR':self.directory.name})
         self.env.start();self.service=ScaleService();self.service.bot_id=123
-        self.service.tell=AsyncMock();self.service.repo.is_blocked=AsyncMock(return_value=False)
+        self.service.tell=AsyncMock();self.service.repo.is_blocked=AsyncMock(return_value=False);self.service.repo.policy=AsyncMock(return_value={'pay':False,'locked':False})
     async def asyncTearDown(self):
         await self.service.close();self.env.stop();self.directory.cleanup()
     async def test_private_request_bound_to_sender(self):

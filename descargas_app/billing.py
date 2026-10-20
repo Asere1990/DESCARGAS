@@ -1,0 +1,140 @@
+"""Monthly subscriptions: Telegram receipts and signed Stripe lifecycle events."""
+import calendar
+from datetime import datetime,timezone
+import hashlib
+import hmac
+import json
+import os
+import time
+from urllib.parse import urlencode
+from aiohttp import web
+
+STARS=500
+PERIOD=2592000
+class PaymentRequired(ValueError):pass
+
+def next_month(timestamp):
+    dt=datetime.fromtimestamp(timestamp,timezone.utc)
+    year,month=(dt.year+1,1) if dt.month==12 else (dt.year,dt.month+1)
+    return dt.replace(year=year,month=month,day=min(dt.day,calendar.monthrange(year,month)[1])).timestamp()
+
+def verified_event(raw,signature,secret,now=None):
+    if not secret:raise ValueError('Payments not configured')
+    values={}
+    for part in signature.split(','):
+        key,_,value=part.partition('=');values.setdefault(key,[]).append(value)
+    stamp=values.get('t',[''])[0]
+    if not stamp.isdigit() or abs((now or time.time())-int(stamp))>300:raise ValueError('Invalid signature')
+    expected=hmac.new(secret.encode(),stamp.encode()+b'.'+raw,hashlib.sha256).hexdigest()
+    if not any(hmac.compare_digest(expected,v) for v in values.get('v1',[])):raise ValueError('Invalid signature')
+    event=json.loads(raw)
+    if not isinstance(event,dict) or not event.get('id') or not isinstance(event.get('created'),int):raise ValueError('Invalid event')
+    return event
+
+def object_id(value):return value.get('id','') if isinstance(value,dict) else value or ''
+def invoice_subscription(obj):
+    return object_id(obj.get('subscription')) or object_id(obj.get('parent',{}).get('subscription_details',{}).get('subscription'))
+def line_price(line):
+    return object_id(line.get('price')) or object_id(line.get('pricing',{}).get('price_details',{}).get('price'))
+
+class Billing:
+    def __init__(self,service):self.s=service;self.repo=service.repo
+    async def require(self,uid,source=None):
+        policy=await self.repo.policy(self.s.bot_id,uid,source)
+        if policy['pay'] and await self.repo.member_until(self.s.bot_id,uid)<=time.time():raise PaymentRequired()
+    async def prompt(self,uid):
+        if await self.repo.member_until(self.s.bot_id,uid)>time.time():
+            return await self.s.tell(uid,'✅ Tu suscripción está activa. Vuelve a enviar tus enlaces.')
+        intent=await self.repo.payment_intent(self.s.bot_id,uid,'stars')
+        url=intent['url']
+        if not url:
+            url=await self.s.api('createInvoiceLink',{'title':'DESCARGAS · Suscripción mensual',
+                'description':'Acceso personal a las descargas que requieren suscripción. Renovación automática cada 30 días.',
+                'payload':intent['token'],'currency':'XTR','prices':[{'label':'Servicio mensual','amount':STARS}],
+                'provider_token':'','subscription_period':PERIOD})
+            await self.repo.invoice_url(intent['token'],url)
+        buttons=[[{'text':'⭐️ PAGAR CON STARS','url':url,'style':'success'}]]
+        if os.environ.get('DESCARGAS_PAYMENT_LINK'):
+            buttons.extend([[{'text':'🍎 PAGAR Apple/Google PAY','callback_data':'pay:stripe','style':'primary'}],
+                [{'text':'💳 PAGAR CON DÉBITO/CRÉDITO','callback_data':'pay:stripe','style':'primary'}]])
+        await self.s.api('sendMessage',{'chat_id':uid,'text':'💳 𝐀𝐂𝐓𝐈𝐕𝐀𝐑 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\n\n'
+            '⭐️ Telegram Stars: 500 ⭐ cada 30 días.\n🍎 Apple/Google Pay: $6.99 USD mensuales.\n💳 Débito/Crédito: $6.99 USD mensuales.\n\n'
+            'Suscripción personal con renovación automática. Puedes cancelarla antes de la próxima renovación. Una suscripción activa desbloquea las descargas que requieren pago.',
+            'reply_markup':{'inline_keyboard':buttons}})
+    async def update(self,update):
+        pre=update.get('pre_checkout_query')
+        if pre:
+            uid=pre['from']['id'];row=await self.repo.intent(pre.get('invoice_payload',''))
+            ok=bool(row and row['bot_id']==self.s.bot_id and row['uid']==uid and row['provider']=='stars' and pre.get('currency')=='XTR' and pre.get('total_amount')==STARS)
+            if ok:ok=not await self.repo.is_blocked(self.s.bot_id,uid)
+            if ok and not row['subscription']:ok=await self.repo.member_until(self.s.bot_id,uid)<=time.time()
+            await self.s.api('answerPreCheckoutQuery',{'pre_checkout_query_id':pre['id'],'ok':ok,**({} if ok else {'error_message':'Este pago no corresponde a tu cuenta o ya tienes una suscripción activa.'})})
+            return True
+        message=update.get('message',{})
+        if message.get('successful_payment'):
+            payment=message['successful_payment'];uid=message['from']['id'];until=payment.get('subscription_expiration_date',0)
+            if message.get('chat',{}).get('type')!='private' or payment.get('currency')!='XTR' or payment.get('total_amount')!=STARS or not payment.get('is_recurring') or not isinstance(until,int):return True
+            if until<=time.time():return True
+            fresh=await self.repo.grant_stars(self.s.bot_id,uid,payment.get('invoice_payload',''),payment['telegram_payment_charge_id'],until)
+            if fresh:await self.s.tell(uid,'✅ SUSCRIPCIÓN ACTIVA\nTu acceso mensual está desbloqueado. Vuelve a enviar tus enlaces.\nPuedes gestionar o cancelar la renovación desde Telegram → Ajustes → Mis estrellas → Suscripciones.')
+            return True
+        query=update.get('callback_query',{})
+        if query.get('data')=='pay:stripe':
+            uid=query['from']['id']
+            await self.s.api('answerCallbackQuery',{'callback_query_id':query['id']})
+            if query.get('message',{}).get('chat',{}).get('id')!=uid:return True
+            if await self.repo.is_blocked(self.s.bot_id,uid):
+                await self.s.tell(uid,'Bot fuera de servicio');return True
+            if await self.repo.member_until(self.s.bot_id,uid)>time.time():
+                await self.s.tell(uid,'✅ Tu suscripción está activa. Vuelve a enviar tus enlaces.');return True
+            intent=await self.repo.payment_intent(self.s.bot_id,uid,'stripe')
+            link=os.environ.get('DESCARGAS_PAYMENT_LINK','')
+            if not link:await self.s.tell(uid,'El pago con tarjeta no está disponible en este momento.');return True
+            url=link+('&' if '?' in link else '?')+urlencode({'client_reference_id':intent['token']})
+            await self.s.api('sendMessage',{'chat_id':uid,'text':'💳 𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈Ó𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋\n\n$6.99 USD al mes, con renovación automática. El acceso se activa al confirmar Stripe el pago.',
+                'reply_markup':{'inline_keyboard':[[{'text':'💳 CONTINUAR AL PAGO','url':url,'style':'success'}]]}})
+            return True
+        if message.get('chat',{}).get('type')=='private' and message.get('text','').strip()=='/suscripcion':
+            uid=message['from']['id'];until=await self.repo.member_until(self.s.bot_id,uid)
+            if until<=time.time():await self.prompt(uid)
+            else:
+                text='✅ Suscripción activa hasta '+datetime.fromtimestamp(until,timezone.utc).strftime('%d/%m/%Y %H:%M UTC')+'.\nStars: gestiona la renovación desde Ajustes → Mis estrellas → Suscripciones.'
+                portal=os.environ.get('DESCARGAS_BILLING_PORTAL','')
+                await self.s.api('sendMessage',{'chat_id':uid,'text':text,**({'reply_markup':{'inline_keyboard':[[{'text':'💳 GESTIONAR SUSCRIPCIÓN','url':portal,'style':'primary'}]]}} if portal else {})})
+            return True
+        return False
+    async def stripe(self,event):
+        if event.get('livemode') is not True:return None
+        obj=event.get('data',{}).get('object',{});kind=event.get('type','')
+        price=os.environ.get('DESCARGAS_STRIPE_PRICE_ID','');link=os.environ.get('DESCARGAS_STRIPE_LINK_ID','')
+        if not price or not link:return None
+        if kind in ('checkout.session.completed','checkout.session.async_payment_succeeded'):
+            if obj.get('mode')!='subscription' or object_id(obj.get('payment_link'))!=link or obj.get('payment_status')!='paid' or obj.get('currency')!='usd' or obj.get('amount_total')!=699:return None
+            sub=object_id(obj.get('subscription'));token=obj.get('client_reference_id','')
+            if not sub or not token.startswith('d_'):return None
+            return await self.repo.stripe_event(event,checkout=(token,sub,next_month(obj.get('created',event['created']))))
+        if kind in ('invoice.paid','invoice.payment_failed'):
+            lines=[line for line in obj.get('lines',{}).get('data',[]) if line_price(line)==price]
+            sub=invoice_subscription(obj)
+            if not lines or not sub:return None
+            if kind=='invoice.payment_failed':return await self.repo.stripe_event(event,state=(sub,'past_due'))
+            if obj.get('status')!='paid' or obj.get('currency')!='usd' or obj.get('amount_paid',0)<699:return None
+            until=max(line.get('period',{}).get('end',0) for line in lines)
+            if not until:return None
+            return await self.repo.stripe_event(event,period=(sub,obj['id'],until))
+        if kind.startswith('customer.subscription.'):
+            if not any(object_id(i.get('price'))==price for i in obj.get('items',{}).get('data',[])):return None
+            return await self.repo.stripe_event(event,state=(obj['id'],obj.get('status','canceled')))
+
+def mount_payments(app,service):
+    async def webhook(request):
+        if not service.ready:return web.Response(status=503)
+        raw=await request.read()
+        try:event=verified_event(raw,request.headers.get('Stripe-Signature',''),os.environ.get('DESCARGAS_STRIPE_WEBHOOK_SECRET',''))
+        except (ValueError,TypeError):return web.Response(status=400,text='Invalid event')
+        uid=await service.billing.stripe(event)
+        if uid:
+            try:await service.tell(uid,'✅ Pago mensual confirmado. Tu acceso está desbloqueado. Vuelve a enviar tus enlaces.')
+            except Exception:pass
+        return web.json_response({'received':True})
+    app.router.add_post('/payments/stripe',webhook)

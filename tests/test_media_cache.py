@@ -23,7 +23,7 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
             if key in rows:raise AssertionError('Duplicate publication')
             rows[key]={'state':'publishing','payload':None}
         async def ready(key,payload,backup=None):rows[key]={'state':'ready','payload':payload}
-        repo=SimpleNamespace(register_origins=AsyncMock(),is_blocked=AsyncMock(return_value=False),bind_cached_origin=AsyncMock(),media_lock=locked,media_cache=AsyncMock(side_effect=lookup),
+        repo=SimpleNamespace(policy=AsyncMock(return_value={'pay':False,'locked':False}),register_origins=AsyncMock(),is_blocked=AsyncMock(return_value=False),bind_cached_origin=AsyncMock(),media_lock=locked,media_cache=AsyncMock(side_effect=lookup),
             media_publishing=AsyncMock(side_effect=publishing),media_ready=AsyncMock(side_effect=ready),
             encode=lambda x:x,decode=lambda x:x,pace=AsyncMock(),remember_media_route=AsyncMock())
         service=SimpleNamespace(repo=repo,bot_id=123,almacen=-100123,

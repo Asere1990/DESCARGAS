@@ -4,7 +4,7 @@ from descargas_app import mount
 from descargas_app.scalable import ScaleService
 os.umask(0o077)
 os.environ['DESCARGAS_ROLE']='web'
-app=web.Application(client_max_size=8192)
+app=web.Application(client_max_size=512*1024)
 service=mount(app,prefix='',service_factory=ScaleService)
 # Readiness is separate from the legacy informational health endpoint.
 async def ready(request):

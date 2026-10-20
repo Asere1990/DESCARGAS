@@ -14,13 +14,20 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
     def service(self,status='administrator'):
         async def api(method,data):return {'status':status} if method=='getChatMember' else {}
         return SimpleNamespace(bot_id=123,almacen=-100999,api=AsyncMock(side_effect=api),
-            repo=SimpleNamespace(set_blocks=AsyncMock(),archive_origin=AsyncMock(return_value={'uid':10,'source':-100123}),is_blocked=AsyncMock(return_value=False)))
+            repo=SimpleNamespace(policy_set=AsyncMock(),set_blocks=AsyncMock(),archive_origin=AsyncMock(return_value={'uid':10,'source':-100123}),is_blocked=AsyncMock(return_value=False)))
     def msg(self,text='/ban',**extra):
         return dict({'message_id':55,'chat':{'id':-100999,'type':'supergroup'},'from':{'id':1},'text':text,'reply_to_message':{'message_id':99}},**extra)
     async def test_reply_blocks_trusted_user_and_source(self):
         s=self.service();self.assertTrue(await command(s,self.msg()))
         s.repo.archive_origin.assert_awaited_once_with(123,-100999,99)
         s.repo.set_blocks.assert_awaited_once_with(123,[10,-100123],True,1)
+    async def test_pay_lock_unlock_share_admin_authorization_for_users_and_channels(self):
+        for name,target,field,value in [('pay',10,'pay',True),('pay',-100123,'pay',True),('lock',-100123,'locked',True),('unlock',10,'locked',False)]:
+            s=self.service();await command(s,self.msg(f'/{name} {target}',chat={'id':1,'type':'private'}))
+            s.repo.policy_set.assert_awaited_once_with(123,target,field,value,1)
+            s=self.service();await command(s,self.msg(f'/{name} {target}',**{'from':{'id':2}}))
+            s.repo.policy_set.assert_not_awaited()
+
     async def test_anonymous_admin_cannot_bypass_admins_file(self):
         s=self.service();await command(s,self.msg(sender_chat={'id':-100999},**{'from':{'id':1087968824,'is_bot':True}}))
         s.repo.set_blocks.assert_not_awaited()

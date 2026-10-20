@@ -6,6 +6,7 @@ import hashlib
 import time
 import uuid
 import asyncpg
+from .billing_store import BillingRepository,SCHEMA as BILLING_SCHEMA
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS descarga_blocks(
@@ -42,7 +43,9 @@ CREATE TABLE IF NOT EXISTS descarga_backups(
 CREATE INDEX IF NOT EXISTS descarga_backup_pending ON descarga_backups(bot_id,available) WHERE state<>'done';
 '''
 
-class Repository:
+SCHEMA+=BILLING_SCHEMA
+
+class Repository(BillingRepository):
     def __init__(self,url,cipher,pool_size=10):
         self.url=url;self.cipher=cipher;self.pool_size=pool_size;self.pool=None
         self.owner=uuid.uuid4().hex
@@ -117,7 +120,7 @@ class Repository:
         if operation=='heartbeat':
             result=await self.pool.execute("UPDATE descarga_backups SET heartbeat=$3 WHERE key=$1 AND lease=$2 AND state='working'",key,lease,time.time())
         else:
-            result=await self.pool.execute("UPDATE descarga_backups SET state=$3,available=$4,lease=NULL WHERE key=$1 AND lease=$2 AND state='working'",key,lease,'done' if operation=='done' else 'queued',time.time()+300)
+            result=await self.pool.execute("UPDATE descarga_backups SET state=$3,available=$4,lease=NULL WHERE key=$1 AND lease=$2 AND state='working'",key,lease,'done' if operation=='done' else 'suppressed' if operation=='suppressed' else 'queued',time.time()+300)
         return result=='UPDATE 1'
     def route_key(self,bot_id,link):
         return hashlib.sha256(f'{bot_id}:{link}'.encode()).hexdigest()
@@ -151,7 +154,7 @@ class Repository:
             if await conn.fetchval("SELECT count(*) FROM descarga_jobs WHERE state IN ('queued','preparing','sending')")>=limit:return 'full'
             # A routing hint is never access authorization. Workers still fetch the
             # source with the requester's session before delivering cached media.
-            known=await conn.fetchval("SELECT 1 FROM descarga_media_routes r JOIN descarga_media_cache c ON c.key=r.media_key WHERE r.key=$1 AND c.state='ready'",self.route_key(bot_id,links[0]))
+            known=await conn.fetchval("SELECT 1 FROM descarga_media_routes r LEFT JOIN descarga_media_cache c ON c.key=r.media_key LEFT JOIN descarga_private_cache p ON p.key=r.media_key WHERE r.key=$1 AND (c.state='ready' OR p.key IS NOT NULL)",self.route_key(bot_id,links[0]))
             await conn.execute('''INSERT INTO descarga_jobs(id,bot_id,update_id,uid,generation,payload,created,lane)
                 VALUES($1,$2,$3,$4,$5,$6,$7,$8)''',uuid.uuid4().hex,bot_id,update_id,uid,account['generation'],
                 self.encode({'links':links,'name':name,'seen':[]}),time.time(),'fast' if known else 'slow')

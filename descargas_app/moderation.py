@@ -19,10 +19,11 @@ class DownloadBlocked(ValueError):
 async def ensure_allowed(service,uid,source=None):
     if await service.repo.is_blocked(service.bot_id,uid,source):
         raise DownloadBlocked('Bot fuera de servicio')
+    if getattr(service,'billing',None):await service.billing.require(uid,source)
 
 async def command(service,message):
     text=message.get('text','').strip()
-    match=re.match(r'^/(ban|unban)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$',text,re.S)
+    match=re.match(r'^/(ban|unban|pay|lock|unlock)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$',text,re.S)
     if not match:return False
     chat=message.get('chat',{});actor=message.get('from',{})
     if chat.get('type')!='private' and chat.get('id')!=service.almacen:return True
@@ -44,6 +45,8 @@ async def command(service,message):
                 await reply('Usa /ban ID o /unban ID. Para bloquear ambos, responde al contenido en ALMACEN con /ban.');return True
             targets=[int(raw)]
         else:
+            if match.group(1) not in ('ban','unban'):
+                await reply('Indica el ID del usuario, grupo o canal.');return True
             original=message.get('reply_to_message',{})
             if chat.get('id')!=service.almacen or not original.get('message_id'):
                 await reply('Indica un ID o responde al contenido en ALMACEN.');return True
@@ -52,8 +55,13 @@ async def command(service,message):
                 await reply('Este contenido no tiene un origen registrado. Usa el comando con cada ID por separado.');return True
             targets=[origin['uid'],origin['source']]
         if any(not (-2**63<t<2**63) or t==0 for t in targets):raise ValueError('ID no válido.')
-        await service.repo.set_blocks(service.bot_id,targets,match.group(1)=='ban',actor_id)
-        action='Bloqueado' if match.group(1)=='ban' else 'Desbloqueado'
+        operation=match.group(1)
+        if operation in ('ban','unban'):
+            await service.repo.set_blocks(service.bot_id,targets,operation=='ban',actor_id)
+            action='Bloqueado' if operation=='ban' else 'Desbloqueado'
+        else:
+            for target in targets:await service.repo.policy_set(service.bot_id,target,'pay' if operation=='pay' else 'locked',operation!='unlock',actor_id)
+            action={'pay':'Pago mensual activado para','lock':'Almacenamiento bloqueado para','unlock':'Almacenamiento permitido para'}[operation]
         await reply('\n'.join(f'{action}: {"usuario" if t>0 else "grupo"} {t}' for t in targets))
     except ValueError as exc:await reply(str(exc))
     return True

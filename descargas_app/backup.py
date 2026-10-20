@@ -57,7 +57,8 @@ def backup_payload(service,identity,uid,delivered,ids):
             sizes=[s for s in media.sizes if hasattr(s,'size') or hasattr(s,'sizes')]
             thumb=max(sizes,key=lambda s:getattr(s,'size',0) or max(getattr(s,'sizes',[0]))).type
         return {'id':media.id,'access_hash':media.access_hash,'reference':base64.b64encode(media.file_reference or b'').decode(),'thumb':thumb}
-    return {'key':identity,'bot_id':service.bot_id,'uid':uid,
+    from .moderation import SOURCE
+    return {'key':identity,'bot_id':service.bot_id,'uid':uid,'source':SOURCE.get(),
         'items':[{'index':i,'file_id':file_id(m),'size':m.file.size or 0,
             'ext':m.file.ext or '.bin','message_id':ids[i],'bot_message_id':m.id,
             'kind':'photo' if m.photo else 'document','location':location(m)} for i,m in enumerate(delivered)]}
@@ -66,6 +67,12 @@ def backup_payload(service,identity,uid,delivered,ids):
 def mount_backup(app,service):
     stream_lock=asyncio.Lock()
     connect_lock=asyncio.Lock()
+    async def storage_denied(payload):
+        source=payload.get('source')
+        if source is None and payload.get('items'):
+            origin=await service.repo.archive_origin(service.bot_id,service.almacen,payload['items'][0].get('message_id',0))
+            if origin:source=origin['source']
+        return (await service.repo.policy(service.bot_id,payload['uid'],source))['locked']
     async def get_bot():
         async with connect_lock:
             if getattr(service,'backup_bot',None):return service.backup_bot
@@ -143,10 +150,15 @@ def mount_backup(app,service):
         if op=='claim':
             if float(await service.repo.setting('backup_pause_until') or 0)>time.time():
                 return web.json_response({'job':None},headers={'Cache-Control':'no-store'})
-            row=await service.repo.backup_claim(service.bot_id)
             result=None
-            if row:
-                result=service.repo.decode(row['payload'])
+            for _ in range(20):
+                row=await service.repo.backup_claim(service.bot_id)
+                if not row:break
+                candidate=service.repo.decode(row['payload'])
+                if await storage_denied(candidate):
+                    await service.repo.backup_update(row['key'],row['lease'],'suppressed');continue
+                result=candidate;break
+            if result:
                 result['items']=[{k:v for k,v in item.items() if k!='location'} for item in result['items']]
                 result.update(lease=row['lease'])
             return web.json_response({'job':result},headers={'Cache-Control':'no-store'})
@@ -156,6 +168,9 @@ def mount_backup(app,service):
             row=await service.repo.backup_leased(key,lease,service.bot_id)
             if not row:raise web.HTTPConflict()
             payload=service.repo.decode(row['payload'])
+            if await storage_denied(payload):
+                await service.repo.backup_update(key,lease,'suppressed')
+                raise web.HTTPForbidden()
             if index>=len(payload['items']):raise web.HTTPBadRequest()
             item=payload['items'][index];location=item['location']
             constructor=types.InputPhotoFileLocation if item['kind']=='photo' else types.InputDocumentFileLocation

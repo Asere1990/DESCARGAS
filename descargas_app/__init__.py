@@ -32,6 +32,7 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
         if not service.ready:return web.json_response({'error':'El servicio está terminando de configurarse. Inténtalo después.'},status=503)
         operation=request.match_info['op']
         try:
+            if request.content_length and request.content_length>8192:raise web.HTTPRequestEntityTooLarge(max_size=8192,actual_size=request.content_length)
             data=await request.json()
             if not isinstance(data,dict):raise ValueError()
             if operation=='status':
@@ -60,6 +61,9 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
             return web.json_response(result,headers={'Cache-Control':'no-store'})
         except web.HTTPException:raise
         except Exception as exc:return web.json_response({'error':error_message(exc)},status=400,headers={'Cache-Control':'no-store'})
+    if hasattr(service,'billing'):
+        from .billing import mount_payments
+        mount_payments(app,service)
     if hasattr(service,'repo'):
         from .backup import mount_backup
         mount_backup(app,service)
