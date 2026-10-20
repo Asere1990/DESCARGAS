@@ -25,6 +25,8 @@ class BillingRepository:
         await self.pool.execute(f'''INSERT INTO descarga_policies(bot_id,target,{field},actor) VALUES($1,$2,$3,$4)
             ON CONFLICT(bot_id,target) DO UPDATE SET {field}=excluded.{field},actor=excluded.actor''',bot_id,target,value,actor)
     async def policy(self,bot_id,uid,source=None):
+        from .moderation import authorized
+        if authorized(uid):return {'pay':False,'locked':False}
         row=await self.pool.fetchrow('SELECT COALESCE(bool_or(pay),false) AS pay,COALESCE(bool_or(locked),false) AS locked FROM descarga_policies WHERE bot_id=$1 AND target=ANY($2::bigint[])',bot_id,[uid]+([source] if source is not None else []))
         return dict(row)
     async def member_until(self,bot_id,uid):

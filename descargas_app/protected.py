@@ -16,7 +16,9 @@ def sources():
     except FileNotFoundError:return set()
     return {int(v) for v in values if v.startswith('-') and v[1:].isdigit()}
 
-def require_source(source):
+def require_source(source,uid=None):
+    from .moderation import authorized
+    if authorized(uid):return
     if isinstance(source,int) and source in sources():raise ProtectedSource(MESSAGE)
     if isinstance(source,int) and source>0:
         blocked=bots()
@@ -27,9 +29,11 @@ def bots():
         return {str(int(token)) if token.isdecimal() else token[1:].lower() for line in BOTS_FILE.read_text().splitlines() for token in line.split('#',1)[0].replace(',',' ').split() if (token.isdecimal() and int(token)>0) or re.fullmatch(r'@[A-Za-z][A-Za-z0-9_]{3,31}',token)}
     except FileNotFoundError:return set()
 
-def require_bot_alias(peer):
+def require_bot_alias(peer,uid=None):
+    from .moderation import authorized
+    if authorized(uid):return
     if isinstance(peer,str) and peer.lower().lstrip('@') in bots():raise ProtectedSource(BOT_MESSAGE)
 
-def require_entity(entity):
+def require_entity(entity,uid=None):
     BOT_USERNAME.set((getattr(entity,'username',None) or '').lower() if getattr(entity,'bot',False) else None)
-    if getattr(entity,'bot',False):require_source(entity.id)
+    if getattr(entity,'bot',False):require_source(entity.id,uid)

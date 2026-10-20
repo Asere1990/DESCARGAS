@@ -111,7 +111,7 @@ Los contadores permanentes se actualizan de forma idempotente junto al checkpoin
 
 El panel corre fuera del polling y de las colas de descarga: dos consultas concurrentes, máximo 20 pendientes, pool propio de dos conexiones y timeout SQL de cinco segundos. Las consultas son acotadas y los rankings tienen índices. Los admins tienen prioridad dentro de las colas rápida/lenta; no interrumpen envíos que ya comenzaron. No se aumentaron workers ni costes.
 
-`protegidos` contiene un ID canónico por línea (`-100...`), permite comentarios `#` y se aplica en admisión, resolución del origen y antes de cada entrega, también con caché. El archivo se distribuye con el código. No hay excepciones para administradores.
+`protegidos` contiene un ID canónico por línea (`-100...`), permite comentarios `#` y se aplica en admisión, resolución del origen y antes de cada entrega, también con caché. El archivo se distribuye con el código. Los usuarios de admins.txt están exentos de estas protecciones.
 
 Los workers dejan de tomar trabajos al recibir SIGTERM y esperan hasta 20 segundos por las descargas activas (`DOWNLOAD_DRAIN_SECONDS`, máximo 240). Se reencolan inmediatamente los trabajos cuya fase todavía permite reintento seguro; no se repiten automáticamente los envíos ambiguos. Para ampliar esa espera, el tiempo de apagado de Render debe ser mayor que DOWNLOAD_DRAIN_SECONDS. Mantener PostgreSQL y despliegues con solapamiento, sin disco adjunto al servicio. No se garantiza ausencia absoluta de interrupciones en subidas largas, fallos de red o cambios incompatibles; los envíos ambiguos siguen en revisión para evitar duplicados.
 
@@ -131,3 +131,6 @@ La lista protege 53 IDs únicos: 26 históricos declarados como valores de MAIN_
 
 
 Actualización de protegidos (20-10-2026): se consultaron en modo de solo lectura GALLERY.gallery_destinations, GALLERY.gallery_scheduled y Telegram Stripe.membership_group_overrides, y se contrastó program_schedules de Bot Ladron. El catálogo habilitado de programados y las sustituciones de membresías aportaron 27 IDs adicionales a los 26 históricos del código: 53 IDs únicos. Se mantienen los anteriores para proteger contenido antiguo. No se cambiaron las bases de datos ni CUSTOMER-SERVICE. Es una instantánea, no sincronización automática. bots_protegidos incluye los cuatro IDs aportados por el administrador.
+
+
+Los IDs presentes en admins.txt tienen acceso de administrador: no se aplican /ban, bloqueos por disputas/reembolsos, /pay, /lock, protegidos ni bots_protegidos a sus solicitudes. Las reglas almacenadas se conservan y vuelven a tener efecto si se retira ese ID de admins.txt. Se conserva su prioridad de cola. Esta exención no modifica permisos de Telegram, compras no realizadas, compatibilidad de enlaces, límites de tamaño, capacidad ni intervalos de Telegram. Los administradores también están exentos del límite de cinco enlaces por lote.

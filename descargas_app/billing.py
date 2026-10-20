@@ -45,9 +45,13 @@ class Billing:
             'ready':bool(os.environ.get('DESCARGAS_PAYMENT_LINK') and os.environ.get('DESCARGAS_STRIPE_WEBHOOK_SECRET') and os.environ.get('DESCARGAS_STRIPE_PRICE_ID') and os.environ.get('DESCARGAS_STRIPE_LINK_ID'))}
         await self.repo.set_setting('payment_config',json.dumps(config))
     async def require(self,uid,source=None):
+        from .moderation import authorized
+        if authorized(uid):return
         policy=await self.repo.policy(self.s.bot_id,uid,source)
         if policy['pay'] and await self.repo.member_until(self.s.bot_id,uid)<=time.time():raise PaymentRequired()
     async def prompt(self,uid):
+        from .moderation import authorized
+        if authorized(uid):return await self.s.tell(uid,'✅ Acceso de administrador. No necesitas una membresía para descargar.')
         if await self.repo.member_until(self.s.bot_id,uid)>time.time():
             return await self.s.tell(uid,'✅ Tu suscripción está activa. Vuelve a enviar tus enlaces.')
         intent=await self.repo.payment_intent(self.s.bot_id,uid,'stars')
@@ -84,7 +88,8 @@ class Billing:
         if refund:
             if refund.get('currency')=='XTR' and refund.get('total_amount',0)>0 and refund.get('telegram_payment_charge_id'):
                 uid=await self.repo.refund_stars(self.s.bot_id,refund.get('invoice_payload',''),refund['telegram_payment_charge_id'])
-                if uid:await self.s.tell(uid,'Bot fuera de servicio')
+                from .moderation import authorized
+                if uid and not authorized(uid):await self.s.tell(uid,'Bot fuera de servicio')
             return True
         from .subscription_actions import menu,cancel
         query=update.get('callback_query',{})

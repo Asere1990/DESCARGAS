@@ -17,8 +17,9 @@ class DownloadBlocked(ValueError):
     pass
 
 async def ensure_allowed(service,uid,source=None):
+    if authorized(uid):return
     from .protected import require_source
-    require_source(source)
+    require_source(source,uid)
     if await service.repo.is_blocked(service.bot_id,uid,source):
         raise DownloadBlocked('Bot fuera de servicio')
     if getattr(service,'billing',None):await service.billing.require(uid,source)

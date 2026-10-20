@@ -174,10 +174,10 @@ class ScaleService(Service):
                 name=' '.join((str(person.get('first_name',''))+' '+str(person.get('last_name',''))).split())[:128] or 'Usuario'
                 links=list(dict.fromkeys(text.split()))
                 try:
-                    if len(links)>5:raise ValueError('Envía un máximo de 5 enlaces por mensaje. Divide los enlaces en lotes de cinco.')
+                    if len(links)>5 and not authorized(uid):raise ValueError('Envía un máximo de 5 enlaces por mensaje. Divide los enlaces en lotes de cinco.')
                     for link in links:
                         peer,_=parse_link(link)
-                        require_bot_alias(peer)
+                        require_bot_alias(peer,uid)
                         await ensure_allowed(self,uid,peer if isinstance(peer,int) else None)
                     result=await self.repo.enqueue(self.bot_id,update['update_id'],uid,links,name,
                         int(os.environ.get('QUEUE_CAPACITY','10000')),priority=1 if authorized(uid) else 0)
@@ -276,7 +276,8 @@ class ScaleService(Service):
 
     async def resolve(self,client,peer):
         entity=await super().resolve(client,peer)
-        require_entity(entity)
+        job=CURRENT_JOB.get()
+        require_entity(entity,job['uid'] if job else None)
         METRIC_NAME.set(getattr(entity,'title',None) or getattr(entity,'username',None))
         return entity
 
