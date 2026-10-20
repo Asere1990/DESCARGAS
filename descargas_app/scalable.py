@@ -157,6 +157,13 @@ class ScaleService(Service):
 
     async def update(self,update):
         message=update.get('message',{})
+        query=update.get('callback_query',{})
+        active_message=query.get('message',{}) if query else message
+        actor=query.get('from',{}) if query else message.get('from',{})
+        if self.repo.pool and active_message.get('chat',{}).get('type')=='private' and actor.get('id') and not actor.get('is_bot'):
+            try:
+                await self.repo.touch_activity(self.bot_id,actor['id'],' '.join(filter(None,[actor.get('first_name'),actor.get('last_name')])))
+            except Exception:pass
         if getattr(self,'admin_panel',None) and await self.admin_panel.update(update):return
         if await self.billing.update(update):return
         if await moderation_command(self,message):return

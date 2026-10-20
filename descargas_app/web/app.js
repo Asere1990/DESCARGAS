@@ -31,3 +31,6 @@ $('contact').onclick=()=>perform(async()=>{
 async function loadMembership(){try{const info=await api('membership');$('membership').hidden=!info.active;if(info.active)$('membership-until').textContent='Activa hasta el '+info.until+'.';}catch(e){}}
 $('cancel-membership').onclick=()=>{const run=()=>perform(async()=>{const result=await api('cancel-membership');$('notice').textContent=result.message;await loadMembership();});if(tg?.showConfirm)tg.showConfirm('¿Cancelar la renovación? Conservarás el acceso hasta terminar el período pagado.',yes=>{if(yes)run();});else if(confirm('¿Cancelar la renovación de tu membresía?'))run();};
 if(tg?.initData)loadMembership();
+
+$('admin-datos').onclick=()=>perform(async()=>{await api('admin-datos');if(tg)tg.close();});
+if(tg?.initData)api('admin-status').then(result=>{$('admin-tools').hidden=!result.authorized;}).catch(()=>{});

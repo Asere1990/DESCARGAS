@@ -35,6 +35,16 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
             if request.content_length and request.content_length>8192:raise web.HTTPRequestEntityTooLarge(max_size=8192,actual_size=request.content_length)
             data=await request.json()
             if not isinstance(data,dict):raise ValueError()
+            if hasattr(service,'repo') and service.repo.pool:
+                try:await service.repo.touch_activity(service.bot_id,uid)
+                except Exception:pass
+            if operation in ('admin-status','admin-datos'):
+                from .moderation import authorized
+                allowed=authorized(uid)
+                if operation=='admin-status':return web.json_response({'authorized':allowed},headers={'Cache-Control':'no-store'})
+                if not allowed:raise web.HTTPForbidden()
+                await service.admin_panel.update({'message':{'from':{'id':uid},'chat':{'id':uid,'type':'private'},'text':'/datos'}})
+                return web.json_response({'ok':True},headers={'Cache-Control':'no-store'})
             if operation=='status':
                 async with service.locks[uid]:result=await service.login_status(uid)
                 return web.json_response(result,headers={'Cache-Control':'no-store'})

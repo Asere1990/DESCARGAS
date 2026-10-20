@@ -19,6 +19,15 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         await self.repo.start()
         await self.repo.pool.execute('TRUNCATE descarga_directory,descarga_delivery_events,descarga_user_totals,descarga_source_totals,descarga_user_sources,descarga_admin_selections,descarga_star_receipts,descarga_disputes,descarga_dispute_blocks,descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
     async def asyncTearDown(self):await self.repo.close()
+    async def test_activity_requires_real_interaction_and_is_bot_scoped(self):
+        await self.repo.remember_person(100,10,'Name','CU')
+        self.assertEqual(await self.repo.pool.fetchval('SELECT last_seen FROM descarga_directory WHERE bot_id=100 AND uid=10'),0)
+        await self.repo.touch_activity(100,10,'Updated')
+        row=await self.repo.pool.fetchrow('SELECT name,country,last_seen FROM descarga_directory WHERE bot_id=100 AND uid=10')
+        self.assertEqual(row['country'],'CU');self.assertGreater(row['last_seen'],time.time()-10)
+        self.assertEqual(self.repo.decode(row['name'])['name'],'Updated')
+        self.assertEqual(await self.repo.pool.fetchval('SELECT count(*) FROM descarga_directory WHERE bot_id=200 AND last_seen>$1',time.time()-300),0)
+
     async def test_metrics_checkpoint_is_idempotent_and_admin_priority(self):
         for uid in (10,20):await self.repo.save_account(uid,'session',{'phone_country':'CU'})
         await self.repo.enqueue(100,1,10,['a'],'Normal')

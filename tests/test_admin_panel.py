@@ -8,7 +8,24 @@ from descargas_app.protected import require_source,ProtectedSource,MESSAGE
 class AdminTests(unittest.IsolatedAsyncioTestCase):
     def panel(self):
         s=NS(bot_id=123,almacen=-1009,api=AsyncMock(),repo=NS(decode=lambda x:x,encode=lambda x:x))
-        p=AdminPanel(s);p.pool=NS(fetchrow=AsyncMock(),fetch=AsyncMock(),execute=AsyncMock());return p
+        p=AdminPanel(s);p.pool=NS(fetchrow=AsyncMock(),fetch=AsyncMock(),fetchval=AsyncMock(),execute=AsyncMock());return p
+    async def test_search_validates_positive_user_id_and_dispatches_detail(self):
+        p=self.panel();p.detail=AsyncMock()
+        with patch('descargas_app.admin_panel.authorized',return_value=True):
+            await p.run(10,10,'search','7539025033')
+            p.detail.assert_awaited_once_with(10,7539025033)
+            p.detail.reset_mock();await p.run(10,10,'search','-100123')
+            p.detail.assert_not_awaited()
+            self.assertIn('/search telegram_id',p.s.api.call_args.args[1]['text'])
+    async def test_dashboard_labels_recent_activity_without_claiming_open_chats(self):
+        p=self.panel();p.pool.fetchval.side_effect=[100,12,3]
+        with patch('descargas_app.admin_panel.authorized',return_value=True):await p.run(10,10,'datos','')
+        text=p.s.api.call_args.args[1]['text']
+        self.assertIn('Usuarios registrados: 100',text)
+        self.assertIn('últimos 5 minutos: 12',text)
+        self.assertIn('descargando ahora: 3',text)
+        self.assertIn('no informa',text)
+
     def test_country_alias_and_html_safe_mention(self):
         self.assertEqual(country_code('Cuba'),'CU');self.assertEqual(country_code('ES'),'ES')
         self.assertEqual(country_code('España'),'ES')
