@@ -222,7 +222,7 @@ class Service:
             if await self.get_session(uid):
                 await self.tell(uid,'✅ CUENTA CONECTADA\n\nEnvía aquí hasta 5 enlaces de fotos, videos, álbumes o archivos por mensaje.',True)
                 return
-            await self.tell(uid,'DESCARGAS\n\nConecta tu cuenta para descargar fotos, videos y álbumes de conversaciones a las que tienes acceso. Después envía aquí los enlaces.\n\nLa conexión crea una sesión adicional con acceso amplio a tu cuenta. Puedes revocarla cuando quieras. Las descargas también se guardan en el almacén del servicio con tu nombre e ID. No envíes códigos ni contraseñas como mensajes.',True)
+            await self.tell(uid,"𝘿𝙀𝙎𝘾𝘼𝙍𝙂𝘼𝙎📥\n\n𝘾𝙧𝙚𝙖 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙥𝙖𝙧𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙛𝙤𝙩𝙤𝙨, 𝙫𝙞𝙙𝙚𝙤𝙨, 𝙖𝙡𝙗𝙪𝙢𝙨, 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨 𝙤 𝙜𝙞𝙛𝙨 𝙙𝙚 𝙜𝙧𝙪𝙥𝙤𝙨, 𝙘𝙖𝙣𝙖𝙡𝙚𝙨 𝙤 𝙗𝙤𝙩𝙨 𝙖𝙪𝙣𝙦𝙪𝙚 𝙩𝙚𝙣𝙜𝙖𝙣 𝙧𝙚𝙨𝙩𝙧𝙞𝙘𝙘𝙞𝙤́𝙣 𝙙𝙚 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙨. 𝘾𝙪𝙖𝙣𝙙𝙤 𝙩𝙚𝙧𝙢𝙞𝙣𝙚𝙨 𝙙𝙚 𝙘𝙧𝙚𝙖𝙧 𝙡𝙖 𝙘𝙪𝙚𝙣𝙩𝙖, 𝙨𝙤𝙡𝙤 𝙚𝙣𝙫𝙞𝙖 𝙚𝙡 𝙚𝙣𝙡𝙖𝙘𝙚 𝙖 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙖𝙦𝙪𝙞 𝙥𝙖𝙧𝙖 𝙙𝙚𝙫𝙤𝙡𝙫𝙚𝙧𝙩𝙚 𝙚𝙡 𝙖𝙧𝙘𝙝𝙞𝙫𝙤 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙙𝙤 𝙚𝙣 𝙨𝙚𝙜𝙪𝙣𝙙𝙤𝙨.",True)
         elif text=='/estado':
             await self.tell(uid,'✅ Cuenta conectada. Envía los enlaces.' if self.session(uid) else 'Conecta primero tu cuenta.',True)
         elif text=='/desconectar':
