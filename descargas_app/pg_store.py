@@ -68,6 +68,7 @@ class Repository:
         await self.pool.executemany('INSERT INTO descarga_origins VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',[(bot_id,almacen,mid,uid,source) for mid in ids])
     async def bind_cached_origin(self,bot_id,almacen,ids,source,identity):
         # Preserve the first requester's attribution when enriching older cached albums.
+        if ids and await self.archive_origin(bot_id,almacen,ids[0]):return
         row=await self.pool.fetchrow('SELECT payload FROM descarga_backups WHERE key=$1 AND bot_id=$2',identity,bot_id)
         if row:
             uid=self.decode(row['payload']).get('uid')

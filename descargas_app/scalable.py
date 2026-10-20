@@ -249,6 +249,7 @@ class ScaleService(Service):
             raise ValueError('La sesión fue desconectada. Se canceló el envío.')
         await self.repo.state(job,'sending')
         await self.repo.pace('bot-send',0.06*count)
+        await ensure_allowed(self,uid,SOURCE.get())
 
     async def source_items(self,client,link):
         key,items=await super().source_items(client,link)
@@ -349,8 +350,10 @@ class ScaleService(Service):
                 # Leave lease + durable phase for the recovery process; never replay uncertain sends.
                 raise
             except DownloadBlocked:
-                await self.repo.state(job,'cancelled')
-                await self.tell(job['uid'],'Bot fuera de servicio')
+                try:
+                    await self.repo.state(job,'cancelled')
+                    await self.tell(job['uid'],'Bot fuera de servicio')
+                except Exception:pass
             except CacheMiss:
                 try:
                     await self.repo.reroute(job,'slow')
