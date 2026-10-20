@@ -183,7 +183,7 @@ class ScaleService(Service):
                         int(os.environ.get('QUEUE_CAPACITY','10000')),priority=1 if authorized(uid) else 0)
                     if result in ('duplicate','queued'):return
                     messages={'busy':'Espera a que termine tu descarga anterior.',
-                        'disconnected':'Conecta primero tu cuenta desde el botón.',
+                        'disconnected':'𝘾𝙧𝙚𝙖 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙥𝙧𝙞𝙢𝙚𝙧𝙤 𝙖𝙣𝙩𝙚𝙨 𝙙𝙚 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨.',
                         'full':'Demasiadas solicitudes en cola. Inténtalo después.'}
                     try:await self.tell(uid,messages[result],result=='disconnected')
                     except Exception:pass # Durable acceptance must not depend on acknowledgement delivery.
