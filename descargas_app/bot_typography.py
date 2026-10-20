@@ -10,13 +10,10 @@ _VERBATIM = {'url', 'email', 'mention', 'bot_command', 'code', 'pre', 'phone_num
 
 
 def _letter(char):
-    if 'A' <= char <= 'Z':
-        return chr(0x1D63C + ord(char) - ord('A'))
-    if 'a' <= char <= 'z':
-        return chr(0x1D656 + ord(char) - ord('a'))
-    decomposed = unicodedata.normalize('NFD', char)
-    if len(decomposed) > 1 and decomposed[0].isascii() and decomposed[0].isalpha():
-        return _letter(decomposed[0]) + decomposed[1:]
+    # Restore sans mathematical alphabets only; retain all serif text verbatim.
+    codepoint = ord(char)
+    if 0x1D5A0 <= codepoint <= 0x1D66F or 0x1D7E2 <= codepoint <= 0x1D7FF:
+        return unicodedata.normalize('NFKC', char)
     return char
 
 

@@ -8,7 +8,8 @@ class BotTypographyTests(unittest.TestCase):
         original = '¡Conexión! País, contraseña: 42.\n¿Listo?'
         formatted = styled_text(original)
         self.assertEqual(unicodedata.normalize('NFKD', formatted), unicodedata.normalize('NFKD', original))
-        self.assertTrue(formatted.startswith('¡𝘾𝙤𝙣𝙚'))
+        self.assertEqual(formatted, original)
+        self.assertEqual(styled_text('𝘿𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙨'), 'Descargas')
 
     def test_serif_and_idempotence(self):
         original = '𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈Ó𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋 · Mi cuenta'
@@ -22,20 +23,20 @@ class BotTypographyTests(unittest.TestCase):
 
     def test_html_links_and_literal_code(self):
         original = '<a href="tg://user?id=123">Juan</a> &amp; <code>abcXYZ</code>'
-        self.assertEqual(styled_text(original, html=True), '<a href="tg://user?id=123">𝙅𝙪𝙖𝙣</a> &amp; <code>abcXYZ</code>')
+        self.assertEqual(styled_text(original, html=True), '<a href="tg://user?id=123">Juan</a> &amp; <code>abcXYZ</code>')
 
     def test_entities_follow_utf16_offsets(self):
-        payload = {'text': 'Hola Juan', 'entities': [{'type': 'text_link', 'offset': 5, 'length': 4, 'url': 'tg://user?id=123'}]}
+        payload = {'text': '𝙃𝙤𝙡𝙖 𝙅𝙪𝙖𝙣', 'entities': [{'type': 'text_link', 'offset': 9, 'length': 8, 'url': 'tg://user?id=123'}]}
         result = format_bot_payload('sendMessage', payload)
-        self.assertEqual(result['entities'][0]['offset'], 9)
-        self.assertEqual(result['entities'][0]['length'], 8)
-        self.assertEqual(payload['text'], 'Hola Juan')
+        self.assertEqual(result['entities'][0]['offset'], 5)
+        self.assertEqual(result['entities'][0]['length'], 4)
+        self.assertEqual(payload['text'], '𝙃𝙤𝙡𝙖 𝙅𝙪𝙖𝙣')
 
     def test_buttons_preserve_actions(self):
         button = {'text': 'Continuar →', 'callback_data': 'next', 'style': 'success', 'web_app': {'url': 'https://example.com'}}
         result = format_bot_payload('sendMessage', {'text': 'Hola', 'reply_markup': {'inline_keyboard': [[button]]}})
         formatted = result['reply_markup']['inline_keyboard'][0][0]
-        self.assertEqual(formatted['text'], '𝘾𝙤𝙣𝙩𝙞𝙣𝙪𝙖𝙧 →')
+        self.assertEqual(formatted['text'], 'Continuar →')
         for key in ('callback_data', 'style', 'web_app'):
             self.assertEqual(formatted[key], button[key])
 

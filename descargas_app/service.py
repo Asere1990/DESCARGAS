@@ -164,8 +164,8 @@ class Service:
             await self.bot.sign_in(bot_token=self.token)
             stage='bot_setup'
             await self.api('deleteWebhook',{'drop_pending_updates':False})
-            await self.api('setMyCommands',{'commands':[{'command':'start','description':'Conectar cuenta y descargar'},{'command':'estado','description':'Ver conexión de mi cuenta'},{'command':'desconectar','description':'Cerrar y borrar mi sesión'}]})
-            await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'Mi cuenta','web_app':{'url':self.url}}})
+            await self.api('setMyCommands',{'commands':[{'command':'mi_cuenta','description':'Mi cuenta'}]})
+            await self.api('setChatMenuButton',{'menu_button':{'type':'web_app','text':'𝐌𝐈 𝐂𝐔𝐄𝐍𝐓𝐀','web_app':{'url':self.url}}})
             if self.almacen:
                 try:
                     await self.api('getChat',{'chat_id':self.almacen})
@@ -224,7 +224,7 @@ class Service:
         if contact and contact.get('user_id')==uid and not message.get('forward_origin'):
             self.contacts[uid]=(contact['phone_number'],time.monotonic());return
         text=message.get('text','').strip()
-        if text.startswith('/start'):
+        if text.startswith('/start') or text.split('@',1)[0]=='/mi_cuenta':
             if await self.get_session(uid):
                 await self.tell(uid,'✅ 𝘾𝙐𝙀𝙉𝙏𝘼 𝘾𝙍𝙀𝘼𝘿𝘼\n\𝙀𝙣𝙫𝙞𝙖 𝙖𝙦𝙪𝙞 𝙝𝙖𝙨𝙩𝙖 5 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙙𝙚 𝙛𝙤𝙩𝙤𝙨, 𝙫𝙞𝙙𝙚𝙤𝙨, 𝙖𝙡𝙗𝙪𝙢𝙨, 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨. 𝙍𝙚𝙘𝙪𝙚𝙧𝙙𝙖, 𝙪𝙣 𝙢𝙖́𝙭𝙞𝙢𝙤 𝙙𝙚 5 𝙚𝙣𝙡𝙖𝙘𝙚𝙨 𝙥𝙤𝙧 𝙢𝙚𝙣𝙨𝙖𝙟𝙚.',True)
                 return
