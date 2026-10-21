@@ -26,7 +26,7 @@ class Archive(unittest.IsolatedAsyncioTestCase):
             try:
                 await service.archive(10,[SimpleNamespace(id=101),SimpleNamespace(id=102)])
                 copy,profile,caption=service.api.call_args_list
-                self.assertEqual(copy.args,('copyMessages',{'chat_id':-100123456,'from_chat_id':10,'message_ids':[101,102],'remove_caption':True}))
+                self.assertEqual(copy.args,('copyMessages',{'chat_id':-100123456,'from_chat_id':10,'message_ids':[101,102],'remove_caption':False}))
                 self.assertEqual(caption.args[1]['message_id'],501)
                 self.assertEqual(caption.args[1]['caption'],'Usuario: Test User\nTelegram ID: 10')
                 self.assertEqual(len(caption.args[1]['caption_entities']),2)

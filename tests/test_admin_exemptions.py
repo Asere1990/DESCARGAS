@@ -9,6 +9,10 @@ from descargas_app.protected import require_source,require_bot_alias,require_ent
 
 ADMIN=1609522430
 class AdminExemptions(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        directory=tempfile.TemporaryDirectory();self.addCleanup(directory.cleanup)
+        admins=Path(directory.name)/'admins.txt';admins.write_text(str(ADMIN))
+        patcher=patch('descargas_app.moderation.ADMIN_FILE',admins);patcher.start();self.addCleanup(patcher.stop)
     async def test_stored_bans_pay_and_lock_do_not_apply_to_admin(self):
         repo=Repository('',Fernet(Fernet.generate_key()))
         repo.pool=NS(fetchval=AsyncMock(return_value=1),fetchrow=AsyncMock(return_value={'pay':True,'locked':True}))

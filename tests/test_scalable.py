@@ -20,7 +20,8 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.service.close();self.env.stop();self.directory.cleanup()
     async def test_admin_download_gets_queue_priority(self):
         self.service.repo.enqueue=AsyncMock(return_value='queued')
-        await self.service.update({'update_id':900,'message':{'chat':{'type':'private'},'from':{'id':1609522430},'text':'https://t.me/c/123/5'}})
+        with patch('descargas_app.scalable.authorized',return_value=True):
+            await self.service.update({'update_id':900,'message':{'chat':{'type':'private'},'from':{'id':1609522430},'text':'https://t.me/c/123/5'}})
         self.assertEqual(self.service.repo.enqueue.call_args.kwargs['priority'],1)
 
     async def test_protected_source_rejected_before_enqueue(self):
