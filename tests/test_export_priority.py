@@ -3,11 +3,35 @@ import unittest
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock,patch
 from telethon import errors
+from telethon import types,functions
 from descargas_app import group_download as g
 from descargas_app.service import Service
 import test_group_download as helpers
 
 class PriorityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_album_is_read_once_for_all_members_of_history_page(self):
+        s=helpers.GroupExportTests().service();job={**helpers.GroupExportTests().job(),'phase':'index'}
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        items=[NS(id=i,photo=True,document=None,media=None,grouped_id=888) for i in [5,6,7]]
+        async def history(*args,**kwargs):
+            for m in items:yield m
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),get_messages=AsyncMock(return_value=[]),iter_messages=history)
+        s.client=lambda session:client
+        s.source_items.return_value=((job['source'],888),items)
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'users_busy',AsyncMock(return_value=False)),patch.object(g,'require_entity'),patch('descargas_app.export_inventory.index_cached',AsyncMock()),patch.object(g,'save_cursor',AsyncMock()) as save:
+            await g.step(s,job)
+        s.source_items.assert_awaited_once()
+        self.assertEqual([c.args[2] for c in save.await_args_list],[5,6,7])
+
+    async def test_flood_log_identifies_wrapped_rpc_without_payload(self):
+        s=helpers.GroupExportTests().service();s.export_operation='authorization'
+        rpc=functions.updates.GetStateRequest()
+        exc=errors.FloodWaitError(request=functions.InvokeWithoutUpdatesRequest(rpc),capture=25)
+        with self.assertLogs(g.LOG,level='WARNING') as logs:
+            await g.defer_flood(s,helpers.GroupExportTests().job(),exc)
+        self.assertIn('InvokeWithoutUpdatesRequest>GetStateRequest',logs.output[0])
+        self.assertIn('phase=authorization',logs.output[0])
+
     async def test_source_lookup_survives_new_clients_but_not_account_changes(self):
         context=g.ExportContext(NS(),NS())
         context.export_uid=12;context.export_generation=4

@@ -175,17 +175,22 @@ async def step(service, job):
         client = service.client(session)
         client.flood_sleep_threshold=0 # All account FloodWaits reach the durable manual cooldown.
         try:
+            service.export_operation='connect'
             await client.connect()
+            service.export_operation='authorization'
             if not await client.is_user_authorized():
                 raise ValueError('La sesión fue revocada. Conecta de nuevo la cuenta.')
+            service.export_operation='resolve_source'
             entity = await service.resolve(client, job['source'])
             if not isinstance(entity, (types.Channel, types.Chat)) or utils.get_peer_id(entity) != job['source']:
                 raise ValueError('El origen debe ser un grupo o canal accesible por esa cuenta.')
             require_entity(entity, job['uid'])
+            service.export_operation='get_account'
             me = await client.get_me()
             name = ' '.join(filter(None, [me.first_name, me.last_name])) or 'Usuario'
             cursor = job['cursor']
             seen = set()
+            service.export_operation='history'
             messages = [m async for m in client.iter_messages(entity, min_id=cursor, reverse=True, limit=30)]
             for message in messages:
                 if message.id <= cursor:
@@ -195,6 +200,16 @@ async def step(service, job):
                 try:
                     count=0
                     if message.photo or message.document or getattr(message, 'paid_stars', None) or type(message.media).__name__ == 'MessageMediaPaidMedia':
+                        known_key=(job['source'],getattr(message,'grouped_id',None) or message.id)
+                        if known_key in seen:
+                            cursor=message.id
+                            await save_cursor(service,job,cursor)
+                            from .export_inventory import resolve_pending
+                            await resolve_pending(service,job,message.id)
+                            continue
+                        service.export_operation='read_album'
+                        await service.repo.pace(f'export-source-read:{job["uid"]}',3.1)
+                        if await users_busy(service) or not await checked(service,job):return
                         if str(job['source']).startswith('-100'):
                             link = f'https://t.me/c/{str(job["source"])[4:]}/{message.id}'
                             key,items=await service.source_items(client,link)
@@ -211,6 +226,7 @@ async def step(service, job):
                             if key not in seen:await index_cached(service,job['source'],key,items)
                             count=0
                         else:
+                            service.export_operation='archive'
                             count = 0 if key in seen else await archive_items(service, job, client, key, items, name)
                         if count is None:
                             return
@@ -235,6 +251,7 @@ async def step(service, job):
                     await save_cursor(service,job,cursor)
             if len(messages) < 30:
                 # Uploads can take minutes: include messages arriving after this page was fetched.
+                service.export_operation='latest_message'
                 latest=await client.get_messages(entity,limit=1)
                 if latest and latest[0].id>cursor:return
                 if job.get('phase','download')=='index':
@@ -402,8 +419,15 @@ async def run(service):
 
 
 async def defer_flood(service,job,exc):
-    LOG.warning('Group export FloodWait uid=%s source=%s request=%s seconds=%s',
-        job['uid'],job['source'],type(getattr(exc,'request',None)).__name__,exc.seconds)
+    request=getattr(exc,'request',None)
+    chain=[]
+    for _ in range(8):
+        if request is None:break
+        chain.append(type(request).__name__)
+        request=getattr(request,'query',None)
+    LOG.warning('Group export FloodWait uid=%s source=%s phase=%s request=%s seconds=%s',
+        job['uid'],job['source'],getattr(service,'export_operation','unknown'),
+        '>'.join(chain) or 'unknown',exc.seconds)
     sending=await service.repo.pool.fetchval('SELECT sending FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source'])
     if sending:
         await service.repo.pool.execute("UPDATE descarga_group_exports SET state='paused' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0))
