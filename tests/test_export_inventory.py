@@ -91,7 +91,7 @@ class InventoryTests(unittest.IsolatedAsyncioTestCase):
             await command(s,message)
         s.repo.policy_set.assert_awaited_once_with(7,-100123,'locked',True,99)
 
-    async def test_index_phase_records_cache_without_downloading(self):
+    async def test_legacy_index_scan_restarts_at_zero_once_without_touching_users(self):
         from test_group_download import GroupExportTests
         helper=GroupExportTests();s=helper.service();job={**helper.job(),'phase':'index'}
         s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
@@ -101,6 +101,9 @@ class InventoryTests(unittest.IsolatedAsyncioTestCase):
         s.client=lambda session:client;s.source_items.return_value=((job['source'],5),[item])
         with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(inv,'index_cached',AsyncMock()) as index,patch.object(g,'archive_items',AsyncMock()) as archive:
             await g.step(s,job)
-        index.assert_awaited_once_with(s,job['source'],(job['source'],5),[item])
         archive.assert_not_awaited()
-        self.assertIn("phase='download',cursor=0",s.repo.pool.execute.call_args.args[0])
+        index.assert_not_awaited()
+        sql=s.repo.pool.execute.call_args.args[0]
+        self.assertIn("phase='download',cursor=0,scan=scan+1",sql)
+        self.assertIn("AND NOT sending AND phase='index'",sql)
+        client.connect.assert_not_awaited()

@@ -10,7 +10,7 @@ import test_group_download as helpers
 
 class PriorityTests(unittest.IsolatedAsyncioTestCase):
     async def test_album_is_read_once_for_all_members_of_history_page(self):
-        s=helpers.GroupExportTests().service();job={**helpers.GroupExportTests().job(),'phase':'index'}
+        s=helpers.GroupExportTests().service();job={**helpers.GroupExportTests().job(),'phase':'download'}
         s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
         items=[NS(id=i,photo=True,document=None,media=None,grouped_id=888) for i in [5,6,7]]
         async def history(*args,**kwargs):
@@ -18,7 +18,7 @@ class PriorityTests(unittest.IsolatedAsyncioTestCase):
         client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),get_messages=AsyncMock(return_value=[]),iter_messages=history)
         s.client=lambda session:client
         s.source_items.return_value=((job['source'],888),items)
-        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'users_busy',AsyncMock(return_value=False)),patch.object(g,'require_entity'),patch('descargas_app.export_inventory.index_cached',AsyncMock()),patch.object(g,'save_cursor',AsyncMock()) as save:
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'users_busy',AsyncMock(return_value=False)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=0)),patch.object(g,'save_cursor',AsyncMock()) as save:
             await g.step(s,job)
         s.source_items.assert_awaited_once()
         self.assertEqual([c.args[2] for c in save.await_args_list],[5,6,7])

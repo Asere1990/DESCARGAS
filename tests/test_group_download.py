@@ -37,6 +37,8 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             await g.command(s,dict(text='/descargar 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
         sql=s.repo.pool.execute.call_args.args[0].split('DO UPDATE SET')[1]
         self.assertIn('cursor=0',sql)
+        self.assertIn("phase='download'",sql)
+        self.assertNotIn("phase='index'",sql)
         self.assertNotIn('total=',sql)
 
     async def test_uncertain_upload_cannot_be_replayed(self):
@@ -90,6 +92,27 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([call.args[2:] for call in save.await_args_list],[(5,3)])
         s.tell.assert_not_awaited()
         client.disconnect.assert_awaited_once()
+
+    async def test_single_pass_skips_known_then_uploads_next_before_reading_more(self):
+        s=self.service();job={**self.job(),'phase':'download'}
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        items=[NS(id=i,photo=True,document=None,media=None) for i in [5,6,7]]
+        async def history(*args,**kwargs):
+            for item in items:yield item
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),iter_messages=history,get_messages=AsyncMock())
+        s.client=lambda session:client
+        sequence=[]
+        async def source(client,link):
+            mid=int(link.rsplit('/',1)[1]);sequence.append(('read',mid))
+            return (job['source'],mid),[items[mid-5]]
+        async def archive(service,job,client,key,items,name):
+            sequence.append(('check_archive',key[1]));return 0 if key[1]==5 else 1
+        s.source_items.side_effect=source
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'users_busy',AsyncMock(return_value=False)),patch.object(g,'require_entity'),patch.object(g,'archive_items',side_effect=archive),patch.object(g,'save_cursor',AsyncMock()) as save:
+            await g.step(s,job)
+        self.assertEqual(sequence,[('read',5),('check_archive',5),('read',6),('check_archive',6)])
+        self.assertEqual([c.args[2:] for c in save.await_args_list],[(5,0),(6,1)])
+        client.get_messages.assert_not_awaited()
 
     async def test_pause_while_preparing_preserves_previous_cursor(self):
         s=self.service();job=self.job()

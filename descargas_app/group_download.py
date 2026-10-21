@@ -71,8 +71,8 @@ async def command(service, message):
         await service.tell(actor,'La revisión del grupo ya está activa. Usa /stop para pausarla.')
         return True
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase)
-        VALUES($1,$2,$3,$4,$5,'running','index') ON CONFLICT(bot_id,uid,source)
-        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='index',cursor=0,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'])
+        VALUES($1,$2,$3,$4,$5,'running','download') ON CONFLICT(bot_id,uid,source)
+        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='download',cursor=0,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'])
     await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Revisará todo el historial accesible, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
@@ -166,6 +166,12 @@ async def step(service, job):
     """One history page per lock, releasing the user's session between pages."""
     if not await checked(service, job):
         return
+    # Convert an in-progress metadata-only scan from the previous version once.
+    # Start its single pass at zero, retaining inventory/totals and fencing stale
+    # workers with the scan generation. Interactive requests are untouched.
+    if job.get('phase')=='index':
+        await service.repo.pool.execute("UPDATE descarga_group_exports SET phase='download',cursor=0,scan=scan+1 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4 AND state='running' AND NOT sending AND phase='index'",job['bot_id'],job['uid'],job['source'],job.get('scan',0))
+        return
     service.export_uid=job['uid']
     service.export_generation=job['generation']
     async with service.repo.account_lock(job['uid'], wait=False):
@@ -221,13 +227,10 @@ async def step(service, job):
                             paid=purchased_items(message)
                             items=paid if paid is not None else await album(client,entity,message)
                             key=(job['source'],message.grouped_id or message.id)
-                        if job.get('phase','download')=='index':
-                            from .export_inventory import index_cached
-                            if key not in seen:await index_cached(service,job['source'],key,items)
-                            count=0
-                        else:
-                            service.export_operation='archive'
-                            count = 0 if key in seen else await archive_items(service, job, client, key, items, name)
+                        # Check source file inventory and this item's existing
+                        # cache, then immediately archive only what is missing.
+                        service.export_operation='archive'
+                        count = 0 if key in seen else await archive_items(service, job, client, key, items, name)
                         if count is None:
                             return
                         seen.add(key)
@@ -254,9 +257,6 @@ async def step(service, job):
                 service.export_operation='latest_message'
                 latest=await client.get_messages(entity,limit=1)
                 if latest and latest[0].id>cursor:return
-                if job.get('phase','download')=='index':
-                    await service.repo.pool.execute("UPDATE descarga_group_exports SET phase='download',cursor=0 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4 AND state='running'",job['bot_id'],job['uid'],job['source'],job.get('scan',0))
-                    return
                 row = await service.repo.pool.fetchrow("UPDATE descarga_group_exports SET state='done' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND state='running' AND scan=$4 RETURNING total", service.bot_id, job['uid'], job['source'],job.get('scan',0))
                 if row:
                     pending=await service.repo.pool.fetchval('SELECT count(*) FROM descarga_export_pending WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source']) or 0
