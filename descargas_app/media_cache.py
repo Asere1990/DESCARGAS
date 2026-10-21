@@ -9,6 +9,7 @@ from .service import archive_attribution,apply_archive_caption,MAX_FILE,MAX_ALBU
 LOG=logging.getLogger(__name__)
 CURRENT_MEDIA=ContextVar('descargas_media_cache',default=None)
 CACHE_ONLY=ContextVar('descargas_cache_only',default=False)
+ARCHIVE_SOURCE_MESSAGE=ContextVar('descargas_archive_source_message',default=None)
 
 class CacheMiss(Exception):
     pass
@@ -46,6 +47,7 @@ async def deliver_cached(service,uid,client,link,seen):
     # This fetch uses this requesting user's session on EVERY request, including hits.
     # Paid previews and inaccessible messages are rejected before any cache lookup.
     key,items=await service.source_items(client,link)
+    ARCHIVE_SOURCE_MESSAGE.set(items[0] if items else None)
     await ensure_allowed(service,uid,key[0])
     SOURCE.set(key[0])
     if key in seen:return 0
@@ -112,6 +114,47 @@ async def deliver_cached(service,uid,client,link,seen):
         finally:CURRENT_MEDIA.reset(marker)
 
 
+async def append_archive_source(attribution,message,source):
+    """Optional source metadata; failures never prevent archival."""
+    import asyncio
+    import re
+    from telethon import functions,types
+    title=None;url=None
+    try:
+        async with asyncio.timeout(2):
+            entity=await message.get_chat()
+            title=getattr(entity,'title',None)
+            username=getattr(entity,'username',None)
+            if username and re.fullmatch(r'[A-Za-z0-9_]{1,32}',username):
+                url='https://t.me/'+username
+            else:
+                request=None
+                if isinstance(entity,types.Channel):
+                    request=functions.channels.GetFullChannelRequest(entity)
+                elif isinstance(entity,types.Chat):
+                    request=functions.messages.GetFullChatRequest(entity.id)
+                if request is not None:
+                    full=await message.client(request)
+                    invite=getattr(full.full_chat,'exported_invite',None)
+                    candidate=getattr(invite,'link',None)
+                    if (candidate and not getattr(invite,'revoked',False)
+                        and re.fullmatch(r'https://t\.me/(?:\+|joinchat/)[A-Za-z0-9_-]+',candidate)):
+                        url=candidate
+    except Exception:
+        pass
+    if title:
+        title=' '.join(title.split())[:128]
+    if title:
+        prefix=attribution['caption']+'\nGrupo de origen: '
+        if url:
+            units=lambda value:len(value.encode('utf-16-le'))//2
+            attribution['caption_entities'].append({'type':'text_link',
+                'offset':units(prefix),'length':units(title),'url':url})
+        attribution['caption']=prefix+title+f'\nID de origen: {source}'
+    else:
+        attribution['caption']+=f'\nGrupo de origen: {source}'
+
+
 async def archive_once(service,identity,uid,name,delivered):
     # Recorded before copying: a crash or ambiguous network result never triggers
     # another automatic ALMACEN copy. Known IDs become reusable immediately.
@@ -126,6 +169,6 @@ async def archive_once(service,identity,uid,name,delivered):
     backup=backup_payload(service,identity,uid,delivered,ids)
     await service.repo.media_ready(identity,{'ids':ids},backup=backup)
     attribution=await archive_attribution(service,uid,name)
-    attribution['caption']+=f'\nGrupo de origen: {SOURCE.get()}'
+    await append_archive_source(attribution,ARCHIVE_SOURCE_MESSAGE.get(),SOURCE.get())
     await apply_archive_caption(service,ids[0],attribution,delivered[0])
     LOG.warning('Media cache stored items=%s',len(ids))
