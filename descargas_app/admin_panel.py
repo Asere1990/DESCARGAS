@@ -37,6 +37,9 @@ En ALMACEN: responde al contenido con /ban o /unban para gestionar al usuario y 
 /free 1609522430 — Quitar el requisito de pago individual. /pay lo vuelve a activar.
 /lock ID — Entregar sin copiar a ALMACEN ni Dropbox.
 /unlock ID — Volver a permitir esas copias.
+/grupos telegram_id — Listar grupos/canales de una cuenta conectada.
+/descargar telegram_id group_id — Descargar a ALMACEN o continuar.
+/stop telegram_id group_id — Pausar y guardar el avance.
 /comando o /comandos — Esta ayuda.
 
 <b>ARCHIVO protegidos</b>
@@ -88,6 +91,10 @@ class AdminPanel:
                     country=country_code(arg) if op.startswith('telefono') else None
                     if op.startswith('telefono') and not country:return await self.send(chat,'Indica el país. Ejemplo: <code>/telefono Cuba</code> o <code>/telefonos ES</code>.')
                     await self.users(uid,chat,country,1 if op=='topuser' else 100)
+                elif op in ('grupo','grupos') and arg.strip():
+                    if chat!=uid:return await self.send(chat,'Usa /grupos telegram_id en el DM del bot.')
+                    from .group_download import list_groups
+                    await list_groups(self.s,uid,arg)
                 elif op in ('grupo','grupos','topgroup'):await self.groups(chat,1 if op=='topgroup' else 20)
                 elif op=='countries':
                     rows=await self.pool.fetch('SELECT country,count(*) AS total FROM descarga_directory WHERE bot_id=$1 AND country<>$2 GROUP BY country ORDER BY total DESC,country LIMIT 5',self.s.bot_id,'ZZ')

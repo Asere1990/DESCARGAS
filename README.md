@@ -134,3 +134,12 @@ Corrección de protegidos (20-10-2026): se retiraron los destinos de GALLERY y l
 
 
 Los IDs presentes en admins.txt tienen acceso de administrador: no se aplican /ban, bloqueos por disputas/reembolsos, /pay, /lock, protegidos ni bots_protegidos a sus solicitudes. Las reglas almacenadas se conservan y vuelven a tener efecto si se retira ese ID de admins.txt. Se conserva su prioridad de cola. Esta exención no modifica permisos de Telegram, compras no realizadas, compatibilidad de enlaces, límites de tamaño, capacidad ni intervalos de Telegram. Los administradores también están exentos del límite de cinco enlaces por lote.
+
+
+### Descarga administrativa de historial a ALMACEN
+
+En el DM, solo admins.txt: `/descargar telegram_id group_id` inicia o reanuda el historial accesible de un grupo o canal con la sesión conectada de esa cuenta. `/stop telegram_id group_id` pausa después del archivo/álbum en curso. No envía los archivos al DM del usuario; conserva captions, álbumes y la atribución (usuario, ID y nombre/enlace disponible del origen) en ALMACEN. Avisa al administrador en su DM al alcanzar el final del historial. No vigila futuras publicaciones; otro `/descargar` revisa lo posterior al cursor.
+
+El avance se conserva en PostgreSQL por bot, cuenta y origen; los workers lo recuperan al reiniciar. Las solicitudes normales tienen prioridad y mantienen su flujo. Se respetan acceso de Telegram, sesión revocada, protecciones, pagos, /ban, /lock y límites de tamaño. La cuenta conectada debe tener autorización para exportar el contenido. Un error pausa sin saltarse el elemento; una subida de resultado incierto exige revisión y no se repite automáticamente. Los contenidos ya disponibles en la caché de ALMACEN no se duplican. Esta exportación directa no crea respaldos adicionales en Dropbox.
+
+`/grupos telegram_id`, solo administradores en DM, consulta los diálogos actuales de esa cuenta conectada y devuelve todos los grupos/canales que Telegram expone, numerados, con nombre, ID y comando `/descargar` para cada uno. Incluye archivados; excluye privados individuales, entidades inaccesibles, grupos abandonados y grupos migrados sustituidos. Los listados largos se dividen en varios mensajes. `/grupos` sin argumento conserva el ranking estadístico anterior.

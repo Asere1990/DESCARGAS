@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS descarga_backups(
 CREATE INDEX IF NOT EXISTS descarga_backup_pending ON descarga_backups(bot_id,available) WHERE state<>'done';
 '''
 
-SCHEMA+=BILLING_SCHEMA+ADMIN_SCHEMA
+from .group_download import SCHEMA as GROUP_EXPORT_SCHEMA
+SCHEMA+=BILLING_SCHEMA+ADMIN_SCHEMA+GROUP_EXPORT_SCHEMA
 
 class Repository(BillingRepository,AdminRepository):
     def __init__(self,url,cipher,pool_size=10):

@@ -4,6 +4,8 @@ from . import moderation
 
 PUBLIC_COMMANDS = [{'command': 'mi_cuenta', 'description': 'Mi cuenta'}]
 ADMIN_COMMANDS = PUBLIC_COMMANDS + [
+    {'command': 'descargar', 'description': 'Descargar grupo a ALMACEN: /descargar telegram_id group_id'},
+    {'command': 'stop', 'description': 'Pausar grupo: /stop telegram_id group_id'},
     {'command': 'start', 'description': 'Abrir el bot'},
     {'command': 'estado', 'description': 'Ver la conexión de mi cuenta'},
     {'command': 'suscripcion', 'description': 'Ver o gestionar mi membresía'},
@@ -14,7 +16,7 @@ ADMIN_COMMANDS = PUBLIC_COMMANDS + [
     {'command': 'usuario', 'description': 'Los 100 usuarios con más descargas'},
     {'command': 'usuarios', 'description': 'Los 100 usuarios con más descargas'},
     {'command': 'grupo', 'description': 'Los 20 grupos o canales con más descargas'},
-    {'command': 'grupos', 'description': 'Los 20 grupos o canales con más descargas'},
+    {'command': 'grupos', 'description': 'Estadísticas o /grupos telegram_id para listar una cuenta'},
     {'command': 'telefono', 'description': 'Usuarios por país: /telefono Cuba'},
     {'command': 'telefonos', 'description': 'Usuarios por país: /telefonos Cuba'},
     {'command': 'ban', 'description': 'Bloquear un usuario, grupo o canal: /ban ID'},

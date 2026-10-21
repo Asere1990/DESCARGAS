@@ -118,6 +118,8 @@ class ScaleService(Service):
                 self.tasks.append(asyncio.create_task(self.maintenance()))
                 self.tasks.append(asyncio.create_task(self.watch_config()))
                 self.tasks.append(asyncio.create_task(self.archive_loop()))
+                from .group_download import run as group_export_loop
+                self.tasks.append(asyncio.create_task(group_export_loop(self)))
             elif self.role=='web':
                 from .admin_panel import AdminPanel
                 self.admin_panel=AdminPanel(self);await self.admin_panel.start()
@@ -191,6 +193,8 @@ class ScaleService(Service):
         if getattr(self,'admin_panel',None) and await self.admin_panel.update(update):return
         if await self.billing.update(update):return
         if await moderation_command(self,message):return
+        from .group_download import command as group_export_command
+        if await group_export_command(self,message):return
         if message.get('chat',{}).get('type')=='private' and not message.get('from',{}).get('is_bot'):
             uid=message['from']['id'];text=message.get('text','').strip()
             if text.startswith('https://'):
