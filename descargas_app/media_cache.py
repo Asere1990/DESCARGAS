@@ -4,7 +4,7 @@ import hashlib
 import json
 import logging
 from .moderation import SOURCE,ensure_allowed
-from .service import archive_attribution,MAX_FILE,MAX_ALBUM
+from .service import archive_attribution,apply_archive_caption,MAX_FILE,MAX_ALBUM
 
 LOG=logging.getLogger(__name__)
 CURRENT_MEDIA=ContextVar('descargas_media_cache',default=None)
@@ -118,7 +118,7 @@ async def archive_once(service,identity,uid,name,delivered):
     await service.repo.media_publishing(identity)
     await service.repo.pace('archive-group',3.1*len(delivered))
     copied=await service.api('copyMessages',{'chat_id':service.almacen,'from_chat_id':uid,
-        'message_ids':[m.id for m in delivered],'remove_caption':True})
+        'message_ids':[m.id for m in delivered],'remove_caption':False})
     if len(copied)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
     ids=[m['message_id'] for m in copied]
     await service.repo.register_origins(service.bot_id,service.almacen,ids,uid,SOURCE.get())
@@ -127,5 +127,5 @@ async def archive_once(service,identity,uid,name,delivered):
     await service.repo.media_ready(identity,{'ids':ids},backup=backup)
     attribution=await archive_attribution(service,uid,name)
     attribution['caption']+=f'\nGrupo de origen: {SOURCE.get()}'
-    await service.api('editMessageCaption',{'chat_id':service.almacen,'message_id':ids[0],**attribution})
+    await apply_archive_caption(service,ids[0],attribution,delivered[0])
     LOG.warning('Media cache stored items=%s',len(ids))

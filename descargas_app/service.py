@@ -451,11 +451,10 @@ class Service:
     async def archive(self,uid,delivered):
         # Bot API resolves destination IDs without a Telethon entity/access-hash cache.
         archived=await self.api('copyMessages',{'chat_id':self.almacen,'from_chat_id':uid,
-            'message_ids':[item.id for item in delivered],'remove_caption':True})
+            'message_ids':[item.id for item in delivered],'remove_caption':False})
         if len(archived)!=len(delivered):raise ValueError('El álbum no se guardó completo en el almacén.')
         attribution=await archive_attribution(self,uid,self.names.get(uid,f'Usuario {uid}'))
-        await self.api('editMessageCaption',{'chat_id':self.almacen,
-            'message_id':archived[0]['message_id'],**attribution})
+        await apply_archive_caption(self,archived[0]['message_id'],attribution,delivered[0])
 
     async def close(self):
         for task in self.tasks:task.cancel()
@@ -464,6 +463,24 @@ class Service:
         if self.bot:await self.bot.disconnect()
         if self.http:await self.http.close()
         self.db.close()
+
+
+async def apply_archive_caption(service,message_id,attribution,original):
+    # Captions of every other album item remain untouched by copyMessages.
+    from .media_cache import caption_entities
+    text=getattr(original,'message',None) or ''
+    original_entities=caption_entities(getattr(original,'entities',None))
+    prefix=text+'\n\n' if text else ''
+    caption=prefix+attribution['caption']
+    units=lambda value:len(value.encode('utf-16-le'))//2
+    if units(caption)>1024:
+        # Never truncate the original to make room for administrative metadata.
+        await service.api('sendMessage',{'chat_id':service.almacen,'text':attribution['caption'],
+            'entities':attribution['caption_entities'],'reply_parameters':{'message_id':message_id}})
+        return
+    entities=original_entities+[{**e,'offset':e['offset']+units(prefix)} for e in attribution['caption_entities']]
+    await service.api('editMessageCaption',{'chat_id':service.almacen,'message_id':message_id,
+        'caption':caption,'caption_entities':entities})
 
 
 async def archive_attribution(service,uid,name):

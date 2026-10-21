@@ -9,7 +9,7 @@ import sqlite3
 import time
 import aiohttp
 from telethon import errors
-from .service import Service,parse_link,error_message,archive_attribution
+from .service import Service,parse_link,error_message,archive_attribution,apply_archive_caption
 from .bot_typography import format_bot_payload
 from .command_menu import configure_commands
 from .billing import Billing,PaymentRequired
@@ -349,12 +349,14 @@ class ScaleService(Service):
             try:
                 data=self.repo.decode(job['payload'])
                 await self.repo.pace('archive-group',3.1*len(data['ids']))
+                originals=await self.bot.get_messages(data['uid'],ids=[data['ids'][0]])
+                if not originals or not originals[0]:raise RuntimeError('Original caption unavailable')
                 await self.repo.archive_state(job,'sending')
                 copied=await self.api('copyMessages',{'chat_id':self.almacen,'from_chat_id':data['uid'],
-                    'message_ids':data['ids'],'remove_caption':True})
+                    'message_ids':data['ids'],'remove_caption':False})
                 if len(copied)!=len(data['ids']):raise RuntimeError('Incomplete archive')
                 attribution=await archive_attribution(self,data['uid'],data['name'])
-                await self.api('editMessageCaption',{'chat_id':self.almacen,'message_id':copied[0]['message_id'],**attribution})
+                await apply_archive_caption(self,copied[0]['message_id'],attribution,originals[0])
                 await self.repo.archive_state(job,'done')
             except asyncio.CancelledError:raise
             except Exception as exc:
