@@ -4,9 +4,39 @@ from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock,patch
 from telethon import errors
 from descargas_app import group_download as g
+from descargas_app.service import Service
 import test_group_download as helpers
 
 class PriorityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_source_lookup_survives_new_clients_but_not_account_changes(self):
+        context=g.ExportContext(NS(),NS())
+        context.export_uid=12;context.export_generation=4
+        entity=NS(id=123,bot=False)
+        with patch.object(Service,'resolve',AsyncMock(return_value=entity)) as lookup:
+            first=object();second=object()
+            self.assertIs(await context.resolve(first,-100123),entity)
+            self.assertIs(await context.resolve(second,-100123),entity)
+            self.assertEqual(lookup.await_count,1)
+            context.export_uid=13
+            await context.resolve(second,-100123)
+            self.assertEqual(lookup.await_count,2)
+            context.export_generation=5
+            await context.resolve(second,-100123)
+            self.assertEqual(lookup.await_count,3)
+            await context.resolve(second,-100456)
+            self.assertEqual(lookup.await_count,4)
+
+    async def test_failed_lookup_is_not_cached_and_protection_stays_checked(self):
+        context=g.ExportContext(NS(),NS())
+        context.export_uid=12;context.export_generation=4
+        entity=NS(id=123,bot=False)
+        with patch.object(Service,'resolve',AsyncMock(side_effect=[errors.FloodWaitError(request=None,capture=24),entity])) as lookup:
+            with self.assertRaises(errors.FloodWaitError):await context.resolve(object(),-100123)
+            await context.resolve(object(),-100123)
+            with patch.object(g,'require_entity',side_effect=ValueError('protected')):
+                with self.assertRaisesRegex(ValueError,'protected'):await context.resolve(object(),-100123)
+            self.assertEqual(lookup.await_count,2)
+
     async def test_new_foreground_work_prevents_background_preparation(self):
         s=helpers.GroupExportTests().service()
         item=NS(id=4,message='',photo=NS(id=123),document=None,file=NS(size=1))

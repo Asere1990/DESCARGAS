@@ -167,6 +167,7 @@ async def step(service, job):
     if not await checked(service, job):
         return
     service.export_uid=job['uid']
+    service.export_generation=job['generation']
     async with service.repo.account_lock(job['uid'], wait=False):
         if not await checked(service, job):
             return
@@ -355,18 +356,24 @@ class ExportContext:
     def __init__(self, service, repo):
         self.service=service
         self.repo=repo
+        self._source_entities={}
 
     def __getattr__(self, name):
         return getattr(self.service,name)
 
     async def resolve(self, client, peer):
         from .service import Service
-        cached=getattr(self,'_source_entity',None)
-        if cached and cached[0] is client and cached[1]==peer:
-            entity=cached[2]
-        else:
+        # A new client is opened for every page/album. Cache by authorized
+        # account generation, not client identity, to avoid listing all dialogs
+        # again after every disconnect. Never share access hashes across accounts.
+        key=(self.export_uid,self.export_generation,peer)
+        entity=self._source_entities.get(key)
+        if entity is None:
             entity=await Service.resolve(self,client,peer)
-            self._source_entity=(client,peer,entity)
+            require_entity(entity,self.export_uid)
+            if len(self._source_entities)>=128:
+                self._source_entities.pop(next(iter(self._source_entities)))
+            self._source_entities[key]=entity
         # Membership/content access is still verified by Telegram on every message fetch.
         require_entity(entity,self.export_uid)
         return entity
@@ -395,6 +402,8 @@ async def run(service):
 
 
 async def defer_flood(service,job,exc):
+    LOG.warning('Group export FloodWait uid=%s source=%s request=%s seconds=%s',
+        job['uid'],job['source'],type(getattr(exc,'request',None)).__name__,exc.seconds)
     sending=await service.repo.pool.fetchval('SELECT sending FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source'])
     if sending:
         await service.repo.pool.execute("UPDATE descarga_group_exports SET state='paused' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0))
