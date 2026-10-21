@@ -129,3 +129,19 @@ class ScalableServiceTests(unittest.IsolatedAsyncioTestCase):
         self.service.repo.reroute.assert_awaited_once_with(job,'fast')
         self.assertEqual(self.service.repo.checkpoint.call_args.args[1:3],(1,1))
         self.service.deliver.assert_awaited_once();self.service.repo.state.assert_not_awaited()
+
+    async def test_dedicated_export_role_never_starts_user_download_lanes(self):
+        s=self.service;s.role='export'
+        config={field:getattr(s,field) for field in ('token','api_id','api_hash','url','almacen')}
+        s.repo.start=AsyncMock();s.repo.setting=AsyncMock(return_value=s.repo.encode(config).decode());s.repo.set_setting=AsyncMock()
+        s.api=AsyncMock(return_value={'id':123})
+        bot=SimpleNamespace(connect=AsyncMock(),sign_in=AsyncMock(),disconnect=AsyncMock())
+        s.client=lambda:bot
+        s.work=AsyncMock();s.archive_loop=AsyncMock();s.watch_config=AsyncMock()
+        with patch('descargas_app.group_download.run',AsyncMock()) as export:
+            await s.bootstrap()
+            await asyncio.gather(*s.tasks)
+        self.assertTrue(s.ready)
+        s.work.assert_not_called();s.archive_loop.assert_not_called()
+        s.repo.set_setting.assert_awaited_once_with('dedicated_export:123','enabled')
+        export.assert_awaited_once_with(s)

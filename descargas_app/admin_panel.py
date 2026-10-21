@@ -47,7 +47,7 @@ Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id — Revisar TODO el historial y descargar los archivos que faltan a ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram.
 /stop telegram_id group_id — Pausar tras el archivo/álbum en curso. Admite channel_id.
-Repetir /descargar revisa también mensajes anteriores y reintenta pendientes sin repetir archivos ya guardados. Un error previo al envío no frena otros archivos. Los envíos inciertos requieren revisión. Al acabar avisa de los pendientes y se detiene; no vigila publicaciones futuras.
+Repetir /descargar revisa también mensajes anteriores y reintenta pendientes sin repetir archivos ya guardados. Un error previo al envío no frena otros archivos. Tras una espera de Telegram, la reactivación es manual con /descargar y no se permite antes de la hora indicada; los envíos inciertos requieren revisión. Al acabar avisa de los pendientes y se detiene; no vigila publicaciones futuras.
 /comando o /comandos — Esta ayuda.
 
 <b>ARCHIVO protegidos</b>

@@ -86,7 +86,7 @@ class ScaleService(Service):
             LOG.warning('Scale startup role=%s phase=database',self.role)
             await self.repo.start()
             LOG.warning('Scale startup role=%s phase=configuration',self.role)
-            if self.role=='worker':
+            if self.role in ('worker','export'):
                 for _ in range(60):
                     stored=await self.repo.setting('runtime_config')
                     if stored:break
@@ -100,7 +100,7 @@ class ScaleService(Service):
                 config={field:getattr(self,field) for field in ('token','api_id','api_hash','url','almacen')}
                 await self.repo.set_setting('runtime_config',self.repo.encode(config).decode())
                 await self.repo.pool.execute("UPDATE descarga_jobs SET state='cancelled' WHERE bot_id<>$1 AND state='queued'",self.bot_id)
-            if self.role=='worker':
+            if self.role in ('worker','export'):
                 self.bot=self.client();await self.bot.connect()
                 LOG.warning('Scale startup role=worker phase=telegram_connected')
                 while True:
@@ -113,13 +113,18 @@ class ScaleService(Service):
                         await asyncio.sleep(exc.seconds+1)
                         self.state='starting'
                 LOG.warning('Scale startup role=worker phase=authorized')
-                self.download_tasks=[asyncio.create_task(self.work('slow')) for _ in range(self.concurrency)]+[asyncio.create_task(self.work('fast')) for _ in range(self.fast_concurrency)]
-                self.tasks.extend(self.download_tasks)
-                self.tasks.append(asyncio.create_task(self.maintenance()))
-                self.tasks.append(asyncio.create_task(self.watch_config()))
-                self.tasks.append(asyncio.create_task(self.archive_loop()))
                 from .group_download import run as group_export_loop
-                self.tasks.append(asyncio.create_task(group_export_loop(self)))
+                if self.role=='worker':
+                    self.download_tasks=[asyncio.create_task(self.work('slow')) for _ in range(self.concurrency)]+[asyncio.create_task(self.work('fast')) for _ in range(self.fast_concurrency)]
+                    self.tasks.extend(self.download_tasks)
+                    self.tasks.append(asyncio.create_task(self.maintenance()))
+                    self.tasks.append(asyncio.create_task(self.archive_loop()))
+                    self.tasks.append(asyncio.create_task(group_export_loop(self)))
+                else:
+                    await self.repo.set_setting(f'dedicated_export:{self.bot_id}','enabled')
+                    self.download_tasks=[asyncio.create_task(group_export_loop(self))]
+                    self.tasks.extend(self.download_tasks)
+                self.tasks.append(asyncio.create_task(self.watch_config()))
             elif self.role=='web':
                 from .admin_panel import AdminPanel
                 self.admin_panel=AdminPanel(self);await self.admin_panel.start()

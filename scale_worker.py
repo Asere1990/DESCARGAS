@@ -3,8 +3,8 @@ import os
 import signal
 import time
 from descargas_app.scalable import ScaleService
-async def main():
-    os.umask(0o077);os.environ['DESCARGAS_ROLE']='worker'
+async def main(role='worker'):
+    os.umask(0o077);os.environ['DESCARGAS_ROLE']=role
     service=ScaleService();stop=asyncio.Event()
     for sig in (signal.SIGTERM,signal.SIGINT):asyncio.get_running_loop().add_signal_handler(sig,stop.set)
     await service.start()

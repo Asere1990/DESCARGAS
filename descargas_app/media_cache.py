@@ -10,6 +10,7 @@ LOG=logging.getLogger(__name__)
 CURRENT_MEDIA=ContextVar('descargas_media_cache',default=None)
 CACHE_ONLY=ContextVar('descargas_cache_only',default=False)
 ARCHIVE_SOURCE_MESSAGE=ContextVar('descargas_archive_source_message',default=None)
+ARCHIVE_SOURCE_ITEMS=ContextVar('descargas_archive_source_items',default=None)
 
 class CacheMiss(Exception):
     pass
@@ -48,6 +49,7 @@ async def deliver_cached(service,uid,client,link,seen):
     # Paid previews and inaccessible messages are rejected before any cache lookup.
     key,items=await service.source_items(client,link)
     ARCHIVE_SOURCE_MESSAGE.set(items[0] if items else None)
+    ARCHIVE_SOURCE_ITEMS.set(items)
     await ensure_allowed(service,uid,key[0])
     SOURCE.set(key[0])
     if key in seen:return 0
@@ -168,6 +170,13 @@ async def archive_once(service,identity,uid,name,delivered):
     from .backup import backup_payload
     backup=backup_payload(service,identity,uid,delivered,ids)
     await service.repo.media_ready(identity,{'ids':ids},backup=backup)
+    source_items=ARCHIVE_SOURCE_ITEMS.get()
+    if source_items:
+        try:
+            from .export_inventory import remember
+            await remember(service,SOURCE.get(),source_items,ids)
+        except Exception as exc:
+            LOG.warning('Export inventory will be recovered by full rescan (%s)',type(exc).__name__)
     attribution=await archive_attribution(service,uid,name)
     await append_archive_source(attribution,ARCHIVE_SOURCE_MESSAGE.get(),SOURCE.get())
     await apply_archive_caption(service,ids[0],attribution,delivered[0])

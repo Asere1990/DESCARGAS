@@ -72,10 +72,10 @@ class InventoryTests(unittest.IsolatedAsyncioTestCase):
         s.repo.pool.fetchrow.return_value={'total':1}
         async def query(sql,*args):return 1 if 'count(*) FROM descarga_export_pending' in sql else False
         s.repo.pool.fetchval.side_effect=query
-        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=1)) as archive,patch.object(g,'save_cursor',AsyncMock()) as save:
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=0)) as archive,patch.object(g,'save_cursor',AsyncMock()) as save:
             await g.step(s,job)
         archive.assert_awaited_once()
-        self.assertEqual([call.args[2:] for call in save.await_args_list],[(5,),(6,1)])
+        self.assertEqual([call.args[2:] for call in save.await_args_list],[(5,),(6,0)])
         inserts=[call for call in s.repo.pool.execute.await_args_list if 'INSERT INTO descarga_export_pending' in call.args[0]]
         self.assertEqual(inserts[0].args[-2:],(5,'ValueError'))
         self.assertIn('Pendientes con error: 1',s.tell.call_args.args[1])
@@ -90,3 +90,17 @@ class InventoryTests(unittest.IsolatedAsyncioTestCase):
             message['text']='/lock -100123'
             await command(s,message)
         s.repo.policy_set.assert_awaited_once_with(7,-100123,'locked',True,99)
+
+    async def test_index_phase_records_cache_without_downloading(self):
+        from test_group_download import GroupExportTests
+        helper=GroupExportTests();s=helper.service();job={**helper.job(),'phase':'index'}
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        item=NS(id=5,photo=True,document=None,media=None)
+        async def history(*args,**kwargs):yield item
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name='B')),get_messages=AsyncMock(return_value=[]),iter_messages=history)
+        s.client=lambda session:client;s.source_items.return_value=((job['source'],5),[item])
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(inv,'index_cached',AsyncMock()) as index,patch.object(g,'archive_items',AsyncMock()) as archive:
+            await g.step(s,job)
+        index.assert_awaited_once_with(s,job['source'],(job['source'],5),[item])
+        archive.assert_not_awaited()
+        self.assertIn("phase='download',cursor=0",s.repo.pool.execute.call_args.args[0])

@@ -353,3 +353,20 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         await save_cursor(service,dict(bot_id=100,uid=10,source=-100123,scan=1),87,5)
         row=await self.repo.pool.fetchrow('SELECT cursor,total FROM descarga_group_exports')
         self.assertEqual((row['cursor'],row['total']),(0,5))
+
+    async def test_historical_normal_cache_prevents_older_repost_transfer(self):
+        from types import SimpleNamespace as N
+        from unittest.mock import AsyncMock
+        from descargas_app.export_inventory import index_cached,stored
+        from descargas_app.media_cache import cache_key
+        from descargas_app.group_download import archive_items
+        item=N(photo=N(id=12345),document=None,message='Caption',file=N(size=10))
+        service=N(bot_id=100,almacen=-100999,repo=self.repo,api=AsyncMock())
+        identity=cache_key(100,-100999,(-100123,90),[item])
+        await self.repo.media_publishing(identity)
+        await self.repo.media_ready(identity,{'ids':[77]})
+        # The normal user downloaded message 90 before the export request.
+        await index_cached(service,-100123,(-100123,90),[item])
+        self.assertTrue(await stored(service,-100123,[item]))
+        # Message 5 is an older repost with the same file, but a different cache key.
+        self.assertEqual(await archive_items(service,{'uid':10,'source':-100123},None,(-100123,5),[item],'Persona'),0)

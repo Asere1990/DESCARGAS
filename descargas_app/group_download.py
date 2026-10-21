@@ -3,6 +3,8 @@ import asyncio
 import logging
 import re
 import tempfile
+import time
+import math
 from telethon import types, utils, functions, errors
 from .moderation import authorized, ensure_allowed, SOURCE
 from .protected import require_entity
@@ -19,6 +21,8 @@ CREATE TABLE IF NOT EXISTS descarga_group_exports(
  sending BOOLEAN NOT NULL DEFAULT FALSE,
  PRIMARY KEY(bot_id,uid,source));
 ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS scan BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS resume_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'download';
 '''
 
 
@@ -47,6 +51,10 @@ async def command(service, message):
         row = await pool.fetchrow("UPDATE descarga_group_exports SET state='paused' WHERE bot_id=$1 AND uid=$2 AND source=$3 RETURNING cursor", service.bot_id, uid, source)
         await service.tell(actor, '⏸ Pausa solicitada. El archivo o álbum en curso terminará; /descargar continuará desde el avance guardado.' if row else 'No hay una descarga registrada para esa cuenta y grupo.')
         return True
+    cooldown=await pool.fetchval('SELECT max(resume_at) FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2',service.bot_id,uid) or 0
+    if cooldown>time.time():
+        await service.tell(actor,f'Telegram exige esperar todavía {math.ceil(cooldown-time.time())} segundos. Después, vuelve a enviar /descargar {uid} {source}.')
+        return True
     if not service.almacen or source == service.almacen:
         await service.tell(actor, 'Configura ALMACEN y elige un origen diferente al destino.')
         return True
@@ -62,19 +70,21 @@ async def command(service, message):
     if row and row['state']=='running':
         await service.tell(actor,'La revisión del grupo ya está activa. Usa /stop para pausarla.')
         return True
-    await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state)
-        VALUES($1,$2,$3,$4,$5,'running') ON CONFLICT(bot_id,uid,source)
-        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',cursor=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'])
+    await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase)
+        VALUES($1,$2,$3,$4,$5,'running','index') ON CONFLICT(bot_id,uid,source)
+        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='index',cursor=0,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'])
     await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Revisará todo el historial accesible, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
 
 async def checked(service, job):
+    if getattr(service,'role','worker')=='worker' and await service.repo.setting(f'dedicated_export:{service.bot_id}')=='enabled':return False
     if not authorized(job['actor']):
         raise ValueError('El administrador ya no está autorizado.')
     row = await service.repo.pool.fetchrow('SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3', job['bot_id'], job['uid'], job['source'])
     if not row or row['state'] != 'running' or row.get('scan',0)!=job.get('scan',0):
         return False
+    if row.get('resume_at',0)>time.time():return False
     account = await service.repo.account(job['uid'])
     if not account or not account['session'] or account['generation'] != job['generation']:
         raise ValueError('La sesión fue desconectada. Vuelve a conectar la cuenta.')
@@ -92,64 +102,62 @@ async def save_cursor(service, job, cursor, count=0):
         WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$6''', job['bot_id'], job['uid'], job['source'], cursor, count,job.get('scan',0))
 
 
+async def users_busy(service):
+    return bool(await service.repo.pool.fetchval("SELECT 1 FROM descarga_jobs WHERE bot_id=$1 AND state IN ('queued','preparing','sending') LIMIT 1",service.bot_id))
+
+
 async def archive_items(service, job, client, key, items, name):
     uid, source = job['uid'], job['source']
     from .export_inventory import excluded,stored,remember
     if await excluded(service,items):return 0
     if await stored(service,source,items):return 0
-    size = sum(m.file.size or 0 for m in items)
-    if size > MAX_ALBUM or any((m.file.size or 0) > MAX_FILE for m in items):
+    size=sum(m.file.size or 0 for m in items)
+    if size>MAX_ALBUM or any((m.file.size or 0)>MAX_FILE for m in items):
         raise ValueError('El archivo supera 500 MB o el álbum supera 1 GB.')
-    identity = cache_key(service.bot_id, service.almacen, key, items)
+    identity=cache_key(service.bot_id,service.almacen,key,items)
+    async def known():
+        cached=await service.repo.media_cache(identity)
+        if not cached:return False
+        if cached['state']!='ready':raise ValueError('El contenido necesita revisión; no se repetirá una subida incierta.')
+        await remember(service,source,items,service.repo.decode(cached['payload'])['ids'])
+        return True
+    # Never hold the shared media lock while preparing a background download.
     async with service.repo.media_lock(identity):
-        cached = await service.repo.media_cache(identity)
-        if cached:
-            if cached['state'] != 'ready':
-                raise ValueError('El contenido necesita revisión; no se repetirá una subida incierta.')
-            saved=service.repo.decode(cached['payload'])
-            await remember(service,source,items,saved['ids'])
-            return 0
-        attribution = await archive_attribution(service, uid, name)
-        await append_archive_source(attribution, items[0], source)
-        with tempfile.TemporaryDirectory(prefix='descargas-group-') as directory:
-            async def prepare(path, item):
-                return await prepare_media_for_bot(service.bot, client, path, item)
-            media = await prepare_album(client, items, directory, prepare, MAX_FILE, MAX_ALBUM)
-            if not await checked(service, job):
-                return None
-            await service.repo.pace('archive-group', 3.1 * len(items))
-            if not await checked(service, job):
-                return None
-            if await excluded(service,items):return 0
-            try:
-                target = await service.bot.get_input_entity(service.almacen)
-            except ValueError:
-                target_id, target_type = utils.resolve_id(service.almacen)
-                if target_type is types.PeerChannel:
-                    # A bot already in ALMACEN can resolve its channel without
-                    # relying on a previous worker's in-memory entity cache.
-                    chats = await service.bot(functions.channels.GetChannelsRequest([types.InputChannel(target_id, 0)]))
-                    target = utils.get_input_peer(chats.chats[0])
-                elif target_type is types.PeerChat:
-                    target = types.InputPeerChat(target_id)
-                else:
-                    raise ValueError('ALMACEN debe ser un grupo o canal.')
-            await service.repo.pace('bot-send', 0.06 * len(items))
-            # Durable uncertainty marker BEFORE Telegram receives any send.
+        if await known():return 0
+    if await users_busy(service):return None
+    attribution=await archive_attribution(service,uid,name)
+    await append_archive_source(attribution,items[0],source)
+    with tempfile.TemporaryDirectory(prefix='descargas-group-') as directory:
+        async def prepare(path,item):return await prepare_media_for_bot(service.bot,client,path,item)
+        media=await prepare_album(client,items,directory,prepare,MAX_FILE,MAX_ALBUM)
+        if not await checked(service,job) or await users_busy(service):return None
+        await service.repo.pace('archive-group',3.1*len(items))
+        if not await checked(service,job) or await users_busy(service):return None
+        if await excluded(service,items):return 0
+        try:target=await service.bot.get_input_entity(service.almacen)
+        except ValueError:
+            target_id,target_type=utils.resolve_id(service.almacen)
+            if target_type is types.PeerChannel:
+                chats=await service.bot(functions.channels.GetChannelsRequest([types.InputChannel(target_id,0)]))
+                target=utils.get_input_peer(chats.chats[0])
+            elif target_type is types.PeerChat:target=types.InputPeerChat(target_id)
+            else:raise ValueError('ALMACEN debe ser un grupo o canal.')
+        async with service.repo.media_lock(identity):
+            if await known():return 0
+            if await users_busy(service) or not await checked(service,job):return None
+            await service.repo.pace('bot-send',0.06*len(items))
             claimed=await service.repo.pool.fetchval("UPDATE descarga_group_exports SET sending=TRUE WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4 AND state='running' RETURNING 1",service.bot_id,uid,source,job.get('scan',0))
             if not claimed:return None
             await service.repo.media_publishing(identity)
-            result = await service.bot.send_file(target, media if len(items) > 1 else media[0],
-                caption=[m.message or '' for m in items] if len(items) > 1 else items[0].message or '',
-                formatting_entities=[m.entities or [] for m in items] if len(items) > 1 else items[0].entities or [], parse_mode=None)
-            delivered = result if isinstance(result, list) else [result]
-            if len(delivered) != len(items):
-                raise ValueError('El álbum no se guardó completo; requiere revisión.')
-            ids = [m.id for m in delivered]
-            await service.repo.register_origins(service.bot_id, service.almacen, ids, uid, source)
-            await apply_archive_caption(service, ids[0], attribution, delivered[0])
-            # Existing cache lets subsequent link requests reuse these ALMACEN files.
-            await service.repo.media_ready(identity, {'ids': ids})
+            result=await service.bot.send_file(target,media if len(items)>1 else media[0],
+                caption=[m.message or '' for m in items] if len(items)>1 else items[0].message or '',
+                formatting_entities=[m.entities or [] for m in items] if len(items)>1 else items[0].entities or [],parse_mode=None)
+            delivered=result if isinstance(result,list) else [result]
+            if len(delivered)!=len(items):raise ValueError('El álbum no se guardó completo; requiere revisión.')
+            ids=[m.id for m in delivered]
+            await service.repo.register_origins(service.bot_id,service.almacen,ids,uid,source)
+            await apply_archive_caption(service,ids[0],attribution,delivered[0])
+            await service.repo.media_ready(identity,{'ids':ids})
             await remember(service,source,items,ids)
             return len(items)
 
@@ -180,9 +188,10 @@ async def step(service, job):
             for message in messages:
                 if message.id <= cursor:
                     continue
-                if service.stopping or not await checked(service, job):
+                if service.stopping or await users_busy(service) or not await checked(service, job):
                     return
                 try:
+                    count=0
                     if message.photo or message.document or getattr(message, 'paid_stars', None) or type(message.media).__name__ == 'MessageMediaPaidMedia':
                         if str(job['source']).startswith('-100'):
                             link = f'https://t.me/c/{str(job["source"])[4:]}/{message.id}'
@@ -195,7 +204,12 @@ async def step(service, job):
                             paid=purchased_items(message)
                             items=paid if paid is not None else await album(client,entity,message)
                             key=(job['source'],message.grouped_id or message.id)
-                        count = 0 if key in seen else await archive_items(service, job, client, key, items, name)
+                        if job.get('phase','download')=='index':
+                            from .export_inventory import index_cached
+                            if key not in seen:await index_cached(service,job['source'],key,items)
+                            count=0
+                        else:
+                            count = 0 if key in seen else await archive_items(service, job, client, key, items, name)
                         if count is None:
                             return
                         seen.add(key)
@@ -206,6 +220,7 @@ async def step(service, job):
                         await save_cursor(service, job, cursor)
                     from .export_inventory import resolve_pending
                     await resolve_pending(service,job,message.id)
+                    if count:return # Release account lock after one delivered album/file.
                 except asyncio.CancelledError:raise
                 except Exception as exc:
                     # Sending may already have succeeded: never advance past an ambiguous upload.
@@ -220,6 +235,9 @@ async def step(service, job):
                 # Uploads can take minutes: include messages arriving after this page was fetched.
                 latest=await client.get_messages(entity,limit=1)
                 if latest and latest[0].id>cursor:return
+                if job.get('phase','download')=='index':
+                    await service.repo.pool.execute("UPDATE descarga_group_exports SET phase='download',cursor=0 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4 AND state='running'",job['bot_id'],job['uid'],job['source'],job.get('scan',0))
+                    return
                 row = await service.repo.pool.fetchrow("UPDATE descarga_group_exports SET state='done' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND state='running' AND scan=$4 RETURNING total", service.bot_id, job['uid'], job['source'],job.get('scan',0))
                 if row:
                     pending=await service.repo.pool.fetchval('SELECT count(*) FROM descarga_export_pending WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source']) or 0
@@ -233,12 +251,12 @@ async def step(service, job):
 async def _run(service):
     while not service.stopping:
         try:
-            jobs = await service.repo.pool.fetch("SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND state='running' ORDER BY uid,source LIMIT 100", service.bot_id)
+            jobs = await service.repo.pool.fetch("SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND state='running' AND resume_at<=$2 ORDER BY uid,source LIMIT 100", service.bot_id,time.time())
             for job in jobs:
                 if service.stopping:return
                 # Cross-worker serialization; separate from interactive job/account locks.
                 async with service.repo.pool.acquire() as conn:
-                    slot = f'{job["bot_id"]}:{job["uid"]}:{job["source"]}'
+                    slot = f'export:{job["bot_id"]}'
                     locked = await conn.fetchval('SELECT pg_try_advisory_lock(751,hashtext($1))', slot)
                     if not locked:continue
                     marker = SOURCE.set(job['source'])
@@ -248,12 +266,15 @@ async def _run(service):
                         if fresh['sending']:
                             raise ValueError('Envío pendiente de revisión tras una interrupción. No se repetirá automáticamente.')
                         # Interactive requests always take priority for this account.
-                        busy = await conn.fetchval("SELECT 1 FROM descarga_jobs WHERE uid=$1 AND state IN ('queued','preparing','sending')", job['uid'])
+                        busy = await users_busy(service)
                         if not busy:
                             async with asyncio.timeout(3600):
                                 await step(service, fresh)
                     except asyncio.CancelledError:raise
                     except Exception as exc:
+                        if isinstance(exc,errors.FloodWaitError):
+                            await defer_flood(service,fresh,exc)
+                            continue
                         # A busy account is temporary, not a failed export.
                         if isinstance(exc,ValueError) and str(exc).startswith('Espera a que termine'):
                             continue
@@ -339,7 +360,13 @@ class ExportContext:
 
     async def resolve(self, client, peer):
         from .service import Service
-        entity=await Service.resolve(self,client,peer)
+        cached=getattr(self,'_source_entity',None)
+        if cached and cached[0] is client and cached[1]==peer:
+            entity=cached[2]
+        else:
+            entity=await Service.resolve(self,client,peer)
+            self._source_entity=(client,peer,entity)
+        # Membership/content access is still verified by Telegram on every message fetch.
         require_entity(entity,self.export_uid)
         return entity
 
@@ -364,3 +391,15 @@ async def run(service):
         await _run(ExportContext(service,repo))
     finally:
         await repo.close()
+
+
+async def defer_flood(service,job,exc):
+    sending=await service.repo.pool.fetchval('SELECT sending FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source'])
+    if sending:
+        await service.repo.pool.execute("UPDATE descarga_group_exports SET state='paused' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0))
+        await service.tell(job['actor'],'⏸ Telegram pidió esperar durante el envío. Revisa ALMACEN antes de repetir: el resultado podría ser parcial. El avance está guardado.')
+        return
+    seconds=max(60,int(exc.seconds)+10)
+    await service.repo.pool.execute("UPDATE descarga_group_exports SET resume_at=GREATEST(resume_at,$3),state=CASE WHEN state='running' THEN 'paused' ELSE state END WHERE bot_id=$1 AND uid=$2",service.bot_id,job['uid'],time.time()+seconds)
+    try:await service.tell(job['actor'],f'⏳ Telegram pide {exc.seconds} segundos; aplicamos una pausa prudente de {seconds} segundos para la cuenta {job["uid"]}. La reactivación será manual: cuando termine la espera, usa /descargar {job["uid"]} {job["source"]}. El avance quedó guardado.')
+    except Exception:pass

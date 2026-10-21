@@ -87,3 +87,11 @@ async def reply_lock(service,message,operation,actor):
     else:
         await service.repo.pool.execute('DELETE FROM descarga_export_caption_locks WHERE bot_id=$1 AND caption_hash=$2',service.bot_id,digest)
         await reply('🔓 Exclusión por caption retirada. La próxima orden /descargar volverá a revisar todo el historial.')
+
+
+async def index_cached(service,source,key,items):
+    from .media_cache import cache_key
+    identity=cache_key(service.bot_id,service.almacen,key,items)
+    row=await service.repo.media_cache(identity)
+    if row and row['state']=='ready':
+        await remember(service,source,items,service.repo.decode(row['payload'])['ids'])

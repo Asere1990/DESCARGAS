@@ -12,7 +12,7 @@ async def lock(*args, **kwargs):
 class GroupExportTests(unittest.IsolatedAsyncioTestCase):
     def service(self):
         pool=NS(fetchrow=AsyncMock(return_value=None),fetchval=AsyncMock(side_effect=lambda sql,*args: 1 if "UPDATE descarga_group_exports SET sending=TRUE" in sql else False),executemany=AsyncMock(),execute=AsyncMock())
-        repo=NS(pool=pool,set_setting=AsyncMock(),account=AsyncMock(return_value={'session':b'x','generation':4}),
+        repo=NS(pool=pool,setting=AsyncMock(return_value=None),set_setting=AsyncMock(),account=AsyncMock(return_value={'session':b'x','generation':4}),
             account_lock=lock,media_lock=lock,media_cache=AsyncMock(return_value=None),
             media_publishing=AsyncMock(),media_ready=AsyncMock(),register_origins=AsyncMock(),pace=AsyncMock())
         return NS(bot_id=7,almacen=-100999,repo=repo,tell=AsyncMock(),stopping=False,
@@ -68,7 +68,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result,0)
         s.repo.media_publishing.assert_not_awaited()
 
-    async def test_album_cursor_saved_once_then_end_notifies_admin(self):
+    async def test_delivered_album_releases_account_before_next_message(self):
         s=self.service();job=self.job()
         s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None,megagroup=True)
         items=[NS(id=i,photo=True,document=None,media=None) for i in [5,6,7]]
@@ -86,9 +86,8 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             patch.object(g,'save_cursor',AsyncMock()) as save:
             await g.step(s,job)
         archive.assert_awaited_once()
-        self.assertEqual([call.args[2:] for call in save.await_args_list],[(5,3),(6,0),(7,0)])
-        self.assertEqual(s.tell.call_args.args[0],99)
-        self.assertIn('completada',s.tell.call_args.args[1])
+        self.assertEqual([call.args[2:] for call in save.await_args_list],[(5,3)])
+        s.tell.assert_not_awaited()
         client.disconnect.assert_awaited_once()
 
     async def test_pause_while_preparing_preserves_previous_cursor(self):
@@ -199,7 +198,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name='B')),get_messages=AsyncMock(return_value=[NS(id=6)]),iter_messages=history)
         s.client=lambda session:client
         s.source_items.return_value=((job['source'],5),[NS(id=5)])
-        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=1)):
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=0)):
             await g.step(s,job)
         s.repo.pool.fetchrow.assert_not_awaited()
         s.tell.assert_not_awaited()
