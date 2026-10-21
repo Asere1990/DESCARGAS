@@ -3,7 +3,7 @@ import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, patch
-from telethon import types
+from telethon import types, functions, errors
 from descargas_app import group_download as g
 
 @asynccontextmanager
@@ -13,6 +13,9 @@ async def lock(*args, **kwargs):
 class GroupExportTests(unittest.IsolatedAsyncioTestCase):
     def service(self):
         pool=NS(fetchrow=AsyncMock(return_value=None),fetchval=AsyncMock(side_effect=lambda sql,*args: 1 if "UPDATE descarga_group_exports SET sending=TRUE" in sql else False),executemany=AsyncMock(),execute=AsyncMock())
+        @asynccontextmanager
+        async def acquire():yield pool
+        pool.acquire=acquire
         repo=NS(pool=pool,setting=AsyncMock(return_value=None),set_setting=AsyncMock(),account=AsyncMock(return_value={'session':b'x','generation':4}),
             account_lock=lock,media_lock=lock,media_cache=AsyncMock(return_value=None),
             media_publishing=AsyncMock(),media_ready=AsyncMock(),register_origins=AsyncMock(),pace=AsyncMock())
@@ -37,16 +40,17 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             await g.command(s,dict(text='/descargar 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
         sql=s.repo.pool.execute.call_args.args[0].split('DO UPDATE SET')[1]
         self.assertIn('cursor=0',sql)
-        self.assertIn("phase='download'",sql)
+        self.assertIn("phase='count'",sql)
         self.assertNotIn("phase='index'",sql)
         self.assertNotIn('total=',sql)
 
     async def test_uncertain_upload_cannot_be_replayed(self):
         s=self.service();s.repo.pool.fetchrow.return_value={**self.job(),'sending':True}
+        s.repo.pool.fetchval.side_effect=None;s.repo.pool.fetchval.return_value=0
         with patch.object(g,'authorized',return_value=True):
             await g.command(s,dict(text='/descargar 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
         s.repo.pool.execute.assert_not_awaited()
-        self.assertIn('revisión',s.tell.call_args.args[1])
+        self.assertIn('en curso',s.tell.call_args.args[1])
 
     async def test_stop_does_not_delete_progress(self):
         s=self.service();s.repo.pool.fetchrow.return_value={'cursor':20}
@@ -233,3 +237,67 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             await g.step(s,job)
         s.repo.pool.fetchrow.assert_not_awaited()
         s.tell.assert_not_awaited()
+
+
+    def test_filter_parser_and_gif_is_not_video(self):
+        self.assertEqual(g.parse_command('/descargar 12 -100123 video'),('descargar',12,-100123,'video'))
+        self.assertEqual(g.parse_command('/descargar@Bot 12 -100123 fotos')[-1],'fotos')
+        self.assertEqual(g.parse_command('/descargar 12 -100123')[-1],'all')
+        self.assertIsNone(g.parse_command('/descargar 12 -100123 audio'))
+        self.assertIsNone(g.parse_command('/stop 12 -100123 fotos'))
+        self.assertEqual(g.media_kind(NS(gif=True,video=True,photo=None)),'gif')
+
+    async def test_stale_send_unblocks_job_but_retains_uncertain_cache(self):
+        s=self.service();s.repo.pool.fetchrow.return_value={**self.job(),'sending':True,'state':'paused'}
+        s.repo.pool.fetchval.side_effect=lambda sql,*args: 1 if 'pg_try_advisory_lock' in sql else 0
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/descargar 12 -1000000000123 video',chat={'type':'private'},**{'from':{'id':99}}))
+        sqls=[c.args[0] for c in s.repo.pool.execute.await_args_list]
+        self.assertTrue(any('sending=FALSE' in sql for sql in sqls))
+        self.assertFalse(any('descarga_media_cache' in sql for sql in sqls))
+        self.assertEqual(s.repo.pool.execute.call_args.args[-1],'video')
+
+    async def test_count_precedes_any_source_history_or_upload(self):
+        s=self.service();job={**self.job(),'phase':'count','media_filter':'video'}
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),
+            get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),get_messages=AsyncMock(side_effect=[NS(total=10),NS(total=20),NS(total=3)]),iter_messages=AsyncMock())
+        s.client=lambda session:client
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'):
+            await g.step(s,job)
+        self.assertIn('Fotos: 10\nVideos: 20\nGIF: 3',s.tell.call_args.args[1])
+        client.iter_messages.assert_not_called();s.source_items.assert_not_awaited()
+        self.assertIn("phase='download'",s.repo.pool.execute.call_args.args[0])
+
+    async def test_rejected_send_clears_only_publishing_cache_and_respects_cooldown(self):
+        s=self.service();job=self.job()
+        item=NS(id=5,message='Caption',entities=[],file=NS(size=1),photo=NS(id=3),document=None)
+        rpc=functions.messages.SendMediaRequest(peer=types.InputPeerSelf(),media=types.InputMediaEmpty(),message='')
+        exc=errors.FloodWaitError(request=rpc,capture=120)
+        s.bot=NS(get_input_entity=AsyncMock(return_value='almacen'),send_file=AsyncMock(side_effect=exc))
+        with patch.object(g,'prepare_album',AsyncMock(return_value=['media'])),patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'archive_attribution',AsyncMock(return_value={})),patch.object(g,'append_archive_source',AsyncMock()):
+            with self.assertRaises(errors.FloodWaitError):
+                await g.archive_items(s,job,None,(job['source'],5),[item],'Persona')
+        self.assertTrue(any("DELETE FROM descarga_media_cache WHERE key=$1 AND state='publishing'" in c.args[0] for c in s.repo.pool.execute.await_args_list))
+        self.assertTrue(any('sending=FALSE' in c.args[0] for c in s.repo.pool.execute.await_args_list))
+        s.repo.media_ready.assert_not_awaited()
+
+    async def test_filtered_mixed_album_uploads_only_requested_type(self):
+        s=self.service();job={**self.job(),'media_filter':'video'}
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        items=[NS(id=5,photo=NS(id=3),document=None,video=None,gif=None,file=NS(size=1),media=None),
+               NS(id=6,photo=None,document=NS(id=4),video=True,gif=None,file=NS(size=1),media=None)]
+        async def history(*args,**kwargs):yield items[0]
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),iter_messages=history)
+        s.client=lambda session:client;s.source_items.return_value=((job['source'],888),items)
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=1)) as archive:
+            await g.step(s,job)
+        self.assertEqual(archive.call_args.args[4],[items[1]])
+
+    async def test_uncertain_file_cannot_be_uploaded_under_different_filter_key(self):
+        s=self.service()
+        s.repo.pool.fetchval.side_effect=lambda sql,*args: 1 if 'SELECT 1 FROM descarga_export_uncertain' in sql else False
+        item=NS(id=5,photo=NS(id=3),document=None,file=NS(size=1))
+        with self.assertRaisesRegex(ValueError,'otro filtro'):
+            await g.archive_items(s,self.job(),None,(self.job()['source'],888),[item],'Persona')
+        s.repo.media_publishing.assert_not_awaited()

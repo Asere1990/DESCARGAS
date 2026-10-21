@@ -168,3 +168,14 @@ Hay como máximo una exportación activa por bot entre procesos. Los usuarios ti
 La revisión de una nueva orden se hace en dos pasadas: primero recorre el historial sin transferir multimedia para incorporar los aciertos de caché históricos al inventario; después descarga los que faltan. Las nuevas entregas normales a usuarios que se guardan en ALMACEN también registran los IDs originales del medio en ese inventario. Así, un repost anterior a otro mensaje ya guardado tampoco se descarga de nuevo por su orden. Los archivos con /lock ID, que nunca se guardaron en ALMACEN, no se marcan como almacenados.
 
 Las pausas por FloodWait anteriores al envío requieren reactivación manual y un mínimo de `max(60, segundos_telegram + 10)` segundos. Por ejemplo: Telegram solicita 24 s → 60 s; solicita 120 s → 130 s. El plazo queda en PostgreSQL y se aplica a todos los orígenes de esa cuenta. No garantiza ausencia de futuras restricciones de Telegram.
+
+
+### Conteo y filtros de /descargar
+Antes de comenzar, muestra los contadores de fotos, videos y GIF que Telegram expone para el historial accesible. Son cantidades de referencia, no una estimación de archivos nuevos pendientes; pueden cambiar mientras se publica contenido.
+- `/descargar telegram_id group_id`: todos los tipos, como antes.
+- `/descargar telegram_id group_id video`: solo videos (sin GIF).
+- `/descargar telegram_id group_id fotos`: solo fotos.
+- `/descargar telegram_id group_id gif`: solo GIF.
+Los filtros también seleccionan elementos dentro de álbumes mixtos. Los archivos inventariados no se vuelven a subir. Para cambiar de filtro durante un trabajo activo, pausarlo primero con `/stop` y esperar a que termine el envío en curso.
+
+Los FloodWait guardan siempre el plazo de espera, incluso durante envíos. Un rechazo explícito de Telegram a una única publicación permite reintentar después del plazo. Los timeouts y resultados inciertos conservan su caché bloqueada; repetir `/descargar` libera el trabajo bajo el bloqueo del worker y continúa con otros archivos. Los elementos inciertos quedan en pendientes con error para revisión, sin borrarse ni subirse de nuevo automáticamente. La caché de una entrega confirmada se guarda antes de editar la atribución, para que un fallo de esa edición no convierta el archivo en una subida incierta.

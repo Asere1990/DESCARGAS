@@ -93,8 +93,8 @@ class PriorityTests(unittest.IsolatedAsyncioTestCase):
     async def test_uncertain_send_is_not_automatically_replayed_after_flood(self):
         s=helpers.GroupExportTests().service();s.repo.pool.fetchval.side_effect=None;s.repo.pool.fetchval.return_value=True
         await g.defer_flood(s,helpers.GroupExportTests().job(),errors.FloodWaitError(request=None,capture=24))
-        self.assertIn("state='paused'",s.repo.pool.execute.call_args.args[0])
-        self.assertNotIn('resume_at',s.repo.pool.execute.call_args.args[0])
+        self.assertIn("THEN 'paused'",s.repo.pool.execute.call_args.args[0])
+        self.assertIn('resume_at',s.repo.pool.execute.call_args.args[0])
 
     async def test_cooldown_prevents_reading_session_until_wait_expires(self):
         s=helpers.GroupExportTests().service();job=helpers.GroupExportTests().job()
