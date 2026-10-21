@@ -99,8 +99,9 @@ async def command(service, message):
         return True
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,media_filter)
         VALUES($1,$2,$3,$4,$5,'running','count',$6) ON CONFLICT(bot_id,uid,source)
-        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='count',media_filter=excluded.media_filter,cursor=0,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
-    await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Primero contará fotos, videos y GIF del historial accesible. Después descargará el tipo solicitado, omitirá los archivos ya guardados y avisará aquí al terminar.')
+        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='count',media_filter=excluded.media_filter,
+        cursor=CASE WHEN descarga_group_exports.media_filter=excluded.media_filter THEN descarga_group_exports.cursor ELSE 0 END,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
+    await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Primero contará fotos, videos y GIF del historial accesible. Continuará desde el avance guardado si mantienes el filtro, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
 
@@ -331,7 +332,7 @@ async def step(service, job):
                 if row:
                     pending=await service.repo.pool.fetchval('SELECT count(*) FROM descarga_export_pending WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source']) or 0
                     status='⏸ Revisión terminada con archivos pendientes' if pending else '✅ Descarga completada'
-                    try:await service.tell(job['actor'], f'{status} de {getattr(entity,"title",job["source"])} ({job["source"]}).\nCuenta: {job["uid"]}\nArchivos nuevos guardados en ALMACEN: {row["total"]}.\nPendientes con error: {pending}. Una nueva orden /descargar revisará también los mensajes anteriores.')
+                    try:await service.tell(job['actor'], f'{status} de {getattr(entity,"title",job["source"])} ({job["source"]}).\nCuenta: {job["uid"]}\nArchivos nuevos guardados en ALMACEN: {row["total"]}.\nPendientes con error: {pending}. Una nueva orden /descargar continuará desde el avance guardado; los errores anteriores siguen pendientes de revisión.')
                     except Exception:pass
         finally:
             await client.disconnect()

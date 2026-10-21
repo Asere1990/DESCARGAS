@@ -33,13 +33,13 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         s.repo.pool.execute.assert_not_awaited()
         s.tell.assert_not_awaited()
 
-    async def test_restart_upsert_rescans_history_without_resetting_saved_totals(self):
+    async def test_restart_upsert_preserves_cursor_and_saved_totals(self):
         s=self.service()
         s.repo.pool.fetchrow.return_value={**self.job(),'cursor':81,'total':50,'state':'paused'}
         with patch.object(g,'authorized',return_value=True):
             await g.command(s,dict(text='/descargar 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
         sql=s.repo.pool.execute.call_args.args[0].split('DO UPDATE SET')[1]
-        self.assertIn('cursor=0',sql)
+        self.assertIn('THEN descarga_group_exports.cursor ELSE 0 END',sql)
         self.assertIn("phase='count'",sql)
         self.assertNotIn("phase='index'",sql)
         self.assertNotIn('total=',sql)
@@ -301,3 +301,24 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError,'otro filtro'):
             await g.archive_items(s,self.job(),None,(self.job()['source'],888),[item],'Persona')
         s.repo.media_publishing.assert_not_awaited()
+
+
+    async def test_resume_sql_keeps_position_and_resets_only_on_filter_change(self):
+        import sqlite3
+        s=self.service()
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/descargar 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
+        sql,*args=s.repo.pool.execute.call_args.args
+        db=sqlite3.connect(':memory:')
+        self.addCleanup(db.close)
+        db.execute("CREATE TABLE descarga_group_exports(bot_id INTEGER,uid INTEGER,source INTEGER,actor INTEGER,generation INTEGER,state TEXT,phase TEXT,media_filter TEXT,cursor INTEGER DEFAULT 0,total INTEGER DEFAULT 0,resume_at REAL DEFAULT 0,scan INTEGER DEFAULT 0,PRIMARY KEY(bot_id,uid,source))")
+        db.execute(sql,args)
+        for state in ('paused','done'):
+            db.execute("UPDATE descarga_group_exports SET cursor=81,total=50,state=?",(state,))
+            db.execute(sql,args)
+            self.assertEqual(db.execute('SELECT cursor,total,state FROM descarga_group_exports').fetchone(),(81,50,'running'))
+        db.execute(sql,[*args[:-1],'video'])
+        self.assertEqual(db.execute('SELECT cursor,total,media_filter FROM descarga_group_exports').fetchone(),(0,50,'video'))
+        db.execute('UPDATE descarga_group_exports SET cursor=95')
+        db.execute(sql,[*args[:-1],'video'])
+        self.assertEqual(db.execute('SELECT cursor FROM descarga_group_exports').fetchone(),(95,))
