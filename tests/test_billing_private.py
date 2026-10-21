@@ -28,17 +28,21 @@ class BillingTests(unittest.IsolatedAsyncioTestCase):
         s=self.service();until=int(time.time()+2592000)
         await s.billing.update({'message':{'chat':{'type':'private'},'from':{'id':10},'successful_payment':{'currency':'XTR','total_amount':500,'is_recurring':True,'subscription_expiration_date':until,'invoice_payload':'d_token','telegram_payment_charge_id':'charge'}}})
         s.repo.grant_stars.assert_awaited_once_with(123,10,'d_token','charge',until)
-    async def test_group_entry_is_scoped_and_duplicate_updates_are_silent(self):
-        s=self.service();s.repo.confirm_payment_join=AsyncMock(return_value=True)
-        event={'message':{'chat':{'id':-100123},'new_chat_members':[{'id':10}]}}
+    async def test_group_entry_no_longer_grants_or_sends_invites(self):
+        s=self.service();s.repo.confirm_payment_join=AsyncMock()
         with patch.dict('os.environ',{'DESCARGAS_PAYMENT_GROUP':'-100123'}):
-            self.assertTrue(await s.billing.group_update(event))
-            s.repo.confirm_payment_join.assert_awaited_once_with(123,10)
-            self.assertIn('esperando',s.tell.call_args.args[1])
-            s.tell.reset_mock();s.repo.confirm_payment_join.return_value=False
-            await s.billing.group_update(event);s.tell.assert_not_awaited()
-            event['message']['chat']['id']=-100999
-            self.assertFalse(await s.billing.group_update(event))
+            self.assertFalse(await s.billing.group_update({'message':{'chat':{'id':-100123},'new_chat_members':[{'id':10}]}}))
+        s.repo.confirm_payment_join.assert_not_awaited()
+        s.api.assert_not_awaited();s.tell.assert_not_awaited()
+
+    async def test_checkout_activates_without_group_membership(self):
+        s=self.service();s.repo.stripe_event.return_value=10
+        event={'id':'evt_checkout','created':1000,'livemode':True,'type':'checkout.session.completed','data':{'object':{'id':'cs_own','mode':'subscription','payment_link':'plink_own','payment_status':'paid','currency':'usd','amount_total':699,'subscription':'sub_own','client_reference_id':'d_own','invoice':'in_own'}}}
+        with patch.dict('os.environ',{'DESCARGAS_STRIPE_PRICE_ID':'price_own','DESCARGAS_STRIPE_LINK_ID':'plink_own','DESCARGAS_PAYMENT_GROUP':'-100123'}):
+            self.assertEqual(await s.billing.stripe(event),10)
+        self.assertFalse(s.repo.stripe_event.call_args.kwargs['require_group'])
+        s.repo.queue_buyer.assert_awaited_once()
+        s.api.assert_not_awaited();s.tell.assert_not_awaited()
 
     async def test_buyer_profile_keeps_only_verified_charge_summary(self):
         from descargas_app.buyer_profiles import enrich_rows

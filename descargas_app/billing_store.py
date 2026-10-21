@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS descarga_memberships(bot_id BIGINT NOT NULL,uid BIGIN
 CREATE INDEX IF NOT EXISTS descarga_member_uid ON descarga_memberships(bot_id,uid,paid_until);
 ALTER TABLE descarga_memberships ADD COLUMN IF NOT EXISTS confirmed BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE TABLE IF NOT EXISTS descarga_payment_joins(bot_id BIGINT NOT NULL,uid BIGINT NOT NULL,joined DOUBLE PRECISION NOT NULL,remove_after DOUBLE PRECISION NOT NULL,removed BOOLEAN NOT NULL DEFAULT FALSE,PRIMARY KEY(bot_id,uid));
+CREATE TABLE IF NOT EXISTS descarga_payment_notices(invoice TEXT PRIMARY KEY,bot_id BIGINT NOT NULL,uid BIGINT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',created DOUBLE PRECISION NOT NULL,available DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS descarga_buyer_profiles(invoice TEXT PRIMARY KEY,bot_id BIGINT NOT NULL,uid BIGINT NOT NULL,payload BYTEA NOT NULL,state TEXT NOT NULL DEFAULT 'pending',available DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS descarga_payment_intents(token TEXT PRIMARY KEY,bot_id BIGINT NOT NULL,uid BIGINT NOT NULL,provider TEXT NOT NULL,created DOUBLE PRECISION NOT NULL,url TEXT,subscription TEXT);
 CREATE TABLE IF NOT EXISTS descarga_payment_events(provider TEXT NOT NULL,id TEXT NOT NULL,PRIMARY KEY(provider,id));
@@ -108,4 +109,6 @@ class BillingRepository:
             return fresh is not None
     async def queue_buyer(self,invoice,bot_id,uid,payload):
         if not invoice:return
-        await self.pool.execute('INSERT INTO descarga_buyer_profiles(invoice,bot_id,uid,payload) VALUES($1,$2,$3,$4) ON CONFLICT(invoice) DO NOTHING',invoice,bot_id,uid,self.encode(payload))
+        async with self.pool.acquire() as c,c.transaction():
+            await c.execute('INSERT INTO descarga_buyer_profiles(invoice,bot_id,uid,payload) VALUES($1,$2,$3,$4) ON CONFLICT(invoice) DO NOTHING',invoice,bot_id,uid,self.encode(payload))
+            await c.execute('INSERT INTO descarga_payment_notices(invoice,bot_id,uid,created) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',invoice,bot_id,uid,time.time())

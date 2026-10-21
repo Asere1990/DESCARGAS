@@ -44,6 +44,11 @@ class Billing:
         config={'url':os.environ.get('DESCARGAS_PAYMENT_LINK',''),'group':int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0')),
             'ready':bool(os.environ.get('DESCARGAS_PAYMENT_LINK') and os.environ.get('DESCARGAS_STRIPE_WEBHOOK_SECRET') and os.environ.get('DESCARGAS_STRIPE_PRICE_ID') and os.environ.get('DESCARGAS_STRIPE_LINK_ID'))}
         await self.repo.set_setting('payment_config',json.dumps(config))
+        # Previously verified purchases must not stay gated on the retired group.
+        await self.repo.pool.execute("""UPDATE descarga_memberships m SET confirmed=TRUE
+            WHERE m.bot_id=$1 AND m.provider='stripe' AND NOT m.confirmed
+            AND EXISTS(SELECT 1 FROM descarga_payment_intents i WHERE i.bot_id=m.bot_id
+                AND i.uid=m.uid AND i.provider='stripe' AND i.subscription=m.subscription)""",self.s.bot_id)
     async def require(self,uid,source=None):
         from .moderation import authorized
         if authorized(uid):return
@@ -163,10 +168,10 @@ class Billing:
             if obj.get('mode')!='subscription' or object_id(obj.get('payment_link'))!=link or obj.get('payment_status')!='paid' or obj.get('currency')!='usd' or obj.get('amount_total')!=699:return None
             sub=object_id(obj.get('subscription'));token=obj.get('client_reference_id','')
             if not sub or not token.startswith('d_'):return None
-            uid=await self.repo.stripe_event(event,checkout=(token,sub,next_month(obj.get('created',event['created']))),require_group=bool(int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))))
+            uid=await self.repo.stripe_event(event,checkout=(token,sub,next_month(obj.get('created',event['created']))),require_group=False)
             if uid:
-                await self.repo.queue_buyer(object_id(obj.get('invoice')) or obj['id'],self.s.bot_id,uid,{'session_id':obj['id'],'invoice_id':object_id(obj.get('invoice')),'subscription_id':sub,'customer_id':object_id(obj.get('customer')),'name':(obj.get('customer_details') or {}).get('name'),'email':(obj.get('customer_details') or {}).get('email'),'billing_address':(obj.get('customer_details') or {}).get('address')})
-                await self.try_confirm_group(uid)
+                await self.repo.queue_buyer(object_id(obj.get('invoice')) or obj['id'],self.s.bot_id,uid,{'session_id':obj['id'],'invoice_id':object_id(obj.get('invoice')),'subscription_id':sub,'customer_id':object_id(obj.get('customer')),'name':(obj.get('customer_details') or {}).get('name'),'email':(obj.get('customer_details') or {}).get('email'),'billing_address':(obj.get('customer_details') or {}).get('address'),'paid_at':event['created']})
+
             return uid
         if kind in ('invoice.paid','invoice.payment_failed'):
             lines=[line for line in obj.get('lines',{}).get('data',[]) if line_price(line)==price]
@@ -177,61 +182,22 @@ class Billing:
             until=max(line.get('period',{}).get('end',0) for line in lines)
             if not until:return None
             uid=await self.repo.stripe_event(event,period=(sub,obj['id'],until))
-            if uid:await self.repo.queue_buyer(obj['id'],self.s.bot_id,uid,{'invoice_id':obj['id'],'subscription_id':sub,'customer_id':object_id(obj.get('customer')),'name':obj.get('customer_name'),'email':obj.get('customer_email'),'billing_address':obj.get('customer_address')})
+            if uid:await self.repo.queue_buyer(obj['id'],self.s.bot_id,uid,{'invoice_id':obj['id'],'subscription_id':sub,'customer_id':object_id(obj.get('customer')),'name':obj.get('customer_name'),'email':obj.get('customer_email'),'billing_address':obj.get('customer_address'),'paid_at':event['created']})
             return uid
         if kind.startswith('customer.subscription.'):
             if not any(object_id(i.get('price'))==price for i in obj.get('items',{}).get('data',[])):return None
             return await self.repo.stripe_event(event,state=(obj['id'],obj.get('status','canceled')))
 
-    async def try_confirm_group(self,uid):
-        group=int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))
-        if not group:return
-        try:
-            member=await self.s.api('getChatMember',{'chat_id':group,'user_id':uid})
-            if member.get('status') in ('member','administrator','creator') or member.get('is_member'):
-                await self.repo.confirm_payment_join(self.s.bot_id,uid)
-        except Exception:pass
     async def group_update(self,update):
-        group=int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))
-        if not group:return False
-        message=update.get('message',{});change=update.get('chat_member',{})
-        users=[]
-        if message.get('chat',{}).get('id')==group:users=message.get('new_chat_members',[])
-        elif change.get('chat',{}).get('id')==group:
-            member=change.get('new_chat_member',{})
-            old=change.get('old_chat_member',{})
-            if member.get('status') in ('member','administrator','creator') and old.get('status') in ('left','kicked','restricted'):
-                users=[member.get('user',{})]
-        if not users:return False
-        for user in users:
-            if user.get('is_bot') or not user.get('id'):continue
-            uid=user['id']
-            if not await self.repo.confirm_payment_join(self.s.bot_id,uid):continue
-            if await self.repo.member_until(self.s.bot_id,uid)>time.time():
-                await self.s.tell(uid,'✅ Pago y Telegram ID vinculados. Tu suscripción mensual está activa. Vuelve a enviar tus enlaces aquí.')
-                try:
-                    me=await self.s.api('getMe',{})
-                    await self.s.api('sendMessage',{'chat_id':group,'text':'✅ SUSCRIPCIÓN ACTIVADA\nTu pago quedó vinculado a tu cuenta. Puedes volver a DESCARGAS. Saldrás de este grupo automáticamente en cinco minutos.',
-                        'ephemeral_message_parameters':{'receiver_user_id':uid},
-                        'reply_markup':{'inline_keyboard':[[{'text':'✅ IR A DESCARGAS','url':'https://t.me/'+me['username'],'style':'success'}]]}})
-                except Exception:pass
-            else:await self.s.tell(uid,'Estamos esperando la confirmación del pago de Stripe. La entrada al grupo por sí sola no activa la suscripción.')
-        return True
+        # The former confirmation group is now an audit destination only.
+        return False
     async def maintenance(self):
         from .buyer_profiles import enrich_pending
         while not self.s.stopping:
             try:
-                group=int(os.environ.get('DESCARGAS_PAYMENT_GROUP','0'))
-                if group:
-                    rows=await self.repo.pool.fetch('SELECT uid FROM descarga_payment_joins WHERE bot_id=$1 AND remove_after<$2 AND removed=FALSE LIMIT 20',self.s.bot_id,time.time())
-                    for row in rows:
-                        uid=row['uid']
-                        member=await self.s.api('getChatMember',{'chat_id':group,'user_id':uid})
-                        if member.get('status') not in ('creator','administrator'):
-                            await self.s.api('banChatMember',{'chat_id':group,'user_id':uid})
-                            await self.s.api('unbanChatMember',{'chat_id':group,'user_id':uid,'only_if_banned':True})
-                        await self.repo.pool.execute('UPDATE descarga_payment_joins SET removed=TRUE WHERE bot_id=$1 AND uid=$2',self.s.bot_id,uid)
                 await enrich_pending(self.s)
+                from .payment_notices import send_pending
+                await send_pending(self.s)
                 from .subscription_actions import disputes
                 await disputes(self.s)
             except asyncio.CancelledError:raise
@@ -245,10 +211,5 @@ def mount_payments(app,service):
         try:event=verified_event(raw,request.headers.get('Stripe-Signature',''),os.environ.get('DESCARGAS_STRIPE_WEBHOOK_SECRET',''))
         except (ValueError,TypeError):return web.Response(status=400,text='Invalid event')
         uid=await service.billing.stripe(event)
-        if uid:
-            try:
-                active=await service.repo.member_until(service.bot_id,uid)>time.time()
-                await service.tell(uid,'✅ Pago mensual confirmado. Tu acceso está desbloqueado. Vuelve a enviar tus enlaces.' if active else '✅ Pago confirmado. Entra al grupo intermedio para terminar de vincular tu Telegram ID: '+os.environ.get('DESCARGAS_PAYMENT_GROUP_LINK',''))
-            except Exception:pass
         return web.json_response({'received':True})
     app.router.add_post('/payments/stripe',webhook)
