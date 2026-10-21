@@ -121,6 +121,7 @@ class ScaleService(Service):
                     self.tasks.append(asyncio.create_task(self.archive_loop()))
                     self.tasks.append(asyncio.create_task(group_export_loop(self)))
                 else:
+                    self.bot.flood_sleep_threshold=0
                     await self.repo.set_setting(f'dedicated_export:{self.bot_id}','enabled')
                     self.download_tasks=[asyncio.create_task(group_export_loop(self))]
                     self.tasks.extend(self.download_tasks)

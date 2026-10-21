@@ -172,6 +172,7 @@ async def step(service, job):
             return
         session = await service.get_session(job['uid'])
         client = service.client(session)
+        client.flood_sleep_threshold=0 # All account FloodWaits reach the durable manual cooldown.
         try:
             await client.connect()
             if not await client.is_user_authorized():
