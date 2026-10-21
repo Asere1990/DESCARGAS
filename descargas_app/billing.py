@@ -143,7 +143,7 @@ class Billing:
             if not link:await self.s.tell(uid,'El pago con tarjeta no está disponible en este momento.');return True
             url=link+('&' if '?' in link else '?')+urlencode({'client_reference_id':intent['token']})
             payment_message_id=query.get('message',{}).get('message_id')
-            await self.s.api('editMessageText' if payment_message_id else 'sendMessage',{'chat_id':uid,**({'message_id':payment_message_id} if payment_message_id else {}),'text':'💳𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈𝐎𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋\n\n𝐏𝐫𝐞𝐜𝐢𝐨: $6.99 USD/mes\n\nAl completar tu pago de forma segura, serás redirigido a la página de confirmación para activar tu suscripción inmediatamente.',
+            await self.s.api('editMessageText' if payment_message_id else 'sendMessage',{'chat_id':uid,**({'message_id':payment_message_id} if payment_message_id else {}),'text':'💳𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈𝐎𝐍 𝐌𝐄𝐍𝐒𝐔𝐀𝐋\n\n𝐏𝐫𝐞𝐜𝐢𝐨: $6.99 USD/mes\n\nAl completar tu pago de forma segura, tu suscripción se activará inmediatamente.',
                 'reply_markup':{'inline_keyboard':[[{'text':'💳 CONTINUAR AL PAGO','url':url,'style':'success'}],[{'text':'⬅️ CAMBIAR MÉTODO DE PAGO','callback_data':'pay:methods','style':'danger'}]]}})
             return True
         if message.get('chat',{}).get('type')=='private' and message.get('text','').strip()=='/suscripcion':

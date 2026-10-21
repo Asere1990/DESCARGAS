@@ -47,7 +47,7 @@ async def cancel(service,uid):
 async def menu(service,uid):
     info=await summary(service,uid)
     if not info['active']:return await service.billing.prompt(uid)
-    await service.api('sendMessage',{'chat_id':uid,'text':'⭐️ MEMBRESÍA ACTIVA\n\nTu membresía estará activa hasta el '+info['until']+'.',
+    await service.api('sendMessage',{'chat_id':uid,'text':'⭐️𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈𝐎𝐍 𝐀𝐂𝐓𝐈𝐕𝐀𝐃𝐀\n\nTu membresía estará activa hasta el '+info['until']+'.\n\nYa puedes enviar enlaces para descargar contenido.',
         'reply_markup':{'inline_keyboard':[[{'text':'CANCELAR MEMBRESÍA','callback_data':'membership:cancel','style':'danger'}]]}})
 
 async def disputes(service):
