@@ -1,4 +1,5 @@
 import unittest
+import json
 from contextlib import asynccontextmanager
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock, patch
@@ -142,6 +143,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_live_group_list_excludes_private_left_and_migrated_dialogs(self):
         s=self.service()
+        s.repo.encode=lambda value:json.dumps(value).encode()
         channel=types.Channel(id=123,title='Canal A',photo=types.ChatPhotoEmpty(),date=None,broadcast=True)
         group=types.Chat(id=22,title='Grupo B',photo=types.ChatPhotoEmpty(),participants_count=1,date=None,version=1)
         left=types.Channel(id=124,title='Fuera',photo=types.ChatPhotoEmpty(),date=None,left=True)
@@ -152,7 +154,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),
             get_me=AsyncMock(return_value=NS(id=12)),iter_dialogs=dialogs)
         s.client=lambda session:client
-        with patch.object(g,'authorized',return_value=True):
+        with patch('descargas_app.moderation.authorized',return_value=True):
             await g.list_groups(s,99,'12')
         text=''.join(call.args[1] for call in s.tell.await_args_list)
         self.assertIn('1. Canal A',text)
@@ -164,19 +166,21 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('Anterior',text)
         client.disconnect.assert_awaited_once()
 
-    async def test_live_group_list_splits_large_lists_without_losing_rows(self):
+    async def test_live_group_list_splits_first_100_and_reports_full_total(self):
         s=self.service()
+        s.repo.encode=lambda value:json.dumps(value).encode()
         async def dialogs():
             for i in range(1,130):
                 yield NS(entity=types.Channel(id=i,title='Grupo '+str(i)+' '+('A'*100),photo=types.ChatPhotoEmpty(),date=None,megagroup=True))
         client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(id=12)),iter_dialogs=dialogs)
         s.client=lambda session:client
-        with patch.object(g,'authorized',return_value=True):
+        with patch('descargas_app.moderation.authorized',return_value=True):
             await g.list_groups(s,99,'12')
         texts=[call.args[1] for call in s.tell.await_args_list]
         self.assertGreater(len(texts),1)
         self.assertTrue(all(len(t.encode('utf-16-le'))//2<4096 for t in texts))
-        self.assertIn('129. Grupo 129',''.join(texts))
+        self.assertIn('100. Grupo 30',''.join(texts))
+        self.assertNotIn('101. Grupo',''.join(texts))
         self.assertIn('Total: 129',''.join(texts))
 
     async def test_group_argument_routes_to_live_account_listing(self):

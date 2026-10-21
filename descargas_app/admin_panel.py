@@ -25,6 +25,9 @@ HELP='''<b>COMANDOS DE DESCARGAS</b>
 <b>SOLO ADMINISTRADORES · privado o ALMACEN</b>
 /datos — Panel de estadísticas y actividad reciente.
 /search 1609522430 — Ficha completa por Telegram ID.
+/cuentas — Primeras 100 cuentas con sesión guardada y total del sistema (solo DM).
+/cuentas 245-344 — Consultar ese rango (máximo 100).
+/cuenta 1345 — Cuenta en esa posición, no Telegram ID. Orden por Telegram ID; puede cambiar al conectar/desconectar cuentas.
 /usuario o /usuarios — Los 100 usuarios con más descargas.
 /grupo o /grupos — Los 20 grupos/canales con más descargas.
 /telefono Cuba o /telefonos CU — Los 100 usuarios de ese país.
@@ -39,7 +42,8 @@ En ALMACEN: responde al contenido con /ban o /unban para gestionar al usuario y 
 /unlock ID — Volver a permitir esas copias.
 En ALMACEN, responder /lock a un archivo/álbum excluye su caption original de /descargar, incluso en otros grupos. Responder /unlock retira esa exclusión. Sin caption no se crea una regla. No borra contenido existente.
 <b>CUENTAS CONECTADAS · SOLO EN DM</b>
-/grupos telegram_id — Lista numerada de todos sus grupos y canales.
+/grupos telegram_id o /canales telegram_id — Primeros 100 grupos y canales y total accesible.
+/grupos telegram_id 101-200 o /canales telegram_id 101-200 — Consultar ese rango (máximo 100). Ambos muestran la misma lista, guardada 30 minutos.
 telegram_id,número — Permisos actuales del destino de esa lista (válida 30 minutos para ese administrador).
 Ejemplo: 1609522430,3 — Permisos del destino número 3.
 /chat telegram_id group_id mensaje — Enviar ese texto con la cuenta conectada. Admite channel_id, enlaces y texto de varias líneas. No adjunta fotos ni videos.
@@ -66,7 +70,7 @@ class AdminPanel:
     async def update(self,update):
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})
         text=message.get('text','').strip() if not query else query.get('data','')
-        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|comandos?|telefonos?|chat)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
+        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
         callback=query and text.startswith('stats:')
         numeric=not query and text.isdecimal() and len(text)<=3
         account_selection=not query and re.fullmatch(r'[1-9][0-9]{0,15}\s*,\s*[1-9][0-9]{0,5}',text)
@@ -92,6 +96,10 @@ class AdminPanel:
                     from .account_chat import show_permissions,send_text
                     if op=='chat':await send_text(self.s,uid,arg,update_id)
                     else:await show_permissions(self.s,uid,arg)
+                elif op in ('cuenta','cuentas'):
+                    if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
+                    from .account_directory import accounts
+                    await accounts(self,uid,arg,single=op=='cuenta')
                 elif op=='datos':
                     registered=await self.pool.fetchval('SELECT count(*) FROM descarga_directory WHERE bot_id=$1',self.s.bot_id)
                     active=await self.pool.fetchval('SELECT count(*) FROM descarga_directory WHERE bot_id=$1 AND last_seen>$2',self.s.bot_id,time.time()-300)
@@ -105,7 +113,7 @@ class AdminPanel:
                     country=country_code(arg) if op.startswith('telefono') else None
                     if op.startswith('telefono') and not country:return await self.send(chat,'Indica el país. Ejemplo: <code>/telefono Cuba</code> o <code>/telefonos ES</code>.')
                     await self.users(uid,chat,country,1 if op=='topuser' else 100)
-                elif op in ('grupo','grupos') and arg.strip():
+                elif op=='canales' or (op in ('grupo','grupos') and arg.strip()):
                     if chat!=uid:return await self.send(chat,'Usa /grupos telegram_id en el DM del bot.')
                     from .group_download import list_groups
                     await list_groups(self.s,uid,arg)
@@ -136,7 +144,7 @@ class AdminPanel:
     async def pages(self,chat,title,entries):
         text=title+'\n\n'
         for entry in entries:
-            if len(text)+len(entry)>3400:await self.send(chat,text);text=title+'\n\n'
+            if len((text+entry).encode('utf-16-le'))//2>3400:await self.send(chat,text);text=title+'\n\n'
             text+=entry+'\n\n'
         await self.send(chat,text if entries else title+'\nSin datos todavía.')
     async def groups(self,chat,limit):
