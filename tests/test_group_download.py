@@ -323,3 +323,43 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         db.execute('UPDATE descarga_group_exports SET cursor=95')
         db.execute(sql,[*args[:-1],'video'])
         self.assertEqual(db.execute('SELECT cursor FROM descarga_group_exports').fetchone(),(95,))
+
+
+    async def test_pending_private_admin_lists_scoped_links_without_session_or_mutation(self):
+        s=self.service();s.repo.pool.fetch=AsyncMock(return_value=[{'message_id':55,'error':'ValueError'}])
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/pendientes 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
+        self.assertEqual(s.repo.pool.fetch.call_args.args[1:],(7,12,-1000000000123,0))
+        self.assertIn('https://t.me/c/0000000123/55',s.tell.call_args_list[0].args[1])
+        self.assertIn('ValueError',s.tell.call_args_list[0].args[1])
+        s.repo.account.assert_not_awaited();s.repo.pool.execute.assert_not_awaited()
+        s.repo.pool.fetchval.assert_not_awaited()
+
+    async def test_pending_denies_non_admin_and_group_chats(self):
+        for admin,chat in [(False,'private'),(True,'supergroup')]:
+            s=self.service();s.repo.pool.fetch=AsyncMock()
+            with patch.object(g,'authorized',return_value=admin):
+                await g.command(s,dict(text='/pendientes 12 -100123',chat={'type':chat},**{'from':{'id':99}}))
+            s.repo.pool.fetch.assert_not_awaited();s.tell.assert_not_awaited()
+
+    async def test_pending_empty_and_basic_group_have_no_fabricated_link(self):
+        s=self.service();s.repo.pool.fetch=AsyncMock(return_value=[])
+        await g.list_pending(s,99,12,-22)
+        self.assertIn('No hay pendientes',s.tell.call_args.args[1])
+        s.repo.pool.fetch.return_value=[{'message_id':8,'error':'TimeoutError'}]
+        await g.list_pending(s,99,12,-22)
+        self.assertIn('Mensaje 8',s.tell.call_args_list[-2].args[1])
+        self.assertNotIn('https://t.me/c/',s.tell.call_args_list[-2].args[1])
+
+    async def test_pending_pages_all_entries_with_bounded_telegram_messages(self):
+        s=self.service();s.repo.pool.fetch=AsyncMock(side_effect=[
+            [{'message_id':i,'error':'X'*200} for i in range(1,16)],
+            [{'message_id':16,'error':'TimeoutError'}]])
+        await g.list_pending(s,99,12,-100123)
+        self.assertEqual(s.repo.pool.fetch.call_args.args[-1],15)
+        self.assertIn('Total mostrado: 16',s.tell.call_args.args[1])
+        self.assertTrue(all(len(c.args[1].encode('utf-16-le'))//2<4096 for c in s.tell.call_args_list))
+
+    def test_pending_parser_rejects_filters_and_accepts_bot_suffix(self):
+        self.assertEqual(g.parse_command('/pendientes@Bot 12 -100123'),('pendientes',12,-100123,'all'))
+        self.assertIsNone(g.parse_command('/pendientes 12 -100123 video'))

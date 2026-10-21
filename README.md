@@ -179,3 +179,7 @@ Antes de comenzar, muestra los contadores de fotos, videos y GIF que Telegram ex
 Los filtros también seleccionan elementos dentro de álbumes mixtos. Los archivos inventariados no se vuelven a subir. Para cambiar de filtro durante un trabajo activo, pausarlo primero con `/stop` y esperar a que termine el envío en curso.
 
 Los FloodWait guardan siempre el plazo de espera, incluso durante envíos. Un rechazo explícito de Telegram a una única publicación permite reintentar después del plazo. Los timeouts y resultados inciertos conservan su caché bloqueada; repetir `/descargar` libera el trabajo bajo el bloqueo del worker y continúa con otros archivos. Los elementos inciertos quedan en pendientes con error para revisión, sin borrarse ni subirse de nuevo automáticamente. La caché de una entrega confirmada se guarda antes de editar la atribución, para que un fallo de esa edición no convierta el archivo en una subida incierta.
+
+
+### Consultar pendientes
+`/pendientes telegram_id group_id` (o `canal_id`) muestra en DM, solo a administradores, los registros pendientes de esa cuenta y origen: enlace al mensaje y tipo de error guardado. Divide las listas largas en mensajes de 15 registros, sin cambiar el cursor, reenviar ni borrar pendientes. Funciona sin sesión conectada y durante una pausa de Telegram. Los enlaces privados requieren pertenecer al grupo/canal; para grupos básicos sin enlace privado se muestra el ID del mensaje. Un registro puede representar un álbum. El tipo de error histórico no incluye necesariamente el motivo detallado.

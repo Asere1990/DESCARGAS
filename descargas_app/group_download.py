@@ -32,12 +32,12 @@ ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL 
 
 
 def parse_command(text):
-    match = re.fullmatch(r'/(descargar|stop)(?:@[A-Za-z0-9_]+)?(?:\s+(\d+)\s+(-\d+)(?:\s+(video|videos|foto|fotos|gif|gifs))?)?\s*', text, re.IGNORECASE)
+    match = re.fullmatch(r'/(descargar|stop|pendientes)(?:@[A-Za-z0-9_]+)?(?:\s+(\d+)\s+(-\d+)(?:\s+(video|videos|foto|fotos|gif|gifs))?)?\s*', text, re.IGNORECASE)
     if not match:
         return None
     kind=(match.group(4) or 'all').lower()
     kind={'videos':'video','foto':'fotos','gifs':'gif'}.get(kind,kind)
-    if match.group(1).lower()=='stop' and kind!='all':return None
+    if match.group(1).lower()!='descargar' and kind!='all':return None
     return match.group(1).lower(), int(match.group(2) or 0), int(match.group(3) or 0), kind
 
 
@@ -50,7 +50,7 @@ def media_kind(message):
 
 async def command(service, message):
     text = message.get('text', '').strip()
-    if not re.match(r'^/(?:descargar|stop)(?:@|\s|$)', text):
+    if not re.match(r'^/(?:descargar|stop|pendientes)(?:@|\s|$)', text, re.IGNORECASE):
         return False
     actor = message.get('from', {}).get('id')
     chat = message.get('chat', {})
@@ -58,10 +58,13 @@ async def command(service, message):
         return True
     parsed = parse_command(text)
     if not parsed or not 0 < parsed[1] < 2**63 or not -(2**63) < parsed[2] < 0:
-        await service.tell(actor, 'Uso: /descargar telegram_id group_id [video|fotos|gif]\nPausar: /stop telegram_id group_id')
+        await service.tell(actor, 'Uso: /descargar telegram_id group_id [video|fotos|gif]\nPausar: /stop telegram_id group_id\nPendientes: /pendientes telegram_id group_id (también canal_id)')
         return True
     action, uid, source, media_filter = parsed
     pool = service.repo.pool
+    if action == 'pendientes':
+        await list_pending(service,actor,uid,source)
+        return True
     if action == 'stop':
         row = await pool.fetchrow("UPDATE descarga_group_exports SET state='paused' WHERE bot_id=$1 AND uid=$2 AND source=$3 RETURNING cursor", service.bot_id, uid, source)
         await service.tell(actor, '⏸ Pausa solicitada. El archivo o álbum en curso terminará; /descargar continuará desde el avance guardado.' if row else 'No hay una descarga registrada para esa cuenta y grupo.')
@@ -103,6 +106,31 @@ async def command(service, message):
         cursor=descarga_group_exports.cursor,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
     await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Primero contará fotos, videos y GIF del historial accesible. Continuará desde el avance guardado aunque cambies el filtro, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
+
+
+async def list_pending(service, actor, uid, source):
+    """Read-only inspection: available even when the account is disconnected/paused."""
+    last=0
+    number=0
+    while True:
+        rows=await service.repo.pool.fetch(
+            'SELECT message_id,error FROM descarga_export_pending WHERE bot_id=$1 AND uid=$2 AND source=$3 AND message_id>$4 ORDER BY message_id LIMIT 15',
+            service.bot_id,uid,source,last)
+        if not rows:
+            if not number:await service.tell(actor,f'✅ No hay pendientes registrados para la cuenta {uid} y el grupo/canal {source}.')
+            break
+        lines=[f'📋 PENDIENTES\nCuenta: {uid}\nGrupo/canal: {source}']
+        for row in rows:
+            number+=1
+            mid=row['message_id']
+            error=' '.join(str(row['error']).split())[:80]
+            link=f'https://t.me/c/{str(source)[4:]}/{mid}' if str(source).startswith('-100') else f'Mensaje {mid} (grupo básico sin enlace privado disponible)'
+            lines.append(f'{number}. {link}\nError registrado: {error}')
+            last=mid
+        await service.tell(actor,'\n\n'.join(lines))
+        if len(rows)<15:break
+    if number:
+        await service.tell(actor,f'Total mostrado: {number} pendientes (cada registro puede ser un archivo o álbum). Los enlaces requieren acceso al grupo/canal. Si el envío quedó incierto, revisa ALMACEN antes de reintentarlo. Este comando solo consulta; no reenvía ni borra registros.')
 
 
 async def checked(service, job):

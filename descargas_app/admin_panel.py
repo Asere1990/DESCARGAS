@@ -50,6 +50,7 @@ Ejemplo: 1609522430,3 — Permisos del destino número 3.
 Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
+/pendientes telegram_id group_id — Mostrar enlaces y error registrado de los archivos/álbumes pendientes. Admite canal_id. Solo consulta, no reintenta ni borra.
 /stop telegram_id group_id — Pausar tras el archivo/álbum en curso. Admite channel_id.
 Repetir /descargar continúa desde el avance guardado, aunque cambies el filtro. El nuevo filtro solo se aplica al contenido posterior; no recupera lo omitido antes. Los errores anteriores conservan su registro pendiente. Un error previo al envío no frena otros archivos. Tras una espera de Telegram, la reactivación es manual con /descargar y no se permite antes de la hora indicada; los envíos inciertos quedan pendientes de revisión sin bloquear el resto ni repetirse. Al acabar avisa de los pendientes y se detiene; no vigila publicaciones futuras.
 /comando o /comandos — Esta ayuda.
