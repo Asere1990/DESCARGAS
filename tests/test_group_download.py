@@ -39,7 +39,8 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(g,'authorized',return_value=True):
             await g.command(s,dict(text='/descargar 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
         sql=s.repo.pool.execute.call_args.args[0].split('DO UPDATE SET')[1]
-        self.assertIn('THEN descarga_group_exports.cursor ELSE 0 END',sql)
+        self.assertIn('cursor=descarga_group_exports.cursor',sql)
+        self.assertNotIn('ELSE 0',sql)
         self.assertIn("phase='count'",sql)
         self.assertNotIn("phase='index'",sql)
         self.assertNotIn('total=',sql)
@@ -303,7 +304,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         s.repo.media_publishing.assert_not_awaited()
 
 
-    async def test_resume_sql_keeps_position_and_resets_only_on_filter_change(self):
+    async def test_resume_sql_keeps_position_even_when_filter_changes(self):
         import sqlite3
         s=self.service()
         with patch.object(g,'authorized',return_value=True):
@@ -318,7 +319,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             db.execute(sql,args)
             self.assertEqual(db.execute('SELECT cursor,total,state FROM descarga_group_exports').fetchone(),(81,50,'running'))
         db.execute(sql,[*args[:-1],'video'])
-        self.assertEqual(db.execute('SELECT cursor,total,media_filter FROM descarga_group_exports').fetchone(),(0,50,'video'))
+        self.assertEqual(db.execute('SELECT cursor,total,media_filter FROM descarga_group_exports').fetchone(),(81,50,'video'))
         db.execute('UPDATE descarga_group_exports SET cursor=95')
         db.execute(sql,[*args[:-1],'video'])
         self.assertEqual(db.execute('SELECT cursor FROM descarga_group_exports').fetchone(),(95,))

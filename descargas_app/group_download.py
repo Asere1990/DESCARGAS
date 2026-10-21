@@ -100,8 +100,8 @@ async def command(service, message):
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,media_filter)
         VALUES($1,$2,$3,$4,$5,'running','count',$6) ON CONFLICT(bot_id,uid,source)
         DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='count',media_filter=excluded.media_filter,
-        cursor=CASE WHEN descarga_group_exports.media_filter=excluded.media_filter THEN descarga_group_exports.cursor ELSE 0 END,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
-    await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Primero contará fotos, videos y GIF del historial accesible. Continuará desde el avance guardado si mantienes el filtro, omitirá los archivos ya guardados y avisará aquí al terminar.')
+        cursor=descarga_group_exports.cursor,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
+    await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Primero contará fotos, videos y GIF del historial accesible. Continuará desde el avance guardado aunque cambies el filtro, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
 
