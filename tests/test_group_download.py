@@ -12,7 +12,7 @@ async def lock(*args, **kwargs):
 class GroupExportTests(unittest.IsolatedAsyncioTestCase):
     def service(self):
         pool=NS(fetchrow=AsyncMock(return_value=None),execute=AsyncMock())
-        repo=NS(pool=pool,account=AsyncMock(return_value={'session':b'x','generation':4}),
+        repo=NS(pool=pool,set_setting=AsyncMock(),account=AsyncMock(return_value={'session':b'x','generation':4}),
             account_lock=lock,media_lock=lock,media_cache=AsyncMock(return_value=None),
             media_publishing=AsyncMock(),media_ready=AsyncMock(),register_origins=AsyncMock(),pace=AsyncMock())
         return NS(bot_id=7,almacen=-100999,repo=repo,tell=AsyncMock(),stopping=False,

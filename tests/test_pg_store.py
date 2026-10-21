@@ -17,7 +17,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_directory,descarga_delivery_events,descarga_user_totals,descarga_source_totals,descarga_user_sources,descarga_admin_selections,descarga_star_receipts,descarga_disputes,descarga_dispute_blocks,descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
+        await self.repo.pool.execute('TRUNCATE descarga_account_messages,descarga_group_exports,descarga_directory,descarga_delivery_events,descarga_user_totals,descarga_source_totals,descarga_user_sources,descarga_admin_selections,descarga_star_receipts,descarga_disputes,descarga_dispute_blocks,descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
     async def asyncTearDown(self):await self.repo.close()
     async def test_activity_requires_real_interaction_and_is_bot_scoped(self):
         await self.repo.remember_person(100,10,'Name','CU')
@@ -293,3 +293,21 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.repo.pool.fetchval('SELECT count(*) FROM descarga_jobs'),count)
         print(f'QUEUE LOAD TEST: {count} orders / {20*count} links accepted in {elapsed:.2f}s; NO Telegram downloads performed')
         self.assertLess(elapsed,180)
+
+
+    async def test_account_chat_update_id_is_reserved_once(self):
+        from contextlib import asynccontextmanager
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock,patch
+        from descargas_app.account_chat import send_text
+        client=SimpleNamespace(send_message=AsyncMock(return_value=SimpleNamespace(id=87)))
+        @asynccontextmanager
+        async def connection(service,uid):yield client
+        service=SimpleNamespace(bot_id=100,repo=self.repo,tell=AsyncMock())
+        entity=SimpleNamespace(title='Destino')
+        with patch('descargas_app.account_chat.authorized',return_value=True),patch('descargas_app.account_chat.connected',connection),patch('descargas_app.account_chat.inspect_permissions',AsyncMock(return_value=(entity,{'text':True,'previews':True}))):
+            await send_text(service,99,'10 -100123 Hola',567)
+            await send_text(service,99,'10 -100123 Hola',567)
+        client.send_message.assert_awaited_once()
+        row=await self.repo.pool.fetchrow('SELECT state,message_id,uid,source FROM descarga_account_messages WHERE bot_id=100 AND update_id=567')
+        self.assertEqual((row['state'],row['message_id'],row['uid'],row['source']),('sent',87,10,-100123))

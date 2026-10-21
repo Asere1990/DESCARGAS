@@ -37,9 +37,16 @@ En ALMACEN: responde al contenido con /ban o /unban para gestionar al usuario y 
 /free 1609522430 — Quitar el requisito de pago individual. /pay lo vuelve a activar.
 /lock ID — Entregar sin copiar a ALMACEN ni Dropbox.
 /unlock ID — Volver a permitir esas copias.
-/grupos telegram_id — Listar grupos/canales de una cuenta conectada.
+<b>CUENTAS CONECTADAS · SOLO EN DM</b>
+/grupos telegram_id — Lista numerada de todos sus grupos y canales.
+telegram_id,número — Permisos actuales del destino de esa lista (válida 30 minutos para ese administrador).
+Ejemplo: 1609522430,3 — Permisos del destino número 3.
+/chat telegram_id group_id mensaje — Enviar ese texto con la cuenta conectada. Admite channel_id, enlaces y texto de varias líneas. No adjunta fotos ni videos.
+Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
+Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id — Descargar a ALMACEN o continuar.
-/stop telegram_id group_id — Pausar y guardar el avance.
+/stop telegram_id group_id — Pausar tras el archivo/álbum en curso. Admite channel_id.
+Reanudar: repetir /descargar con la misma cuenta y origen. Al terminar el historial, se detiene y avisa por DM; no vigila publicaciones futuras.
 /comando o /comandos — Esta ayuda.
 
 <b>ARCHIVO protegidos</b>
@@ -58,10 +65,11 @@ class AdminPanel:
     async def update(self,update):
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})
         text=message.get('text','').strip() if not query else query.get('data','')
-        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|comandos?|telefonos?)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
+        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|comandos?|telefonos?|chat)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
         callback=query and text.startswith('stats:')
         numeric=not query and text.isdecimal() and len(text)<=3
-        if not (match or callback or numeric):return False
+        account_selection=not query and re.fullmatch(r'[1-9][0-9]{0,15}\s*,\s*[1-9][0-9]{0,5}',text)
+        if not (match or callback or numeric or account_selection):return False
         actor=query.get('from',{}) if query else message.get('from',{});uid=actor.get('id');chat=message.get('chat',{});chat_id=chat.get('id')
         if not authorized(uid) or actor.get('is_bot') or message.get('sender_chat') or not (chat.get('type')=='private' or chat_id==self.s.almacen):
             if query:await self.s.api('answerCallbackQuery',{'callback_query_id':query['id'],'text':'Solo administradores autorizados.'})
@@ -69,16 +77,21 @@ class AdminPanel:
         if query:await self.s.api('answerCallbackQuery',{'callback_query_id':query['id']})
         if len(self.tasks)>=20:
             await self.send(chat_id,'Hay varias consultas administrativas en curso. Inténtalo en unos segundos.');return True
-        op,arg=(match.group(1),match.group(2) or '') if match else (text.split(':',1)[1], '') if callback else ('selection',text)
-        task=asyncio.create_task(self.run(uid,chat_id,op,arg));self.tasks.add(task);task.add_done_callback(self.tasks.discard)
+        op,arg=(match.group(1),match.group(2) or '') if match else (text.split(':',1)[1], '') if callback else ('account_permissions' if account_selection else 'selection',text)
+        task=asyncio.create_task(self.run(uid,chat_id,op,arg,update.get('update_id')));self.tasks.add(task);task.add_done_callback(self.tasks.discard)
         return True
     async def send(self,chat,text,buttons=None):
         await self.s.api('sendMessage',{'chat_id':chat,'text':text,'parse_mode':'HTML',**({'reply_markup':{'inline_keyboard':buttons}} if buttons else {})})
-    async def run(self,uid,chat,op,arg):
+    async def run(self,uid,chat,op,arg,update_id=None):
         async with self.slots:
             try:
                 if not authorized(uid):return
-                if op=='datos':
+                if op in ('account_permissions','chat'):
+                    if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
+                    from .account_chat import show_permissions,send_text
+                    if op=='chat':await send_text(self.s,uid,arg,update_id)
+                    else:await show_permissions(self.s,uid,arg)
+                elif op=='datos':
                     registered=await self.pool.fetchval('SELECT count(*) FROM descarga_directory WHERE bot_id=$1',self.s.bot_id)
                     active=await self.pool.fetchval('SELECT count(*) FROM descarga_directory WHERE bot_id=$1 AND last_seen>$2',self.s.bot_id,time.time()-300)
                     downloading=await self.pool.fetchval("SELECT count(DISTINCT uid) FROM descarga_jobs WHERE bot_id=$1 AND state IN ('preparing','sending')",self.s.bot_id)

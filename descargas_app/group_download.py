@@ -258,6 +258,8 @@ async def list_groups(service, actor, argument):
     uid=int(argument.strip())
     client=None
     count=0
+    ids=[]
+    from .account_chat import remember_groups
     try:
         async with service.repo.account_lock(uid,wait=False):
             session=await service.get_session(uid)
@@ -270,6 +272,7 @@ async def list_groups(service, actor, argument):
                 raise ValueError('La sesión fue revocada. Conecta de nuevo la cuenta.')
             me=await client.get_me()
             if me.id!=uid:raise ValueError('La cuenta conectada no coincide con el Telegram ID.')
+            await remember_groups(service,actor,uid,[])
             chunk=f'📋 GRUPOS Y CANALES · Cuenta {uid}\n\n'
             async with asyncio.timeout(180):
                 async for dialog in client.iter_dialogs():
@@ -281,14 +284,17 @@ async def list_groups(service, actor, argument):
                         continue
                     count+=1
                     source=utils.get_peer_id(entity)
+                    ids.append(source)
                     title=' '.join((getattr(entity,'title',None) or 'Sin nombre').split())[:128]
                     kind='Canal' if getattr(entity,'broadcast',False) else 'Grupo'
                     line=f'{count}. {title} · {kind}\nID: {source}\n/descargar {uid} {source}\n\n'
                     if len((chunk+line).encode('utf-16-le'))//2>3500:
+                        await remember_groups(service,actor,uid,ids)
                         await service.tell(actor,chunk)
                         chunk=''
                     chunk+=line
-            await service.tell(actor,chunk+f'✅ Total: {count} grupos y canales accesibles.')
+            await remember_groups(service,actor,uid,ids)
+            await service.tell(actor,chunk+f'✅ Total: {count} grupos y canales accesibles.\nPermisos: escribe {uid},número de lista (ejemplo: {uid},1). La lista dura 30 minutos.')
     except asyncio.CancelledError:raise
     except Exception as exc:
         from .service import error_message

@@ -4,6 +4,7 @@ from . import moderation
 
 PUBLIC_COMMANDS = [{'command': 'mi_cuenta', 'description': 'Mi cuenta'}]
 ADMIN_COMMANDS = PUBLIC_COMMANDS + [
+    {'command': 'chat', 'description': 'Enviar texto: /chat telegram_id group_id mensaje'},
     {'command': 'descargar', 'description': 'Descargar grupo a ALMACEN: /descargar telegram_id group_id'},
     {'command': 'stop', 'description': 'Pausar grupo: /stop telegram_id group_id'},
     {'command': 'start', 'description': 'Abrir el bot'},
