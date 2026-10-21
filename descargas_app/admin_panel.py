@@ -37,6 +37,7 @@ En ALMACEN: responde al contenido con /ban o /unban para gestionar al usuario y 
 /free 1609522430 — Quitar el requisito de pago individual. /pay lo vuelve a activar.
 /lock ID — Entregar sin copiar a ALMACEN ni Dropbox.
 /unlock ID — Volver a permitir esas copias.
+En ALMACEN, responder /lock a un archivo/álbum excluye su caption original de /descargar, incluso en otros grupos. Responder /unlock retira esa exclusión. Sin caption no se crea una regla. No borra contenido existente.
 <b>CUENTAS CONECTADAS · SOLO EN DM</b>
 /grupos telegram_id — Lista numerada de todos sus grupos y canales.
 telegram_id,número — Permisos actuales del destino de esa lista (válida 30 minutos para ese administrador).
@@ -44,9 +45,9 @@ Ejemplo: 1609522430,3 — Permisos del destino número 3.
 /chat telegram_id group_id mensaje — Enviar ese texto con la cuenta conectada. Admite channel_id, enlaces y texto de varias líneas. No adjunta fotos ni videos.
 Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
-/descargar telegram_id group_id — Descargar a ALMACEN o continuar.
+/descargar telegram_id group_id — Revisar TODO el historial y descargar los archivos que faltan a ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram.
 /stop telegram_id group_id — Pausar tras el archivo/álbum en curso. Admite channel_id.
-Reanudar: repetir /descargar con la misma cuenta y origen. Al terminar el historial, se detiene y avisa por DM; no vigila publicaciones futuras.
+Repetir /descargar revisa también mensajes anteriores y reintenta pendientes sin repetir archivos ya guardados. Un error previo al envío no frena otros archivos. Los envíos inciertos requieren revisión. Al acabar avisa de los pendientes y se detiene; no vigila publicaciones futuras.
 /comando o /comandos — Esta ayuda.
 
 <b>ARCHIVO protegidos</b>

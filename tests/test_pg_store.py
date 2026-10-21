@@ -17,7 +17,7 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Integration tests refuse nonlocal/non-test databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()),pool_size=12)
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_account_messages,descarga_group_exports,descarga_directory,descarga_delivery_events,descarga_user_totals,descarga_source_totals,descarga_user_sources,descarga_admin_selections,descarga_star_receipts,descarga_disputes,descarga_dispute_blocks,descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
+        await self.repo.pool.execute('TRUNCATE descarga_export_files,descarga_export_caption_refs,descarga_export_caption_locks,descarga_export_pending,descarga_account_messages,descarga_group_exports,descarga_directory,descarga_delivery_events,descarga_user_totals,descarga_source_totals,descarga_user_sources,descarga_admin_selections,descarga_star_receipts,descarga_disputes,descarga_dispute_blocks,descarga_payment_joins,descarga_buyer_profiles,descarga_policies,descarga_memberships,descarga_payment_intents,descarga_payment_events,descarga_stripe_periods,descarga_stripe_states,descarga_private_cache,descarga_blocks,descarga_origins,descarga_backups,descarga_jobs,descarga_archives,descarga_accounts,descarga_settings,descarga_rate,descarga_media_cache,descarga_media_routes')
     async def asyncTearDown(self):await self.repo.close()
     async def test_activity_requires_real_interaction_and_is_bot_scoped(self):
         await self.repo.remember_person(100,10,'Name','CU')
@@ -311,3 +311,35 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         client.send_message.assert_awaited_once()
         row=await self.repo.pool.fetchrow('SELECT state,message_id,uid,source FROM descarga_account_messages WHERE bot_id=100 AND update_id=567')
         self.assertEqual((row['state'],row['message_id'],row['uid'],row['source']),('sent',87,10,-100123))
+
+
+    async def test_rescan_restarts_before_saved_cursor_and_preserves_inventory(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock,patch
+        from descargas_app.group_download import command
+        await self.repo.save_account(10,'session',{})
+        await self.repo.pool.execute("INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,cursor,total,state) VALUES(100,10,-100123,99,0,81,50,'paused')")
+        await self.repo.pool.execute("INSERT INTO descarga_export_files VALUES(100,-100999,-100123,'photo',12345)")
+        service=SimpleNamespace(bot_id=100,almacen=-100999,repo=self.repo,tell=AsyncMock())
+        with patch('descargas_app.group_download.authorized',return_value=True):
+            await command(service,{'text':'/descargar 10 -100123','chat':{'type':'private'},'from':{'id':99}})
+        row=await self.repo.pool.fetchrow('SELECT cursor,total,state FROM descarga_group_exports')
+        self.assertEqual((row['cursor'],row['total'],row['state']),(0,50,'running'))
+        self.assertEqual(await self.repo.pool.fetchval('SELECT count(*) FROM descarga_export_files'),1)
+
+    async def test_inventory_and_caption_refs_survive_reposts_and_lock(self):
+        from types import SimpleNamespace as N
+        from unittest.mock import AsyncMock
+        from descargas_app.export_inventory import remember,stored,excluded,reply_lock
+        service=N(bot_id=100,almacen=-100999,repo=self.repo,api=AsyncMock())
+        item=N(photo=N(id=12345),document=None,message='Spam repetido')
+        await remember(service,-100123,[item],[71,72])
+        self.assertTrue(await stored(service,-100123,[item]))
+        self.assertFalse(await stored(service,-100124,[item]))
+        await self.repo.register_origins(100,-100999,[71,72],10,-100123)
+        # Lock via the second album element, without a visible caption.
+        await reply_lock(service,{'chat':{'id':-100999},'message_id':80,'reply_to_message':{'message_id':72}},'lock',99)
+        different_file=N(photo=N(id=99887),document=None,message='Spam repetido')
+        self.assertTrue(await excluded(service,[different_file]))
+        different_file.message='Contenido diferente'
+        self.assertFalse(await excluded(service,[different_file]))

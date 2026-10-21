@@ -11,7 +11,7 @@ async def lock(*args, **kwargs):
 
 class GroupExportTests(unittest.IsolatedAsyncioTestCase):
     def service(self):
-        pool=NS(fetchrow=AsyncMock(return_value=None),execute=AsyncMock())
+        pool=NS(fetchrow=AsyncMock(return_value=None),fetchval=AsyncMock(return_value=False),executemany=AsyncMock(),execute=AsyncMock())
         repo=NS(pool=pool,set_setting=AsyncMock(),account=AsyncMock(return_value={'session':b'x','generation':4}),
             account_lock=lock,media_lock=lock,media_cache=AsyncMock(return_value=None),
             media_publishing=AsyncMock(),media_ready=AsyncMock(),register_origins=AsyncMock(),pace=AsyncMock())
@@ -29,13 +29,13 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         s.repo.pool.execute.assert_not_awaited()
         s.tell.assert_not_awaited()
 
-    async def test_restart_upsert_preserves_saved_cursor_and_total(self):
+    async def test_restart_upsert_rescans_history_without_resetting_saved_totals(self):
         s=self.service()
-        s.repo.pool.fetchrow.return_value={**self.job(),'cursor':81,'total':50}
+        s.repo.pool.fetchrow.return_value={**self.job(),'cursor':81,'total':50,'state':'paused'}
         with patch.object(g,'authorized',return_value=True):
             await g.command(s,dict(text='/descargar 12 -1000000000123',chat={'type':'private'},**{'from':{'id':99}}))
         sql=s.repo.pool.execute.call_args.args[0].split('DO UPDATE SET')[1]
-        self.assertNotIn('cursor=',sql)
+        self.assertIn('cursor=0',sql)
         self.assertNotIn('total=',sql)
 
     async def test_uncertain_upload_cannot_be_replayed(self):
@@ -62,7 +62,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         s.resolve.assert_not_awaited()
 
     async def test_cached_content_is_not_uploaded_again(self):
-        s=self.service();s.repo.media_cache.return_value={'state':'ready'}
+        s=self.service();s.repo.media_cache.return_value={'state':'ready','payload':b'cache'};s.repo.decode=lambda data:{'ids':[51]}
         item=NS(file=NS(size=1),photo=NS(id=3),document=None)
         result=await g.archive_items(s,self.job(),None,(-1000000000123,5),[item],'Persona')
         self.assertEqual(result,0)

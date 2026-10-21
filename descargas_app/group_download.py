@@ -3,7 +3,7 @@ import asyncio
 import logging
 import re
 import tempfile
-from telethon import types, utils, functions
+from telethon import types, utils, functions, errors
 from .moderation import authorized, ensure_allowed, SOURCE
 from .protected import require_entity
 from .service import MAX_FILE, MAX_ALBUM, archive_attribution, apply_archive_caption, prepare_media_for_bot
@@ -58,10 +58,13 @@ async def command(service, message):
     if row and row['sending']:
         await service.tell(actor, 'Hay un envío en curso o pendiente de revisión. No se reiniciará para evitar duplicados.')
         return True
+    if row and row['state']=='running':
+        await service.tell(actor,'La revisión del grupo ya está activa. Usa /stop para pausarla.')
+        return True
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state)
         VALUES($1,$2,$3,$4,$5,'running') ON CONFLICT(bot_id,uid,source)
-        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running' ''', service.bot_id, uid, source, actor, account['generation'])
-    await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Continuará desde el último avance guardado y avisará aquí al terminar.')
+        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',cursor=0 ''', service.bot_id, uid, source, actor, account['generation'])
+    await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Revisará todo el historial accesible, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
 
@@ -90,6 +93,9 @@ async def save_cursor(service, job, cursor, count=0):
 
 async def archive_items(service, job, client, key, items, name):
     uid, source = job['uid'], job['source']
+    from .export_inventory import excluded,stored,remember
+    if await excluded(service,items):return 0
+    if await stored(service,source,items):return 0
     size = sum(m.file.size or 0 for m in items)
     if size > MAX_ALBUM or any((m.file.size or 0) > MAX_FILE for m in items):
         raise ValueError('El archivo supera 500 MB o el álbum supera 1 GB.')
@@ -99,6 +105,8 @@ async def archive_items(service, job, client, key, items, name):
         if cached:
             if cached['state'] != 'ready':
                 raise ValueError('El contenido necesita revisión; no se repetirá una subida incierta.')
+            saved=service.repo.decode(cached['payload'])
+            await remember(service,source,items,saved['ids'])
             return 0
         attribution = await archive_attribution(service, uid, name)
         await append_archive_source(attribution, items[0], source)
@@ -111,6 +119,7 @@ async def archive_items(service, job, client, key, items, name):
             await service.repo.pace('archive-group', 3.1 * len(items))
             if not await checked(service, job):
                 return None
+            if await excluded(service,items):return 0
             try:
                 target = await service.bot.get_input_entity(service.almacen)
             except ValueError:
@@ -139,6 +148,7 @@ async def archive_items(service, job, client, key, items, name):
             await apply_archive_caption(service, ids[0], attribution, delivered[0])
             # Existing cache lets subsequent link requests reuse these ALMACEN files.
             await service.repo.media_ready(identity, {'ids': ids})
+            await remember(service,source,items,ids)
             return len(items)
 
 
@@ -170,37 +180,46 @@ async def step(service, job):
                     continue
                 if service.stopping or not await checked(service, job):
                     return
-                if message.photo or message.document or getattr(message, 'paid_stars', None) or type(message.media).__name__ == 'MessageMediaPaidMedia':
-                    # Reuse existing paid-media and album validation; no preview bypass.
-                    if str(job['source']).startswith('-100'):
-                        link = f'https://t.me/c/{str(job["source"])[4:]}/{message.id}'
-                    elif getattr(entity, 'username', None):
-                        link = f'https://t.me/{entity.username}/{message.id}'
-                    else:
-                        # Basic groups have no /c link. Use the same album validator directly.
-                        from .service import album
-                        items = await album(client, entity, message)
-                        key = (job['source'], message.grouped_id or message.id)
+                try:
+                    if message.photo or message.document or getattr(message, 'paid_stars', None) or type(message.media).__name__ == 'MessageMediaPaidMedia':
+                        if str(job['source']).startswith('-100'):
+                            link = f'https://t.me/c/{str(job["source"])[4:]}/{message.id}'
+                            key,items=await service.source_items(client,link)
+                        elif getattr(entity,'username',None):
+                            key,items=await service.source_items(client,f'https://t.me/{entity.username}/{message.id}')
+                        else:
+                            from .service import album
+                            from .paid_media import purchased_items
+                            paid=purchased_items(message)
+                            items=paid if paid is not None else await album(client,entity,message)
+                            key=(job['source'],message.grouped_id or message.id)
                         count = 0 if key in seen else await archive_items(service, job, client, key, items, name)
-                        if count is None:return
+                        if count is None:
+                            return
                         seen.add(key)
                         cursor = message.id
                         await save_cursor(service, job, cursor, count)
-                        continue
-                    key, items = await service.source_items(client, link)
-                    count = 0 if key in seen else await archive_items(service, job, client, key, items, name)
-                    if count is None:
-                        return
-                    seen.add(key)
-                    cursor = message.id
-                    await save_cursor(service, job, cursor, count)
-                else:
-                    cursor = message.id
-                    await save_cursor(service, job, cursor)
+                    else:
+                        cursor = message.id
+                        await save_cursor(service, job, cursor)
+                    from .export_inventory import resolve_pending
+                    await resolve_pending(service,job,message.id)
+                except asyncio.CancelledError:raise
+                except Exception as exc:
+                    # Sending may already have succeeded: never advance past an ambiguous upload.
+                    uncertain=await service.repo.pool.fetchval('SELECT sending FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source'])
+                    if uncertain or isinstance(exc,errors.FloodWaitError):raise
+                    if not await checked(service,job):return
+                    await service.repo.pool.execute('''INSERT INTO descarga_export_pending VALUES($1,$2,$3,$4,$5)
+                        ON CONFLICT(bot_id,uid,source,message_id) DO UPDATE SET error=excluded.error''',job['bot_id'],job['uid'],job['source'],message.id,type(exc).__name__)
+                    cursor=message.id
+                    await save_cursor(service,job,cursor)
             if len(messages) < 30:
                 row = await service.repo.pool.fetchrow("UPDATE descarga_group_exports SET state='done' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND state='running' RETURNING total", service.bot_id, job['uid'], job['source'])
                 if row:
-                    try:await service.tell(job['actor'], f'✅ Descarga completada de {getattr(entity,"title",job["source"])} ({job["source"]}).\nCuenta: {job["uid"]}\nArchivos nuevos guardados en ALMACEN: {row["total"]}.')
+                    pending=await service.repo.pool.fetchval('SELECT count(*) FROM descarga_export_pending WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source']) or 0
+                    status='⏸ Revisión terminada con archivos pendientes' if pending else '✅ Descarga completada'
+                    try:await service.tell(job['actor'], f'{status} de {getattr(entity,"title",job["source"])} ({job["source"]}).\nCuenta: {job["uid"]}\nArchivos nuevos guardados en ALMACEN: {row["total"]}.\nPendientes con error: {pending}. Una nueva orden /descargar revisará también los mensajes anteriores.')
                     except Exception:pass
         finally:
             await client.disconnect()

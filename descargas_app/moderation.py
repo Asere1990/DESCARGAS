@@ -48,6 +48,10 @@ async def command(service,message):
                 await reply('Usa /ban ID o /unban ID. Para bloquear ambos, responde al contenido en ALMACEN con /ban.');return True
             targets=[int(raw)]
         else:
+            if match.group(1) in ('lock','unlock'):
+                from .export_inventory import reply_lock
+                await reply_lock(service,message,match.group(1),actor_id)
+                return True
             if match.group(1) not in ('ban','unban'):
                 await reply('Indica el ID del usuario, grupo o canal.');return True
             original=message.get('reply_to_message',{})
