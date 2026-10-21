@@ -66,7 +66,7 @@ class InventoryTests(unittest.IsolatedAsyncioTestCase):
         items=[NS(id=i,photo=True,document=None,media=None) for i in [5,6]]
         async def history(*args,**kwargs):
             for m in items:yield m
-        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name='B')),iter_messages=history)
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name='B')),get_messages=AsyncMock(return_value=[]),iter_messages=history)
         s.client=lambda session:client
         s.source_items.side_effect=[ValueError('El archivo falló'),((job['source'],6),[items[1]])]
         s.repo.pool.fetchrow.return_value={'total':1}

@@ -217,6 +217,9 @@ async def step(service, job):
                     cursor=message.id
                     await save_cursor(service,job,cursor)
             if len(messages) < 30:
+                # Uploads can take minutes: include messages arriving after this page was fetched.
+                latest=await client.get_messages(entity,limit=1)
+                if latest and latest[0].id>cursor:return
                 row = await service.repo.pool.fetchrow("UPDATE descarga_group_exports SET state='done' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND state='running' AND scan=$4 RETURNING total", service.bot_id, job['uid'], job['source'],job.get('scan',0))
                 if row:
                     pending=await service.repo.pool.fetchval('SELECT count(*) FROM descarga_export_pending WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source']) or 0

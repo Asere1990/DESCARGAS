@@ -77,7 +77,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(kwargs['reverse'])
             for m in items:yield m
         client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),
-            get_me=AsyncMock(return_value=NS(first_name='A',last_name='B')),iter_messages=history)
+            get_me=AsyncMock(return_value=NS(first_name='A',last_name='B')),get_messages=AsyncMock(return_value=[]),iter_messages=history)
         s.client=lambda session:client
         s.source_items.return_value=((-1000000000123,888),items)
         s.repo.pool.fetchrow.return_value={'total':3}
@@ -96,7 +96,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
         async def history(*args,**kwargs):yield NS(id=5,photo=True,document=None,media=None)
         client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),
-            get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),iter_messages=history)
+            get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),get_messages=AsyncMock(return_value=[]),iter_messages=history)
         s.client=lambda session:client
         s.source_items.return_value=((-1000000000123,5),[NS(id=5)])
         with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),\
@@ -190,3 +190,16 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             panel.groups.assert_not_awaited()
             await panel.run(99,99,'grupos','')
             panel.groups.assert_awaited_once_with(99,20)
+
+
+    async def test_new_messages_arriving_during_upload_keep_scan_running(self):
+        s=self.service();job=self.job()
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        async def history(*args,**kwargs):yield NS(id=5,photo=True,document=None,media=None)
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name='B')),get_messages=AsyncMock(return_value=[NS(id=6)]),iter_messages=history)
+        s.client=lambda session:client
+        s.source_items.return_value=((job['source'],5),[NS(id=5)])
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=1)):
+            await g.step(s,job)
+        s.repo.pool.fetchrow.assert_not_awaited()
+        s.tell.assert_not_awaited()
