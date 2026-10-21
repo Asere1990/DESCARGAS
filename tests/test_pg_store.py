@@ -343,3 +343,13 @@ class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await excluded(service,[different_file]))
         different_file.message='Contenido diferente'
         self.assertFalse(await excluded(service,[different_file]))
+
+
+    async def test_old_scan_cannot_overwrite_restarted_scan_cursor(self):
+        from types import SimpleNamespace
+        from descargas_app.group_download import save_cursor
+        await self.repo.pool.execute("INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,cursor,total,state,scan) VALUES(100,10,-100123,99,0,0,5,'running',2)")
+        service=SimpleNamespace(repo=self.repo)
+        await save_cursor(service,dict(bot_id=100,uid=10,source=-100123,scan=1),87,5)
+        row=await self.repo.pool.fetchrow('SELECT cursor,total FROM descarga_group_exports')
+        self.assertEqual((row['cursor'],row['total']),(0,5))

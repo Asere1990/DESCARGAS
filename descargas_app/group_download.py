@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS descarga_group_exports(
  total BIGINT NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'paused',
  sending BOOLEAN NOT NULL DEFAULT FALSE,
  PRIMARY KEY(bot_id,uid,source));
+ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS scan BIGINT NOT NULL DEFAULT 0;
 '''
 
 
@@ -63,7 +64,7 @@ async def command(service, message):
         return True
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state)
         VALUES($1,$2,$3,$4,$5,'running') ON CONFLICT(bot_id,uid,source)
-        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',cursor=0 ''', service.bot_id, uid, source, actor, account['generation'])
+        DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',cursor=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'])
     await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Revisará todo el historial accesible, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
@@ -72,7 +73,7 @@ async def checked(service, job):
     if not authorized(job['actor']):
         raise ValueError('El administrador ya no está autorizado.')
     row = await service.repo.pool.fetchrow('SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3', job['bot_id'], job['uid'], job['source'])
-    if not row or row['state'] != 'running':
+    if not row or row['state'] != 'running' or row.get('scan',0)!=job.get('scan',0):
         return False
     account = await service.repo.account(job['uid'])
     if not account or not account['session'] or account['generation'] != job['generation']:
@@ -88,7 +89,7 @@ async def checked(service, job):
 
 async def save_cursor(service, job, cursor, count=0):
     await service.repo.pool.execute('''UPDATE descarga_group_exports SET cursor=$4,total=total+$5,sending=FALSE
-        WHERE bot_id=$1 AND uid=$2 AND source=$3''', job['bot_id'], job['uid'], job['source'], cursor, count)
+        WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$6''', job['bot_id'], job['uid'], job['source'], cursor, count,job.get('scan',0))
 
 
 async def archive_items(service, job, client, key, items, name):
@@ -135,8 +136,9 @@ async def archive_items(service, job, client, key, items, name):
                     raise ValueError('ALMACEN debe ser un grupo o canal.')
             await service.repo.pace('bot-send', 0.06 * len(items))
             # Durable uncertainty marker BEFORE Telegram receives any send.
+            claimed=await service.repo.pool.fetchval("UPDATE descarga_group_exports SET sending=TRUE WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4 AND state='running' RETURNING 1",service.bot_id,uid,source,job.get('scan',0))
+            if not claimed:return None
             await service.repo.media_publishing(identity)
-            await service.repo.pool.execute('UPDATE descarga_group_exports SET sending=TRUE WHERE bot_id=$1 AND uid=$2 AND source=$3', service.bot_id, uid, source)
             result = await service.bot.send_file(target, media if len(items) > 1 else media[0],
                 caption=[m.message or '' for m in items] if len(items) > 1 else items[0].message or '',
                 formatting_entities=[m.entities or [] for m in items] if len(items) > 1 else items[0].entities or [], parse_mode=None)
@@ -215,7 +217,7 @@ async def step(service, job):
                     cursor=message.id
                     await save_cursor(service,job,cursor)
             if len(messages) < 30:
-                row = await service.repo.pool.fetchrow("UPDATE descarga_group_exports SET state='done' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND state='running' RETURNING total", service.bot_id, job['uid'], job['source'])
+                row = await service.repo.pool.fetchrow("UPDATE descarga_group_exports SET state='done' WHERE bot_id=$1 AND uid=$2 AND source=$3 AND state='running' AND scan=$4 RETURNING total", service.bot_id, job['uid'], job['source'],job.get('scan',0))
                 if row:
                     pending=await service.repo.pool.fetchval('SELECT count(*) FROM descarga_export_pending WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source']) or 0
                     status='⏸ Revisión terminada con archivos pendientes' if pending else '✅ Descarga completada'

@@ -11,7 +11,7 @@ async def lock(*args, **kwargs):
 
 class GroupExportTests(unittest.IsolatedAsyncioTestCase):
     def service(self):
-        pool=NS(fetchrow=AsyncMock(return_value=None),fetchval=AsyncMock(return_value=False),executemany=AsyncMock(),execute=AsyncMock())
+        pool=NS(fetchrow=AsyncMock(return_value=None),fetchval=AsyncMock(side_effect=lambda sql,*args: 1 if "UPDATE descarga_group_exports SET sending=TRUE" in sql else False),executemany=AsyncMock(),execute=AsyncMock())
         repo=NS(pool=pool,set_setting=AsyncMock(),account=AsyncMock(return_value={'session':b'x','generation':4}),
             account_lock=lock,media_lock=lock,media_cache=AsyncMock(return_value=None),
             media_publishing=AsyncMock(),media_ready=AsyncMock(),register_origins=AsyncMock(),pace=AsyncMock())
@@ -125,7 +125,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         origin.assert_awaited_once_with(attribution,item,job['source'])
         caption.assert_awaited_once_with(s,51,attribution,sent)
         s.repo.register_origins.assert_awaited_once_with(7,-100999,[51],12,job['source'])
-        self.assertIn('sending=TRUE',s.repo.pool.execute.call_args.args[0])
+        self.assertTrue(any('sending=TRUE' in call.args[0] for call in s.repo.pool.fetchval.await_args_list))
 
     async def test_ambiguous_send_never_marks_cache_ready(self):
         s=self.service();job=self.job()
@@ -139,7 +139,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
                 await g.archive_items(s,job,None,(job['source'],5),[item],'Persona')
         s.repo.media_publishing.assert_awaited_once()
         s.repo.media_ready.assert_not_awaited()
-        self.assertIn('sending=TRUE',s.repo.pool.execute.call_args.args[0])
+        self.assertTrue(any('sending=TRUE' in call.args[0] for call in s.repo.pool.fetchval.await_args_list))
 
     async def test_live_group_list_excludes_private_left_and_migrated_dialogs(self):
         s=self.service()
