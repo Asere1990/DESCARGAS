@@ -11,6 +11,7 @@ CURRENT_MEDIA=ContextVar('descargas_media_cache',default=None)
 CACHE_ONLY=ContextVar('descargas_cache_only',default=False)
 ARCHIVE_SOURCE_MESSAGE=ContextVar('descargas_archive_source_message',default=None)
 ARCHIVE_SOURCE_ITEMS=ContextVar('descargas_archive_source_items',default=None)
+ARCHIVE_SOURCE_KEY=ContextVar('descargas_archive_source_key',default=None)
 
 class CacheMiss(Exception):
     pass
@@ -50,6 +51,7 @@ async def deliver_cached(service,uid,client,link,seen):
     key,items=await service.source_items(client,link)
     ARCHIVE_SOURCE_MESSAGE.set(items[0] if items else None)
     ARCHIVE_SOURCE_ITEMS.set(items)
+    ARCHIVE_SOURCE_KEY.set(key)
     await ensure_allowed(service,uid,key[0])
     SOURCE.set(key[0])
     if key in seen:return 0
@@ -57,6 +59,14 @@ async def deliver_cached(service,uid,client,link,seen):
         raise ValueError('El archivo supera 500 MB o el álbum supera 1 GB.')
     identity=cache_key(service.bot_id,service.almacen,key,items)
     from .private_cache import PRIVATE,send_private
+    from .file_cache import find as find_files,identity as file_identity,capture
+    async def file_hit(saved):
+        result=await send_private(service,uid,saved,items)
+        await service.repo.remember_media_route(service.bot_id,link,file_identity(service.bot_id,key,items))
+        seen.add(key)
+        return result
+    reusable=await find_files(service,key,items,identity)
+    if reusable:return await file_hit(reusable)
     if (await service.repo.policy(service.bot_id,uid,key[0]))['locked']:
         async def private_hit(payload):
             result=await send_private(service,uid,payload,items)
@@ -79,11 +89,21 @@ async def deliver_cached(service,uid,client,link,seen):
                 return result
             finally:PRIVATE.reset(privacy);CURRENT_MEDIA.reset(marker)
     async def send_saved(row):
+        reusable=await find_files(service,key,items,identity)
+        if reusable:return await file_hit(reusable)
         await service.repo.remember_media_route(service.bot_id,link,identity)
         saved=service.repo.decode(row['payload'])
         ids=saved['ids']
         await service.repo.bind_cached_origin(service.bot_id,service.almacen,ids,key[0],identity)
         if len(ids)!=len(items):raise ValueError('El álbum guardado está incompleto y necesita revisión.')
+        # Older export cache entries only stored ALMACEN message IDs. Capture
+        # their bot-owned file IDs once while the messages still exist. A failed
+        # metadata lookup retains the original copy path; never retry a send.
+        try:reusable=await capture(service,key,items,ids)
+        except Exception:
+            reusable=None
+            LOG.warning('File-id cache metadata unavailable; retaining ALMACEN copy')
+        if reusable:return await file_hit(reusable)
         await service.before_send(uid,len(items))
         copied=await service.api('copyMessages',{'chat_id':uid,'from_chat_id':service.almacen,
             'message_ids':ids,'remove_caption':True})
@@ -169,8 +189,13 @@ async def archive_once(service,identity,uid,name,delivered):
     await service.repo.register_origins(service.bot_id,service.almacen,ids,uid,SOURCE.get())
     from .backup import backup_payload
     backup=backup_payload(service,identity,uid,delivered,ids)
-    await service.repo.media_ready(identity,{'ids':ids},backup=backup)
     source_items=ARCHIVE_SOURCE_ITEMS.get()
+    reusable=None
+    if source_items and ARCHIVE_SOURCE_KEY.get():
+        from .file_cache import payload as file_payload
+        key=ARCHIVE_SOURCE_KEY.get()
+        reusable=file_payload(service,key,source_items,delivered=delivered)
+    await service.repo.media_ready(identity,{'ids':ids},backup=backup,file_cache=reusable)
     if source_items:
         try:
             from .export_inventory import remember

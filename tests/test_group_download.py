@@ -131,8 +131,8 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_archive_preserves_caption_entities_and_origin(self):
         s=self.service();job=self.job()
-        item=NS(id=5,message='Texto original',entities=[object()],file=NS(size=1),photo=NS(id=3),document=None)
-        sent=NS(id=51)
+        item=NS(id=5,message='Texto original',entities=[types.MessageEntityBold(offset=0,length=5)],file=NS(size=1),photo=NS(id=3),document=None)
+        sent=NS(id=51,photo=NS(id=333,dc_id=2,access_hash=777,file_reference=b'bot',sizes=[NS(type='y',size=1)]))
         s.bot=NS(get_input_entity=AsyncMock(return_value='almacen'),send_file=AsyncMock(return_value=sent))
         attribution={'caption':'Usuario e ID','caption_entities':[]}
         with patch.object(g,'prepare_album',AsyncMock(return_value=['media'])),\
@@ -142,6 +142,10 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             patch.object(g,'apply_archive_caption',AsyncMock()) as caption:
             result=await g.archive_items(s,job,None,(job['source'],5),[item],'Persona')
         self.assertEqual(result,1)
+        reusable=s.repo.media_ready.call_args.kwargs['file_cache']
+        self.assertEqual(reusable['bot_id'],7)
+        self.assertEqual(reusable['items'][0]['caption'],'Texto original')
+        self.assertTrue(reusable['items'][0]['file_id'])
         self.assertEqual(s.bot.send_file.call_args.args[0],'almacen')
         self.assertEqual(s.bot.send_file.call_args.kwargs['caption'],'Texto original')
         self.assertEqual(s.bot.send_file.call_args.kwargs['formatting_entities'],item.entities)

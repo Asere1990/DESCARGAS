@@ -14,7 +14,7 @@ def item(id=1,text='original'):
 
 class CacheTests(unittest.IsolatedAsyncioTestCase):
     def setup_service(self):
-        lock=asyncio.Lock();rows={}
+        lock=asyncio.Lock();rows={};files={}
         @asynccontextmanager
         async def locked(key):
             async with lock:yield
@@ -22,8 +22,13 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
         async def publishing(key):
             if key in rows:raise AssertionError('Duplicate publication')
             rows[key]={'state':'publishing','payload':None}
-        async def ready(key,payload,backup=None):rows[key]={'state':'ready','payload':payload}
+        async def ready(key,payload,backup=None,file_cache=None):
+            rows[key]={'state':'ready','payload':payload}
+            if file_cache:files[file_cache['key']]=file_cache
+        async def private(key):return files.get(key)
+        async def save_private(key,bot_id,payload):files[key]=payload
         repo=SimpleNamespace(policy=AsyncMock(return_value={'pay':False,'locked':False}),register_origins=AsyncMock(),is_blocked=AsyncMock(return_value=False),bind_cached_origin=AsyncMock(),media_lock=locked,media_cache=AsyncMock(side_effect=lookup),
+            private_cache=AsyncMock(side_effect=private),private_ready=AsyncMock(side_effect=save_private),cached_file_payload=AsyncMock(return_value=None),
             media_publishing=AsyncMock(side_effect=publishing),media_ready=AsyncMock(side_effect=ready),
             encode=lambda x:x,decode=lambda x:x,pace=AsyncMock(),remember_media_route=AsyncMock())
         service=SimpleNamespace(repo=repo,bot_id=123,almacen=-100123,
@@ -45,12 +50,11 @@ class CacheTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(s.repo.media_publishing.await_count,1)
         self.assertEqual(s.source_items.await_count,2)
         copies=[c.args[1] for c in s.api.call_args_list if c.args[0]=='copyMessages']
-        self.assertEqual([c['chat_id'] for c in copies],[-100123,2])
-        self.assertEqual(copies[1]['from_chat_id'],-100123)
-        self.assertTrue(copies[1]['remove_caption'])
-        captions=[c.args[1] for c in s.api.call_args_list if c.args[0]=='editMessageCaption']
-        self.assertEqual(captions[-1]['caption'],'original')
-        self.assertNotIn('First user',captions[-1]['caption'])
+        self.assertEqual([c['chat_id'] for c in copies],[-100123])
+        sent=[c.args[1] for c in s.api.call_args_list if c.args[0]=='sendPhoto']
+        self.assertEqual(sent[0]['chat_id'],2)
+        self.assertEqual(sent[0]['caption'],'original')
+        self.assertNotIn('First user',sent[0]['caption'])
 
     async def test_denied_source_never_reads_shared_cache(self):
         s,_=self.setup_service()

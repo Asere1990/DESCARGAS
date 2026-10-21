@@ -157,7 +157,9 @@ async def archive_items(service, job, client, key, items, name):
             ids=[m.id for m in delivered]
             await service.repo.register_origins(service.bot_id,service.almacen,ids,uid,source)
             await apply_archive_caption(service,ids[0],attribution,delivered[0])
-            await service.repo.media_ready(identity,{'ids':ids})
+            from .file_cache import payload as file_payload
+            reusable=file_payload(service,key,items,delivered=delivered)
+            await service.repo.media_ready(identity,{'ids':ids},file_cache=reusable)
             await remember(service,source,items,ids)
             return len(items)
 

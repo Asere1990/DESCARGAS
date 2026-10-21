@@ -80,7 +80,7 @@ class BillingTests(unittest.IsolatedAsyncioTestCase):
 class PrivateCacheTests(unittest.IsolatedAsyncioTestCase):
     async def test_locked_album_reuses_ids_without_almacen_or_outbox(self):
         items=[NS(photo=NS(id=i),document=None,file=NS(size=10),message='caption',entities=[]) for i in (1,2)]
-        stored={'items':[{'file_id':'own-photo-'+str(i),'type':'photo'} for i in (1,2)]}
+        stored={'bot_id':123,'items':[{'file_id':'own-photo-'+str(i),'type':'photo'} for i in (1,2)]}
         repo=NS(policy=AsyncMock(return_value={'pay':False,'locked':True}),is_blocked=AsyncMock(return_value=False),
             private_cache=AsyncMock(return_value=stored),remember_media_route=AsyncMock(),media_cache=AsyncMock(),media_ready=AsyncMock())
         s=NS(bot_id=123,almacen=-100999,repo=repo,source_items=AsyncMock(return_value=((-100123,50),items)),before_send=AsyncMock(),api=AsyncMock(return_value=[{'message_id':1},{'message_id':2}]))

@@ -11,6 +11,16 @@ URL=os.environ.get('TEST_DATABASE_URL','')
 
 @unittest.skipUnless(URL,'Requires isolated TEST_DATABASE_URL')
 class PostgresIntegration(unittest.IsolatedAsyncioTestCase):
+    async def test_file_ids_are_saved_atomically_and_survive_storage_cache_deletion(self):
+        files={'key':'independent-files','bot_id':100,'items':[{'file_id':'secret-file-id','caption':'Original','type':'photo'}]}
+        await self.repo.media_publishing('storage-cache')
+        await self.repo.media_ready('storage-cache',{'ids':[101]},file_cache=files)
+        self.assertEqual(await self.repo.private_cache('independent-files'),files)
+        row=await self.repo.pool.fetchrow('SELECT payload FROM descarga_private_cache WHERE key=$1','independent-files')
+        self.assertNotIn(b'secret-file-id',bytes(row['payload']))
+        await self.repo.pool.execute('DELETE FROM descarga_media_cache WHERE key=$1','storage-cache')
+        self.assertEqual(await self.repo.private_cache('independent-files'),files)
+
     async def asyncSetUp(self):
         parsed=urlparse(URL)
         if parsed.hostname not in ('localhost','127.0.0.1') or parsed.path!='/descargas_test':

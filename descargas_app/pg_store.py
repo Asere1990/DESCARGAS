@@ -105,11 +105,13 @@ class Repository(BillingRepository,AdminRepository):
         return await self.pool.fetchrow('SELECT state,payload FROM descarga_media_cache WHERE key=$1',key)
     async def media_publishing(self,key):
         await self.pool.execute("INSERT INTO descarga_media_cache VALUES($1,'publishing',NULL,$2)",key,time.time())
-    async def media_ready(self,key,payload,backup=None):
+    async def media_ready(self,key,payload,backup=None,file_cache=None):
         async with self.pool.acquire() as conn,conn.transaction():
             await conn.execute("UPDATE descarga_media_cache SET state='ready',payload=$2 WHERE key=$1",key,self.encode(payload))
             if backup:
                 await conn.execute('INSERT INTO descarga_backups(key,bot_id,payload) VALUES($1,$2,$3) ON CONFLICT(key) DO NOTHING',key,backup['bot_id'],self.encode(backup))
+            if file_cache:
+                await conn.execute('INSERT INTO descarga_private_cache VALUES($1,$2,$3,$4) ON CONFLICT(key) DO NOTHING',file_cache['key'],file_cache['bot_id'],self.encode(file_cache),time.time())
     async def backup_enqueue(self,key,bot_id,payload):
         await self.pool.execute('INSERT INTO descarga_backups(key,bot_id,payload) VALUES($1,$2,$3) ON CONFLICT(key) DO NOTHING',key,bot_id,self.encode(payload))
     async def backup_leased(self,key,lease,bot_id):
