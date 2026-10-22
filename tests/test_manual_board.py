@@ -148,6 +148,8 @@ class BoardTests(unittest.IsolatedAsyncioTestCase):
         from telethon import types
         import test_group_download as helpers
         s=helpers.GroupExportTests().service()
+        s.repo.encode=lambda d:json.dumps(d).encode()
+        s.repo.decode=lambda d:json.loads(d)
         s.repo.pool.fetchval.side_effect=None;s.repo.pool.fetchval.return_value=0
         s.repo.pool.fetch=AsyncMock(return_value=[{'kind':'document','file_id':102}])
         s.resolve.return_value=types.Channel(id=123,title='Grupo',photo=types.ChatPhotoEmpty(),date=None)
@@ -168,3 +170,37 @@ class BoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((album['elements'],album['photos'],album['videos']),(3,2,1))
         self.assertEqual(data['entries'][1]['status'],'saved')
         self.assertEqual(client.disconnect.await_count,2)
+
+    async def test_long_flood_resumes_checkpoint_and_preserves_split_album(self):
+        from telethon import types,errors
+        self.s.stopping=False
+        self.pool.fetch=AsyncMock(return_value=[])
+        self.s.repo.pace=AsyncMock()
+        @asynccontextmanager
+        async def lock(*args,**kwargs):yield
+        self.s.repo.account_lock=lock
+        self.s.get_session=AsyncMock(return_value='session')
+        self.s.resolve=AsyncMock(return_value=types.Channel(id=123,title='Grupo',photo=types.ChatPhotoEmpty(),date=None))
+        def msg(mid,photo=False,gid=None):
+            return NS(id=mid,grouped_id=gid,media=None,gif=None,sticker=None,document=None,photo=NS(id=mid) if photo else None)
+        minimums=[];page_number=0
+        async def history(*args,**kwargs):
+            nonlocal page_number
+            page_number+=1;minimums.append(kwargs['min_id'])
+            if page_number==1:
+                for i in range(1,101):yield msg(i,i>=99,88 if i>=99 else None)
+            elif page_number==2:raise errors.FloodWaitError(request=None,capture=61)
+            else:
+                yield msg(101,True,88);yield msg(102,True)
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),iter_messages=history)
+        self.s.client=lambda session:client
+        with patch.object(b,'authorized',return_value=True),patch.object(b,'ensure_allowed',AsyncMock()),patch.object(b,'require_entity'):
+            with self.assertRaises(errors.FloodWaitError):await b.collect(self.s,99,12,-1000000000123)
+            data=await b.collect(self.s,99,12,-1000000000123)
+        self.assertEqual(minimums,[0,100,100])
+        self.assertEqual(len(data['entries']),2)
+        self.assertEqual(data['entries'][0]['elements'],3)
+        self.assertEqual(data['entries'][0]['ids'],[99,100,101])
+        self.s.resolve.assert_awaited_once()
+        self.assertEqual(client.flood_sleep_threshold,30)
+        self.assertTrue(data['complete'])

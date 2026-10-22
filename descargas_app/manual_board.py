@@ -1,6 +1,7 @@
 """Persistent, administrator-owned one-link-at-a-time archive controls."""
 import asyncio
 import json
+import logging
 import re
 import time
 import uuid
@@ -9,6 +10,8 @@ from .moderation import authorized,ensure_allowed
 from .protected import require_entity
 from .paid_media import purchased_items
 from .link_listing import media_label
+
+LOG=logging.getLogger(__name__)
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS descarga_manual_boards(
@@ -27,7 +30,7 @@ def last_key(s,actor,uid):return f'manual-last:{s.bot_id}:{actor}:{uid}'
 
 
 def entry(message,items):
-    result={'mid':message.id,'ids':list(dict.fromkeys(m.id for m in items)),
+    result={'mid':message.id,'group':getattr(message,'grouped_id',None),'ids':list(dict.fromkeys(m.id for m in items)),
         'photos':0,'videos':0,'gifs':0,'elements':0,'files':[],'status':'pending'}
     for item in items:
         label=media_label(item)
@@ -111,26 +114,49 @@ async def collect(s,actor,uid,source):
     await cooldown(s,uid)
     account=await s.repo.account(uid)
     if not account or not account['session']:raise ValueError('Esa cuenta no está conectada.')
-    data={'title':str(source),'generation':account['generation'],'entries':[]}
-    grouped={};cursor=0
+    checkpoint_key=f'manual-scan:{s.bot_id}:{uid}:{source}'
+    checkpoint=await s.repo.setting(checkpoint_key)
+    data=s.repo.decode(bytes.fromhex(checkpoint)) if checkpoint else {}
+    if data.get('generation')!=account['generation']:
+        data={'title':str(source),'generation':account['generation'],'entries':[],'cursor':0}
+    grouped={e.get('group') or ('single',e['mid']):e for e in data['entries']}
+    cursor=data.get('cursor',0)
+    cache=getattr(s,'_manual_sources',None)
+    if cache is None:cache={};s._manual_sources=cache
+    cache_key=(uid,account['generation'],source)
+    phase='connect'
     inventory=await s.repo.pool.fetch('SELECT kind,file_id FROM descarga_export_files WHERE bot_id=$1 AND almacen=$2 AND source=$3',s.bot_id,s.almacen,source)
     saved={(r['kind'],r['file_id']) for r in inventory}
-    while not s.stopping:
+    while not s.stopping and not data.get('complete'):
         async with s.repo.account_lock(uid,wait=False):
             current=await s.repo.account(uid)
             if not authorized(actor) or not current or not current['session'] or current['generation']!=data['generation']:
                 raise ValueError('La cuenta o la autorización cambió; vuelve a consultar.')
             await ensure_allowed(s,uid,source)
-            client=s.client(await s.get_session(uid));client.flood_sleep_threshold=0
+            client=s.client(await s.get_session(uid))
+            # Metadata RPCs can safely wait/retry in place; a 3-second FloodWait
+            # must not restart the entire dialogs/history iteration.
+            client.flood_sleep_threshold=30
             try:
-                await client.connect()
+                phase='connect';await client.connect()
+                phase='authorization'
                 if not await client.is_user_authorized():raise ValueError('Conecta de nuevo esa cuenta.')
-                entity=await s.resolve(client,source)
+                phase='resolve_source'
+                entity=cache.get(cache_key)
+                if entity is None:
+                    entity=await s.resolve(client,source)
+                    require_entity(entity,uid)
+                    if len(cache)>=128:cache.pop(next(iter(cache)))
+                    cache[cache_key]=entity
                 if not isinstance(entity,types.Channel) or utils.get_peer_id(entity)!=source:raise ValueError('No se pudo verificar el origen.')
                 require_entity(entity,uid)
                 data['title']=' '.join(entity.title.split())[:128]
                 await s.repo.pace(f'enlace-read:{uid}',3.1)
+                phase='history'
                 page=[m async for m in client.iter_messages(entity,min_id=cursor,reverse=True,limit=100)]
+            except errors.FloodWaitError as exc:
+                LOG.warning('Manual board scan FloodWait uid=%s source=%s phase=%s seconds=%s cursor=%s',uid,source,phase,exc.seconds,cursor)
+                raise
             finally:await client.disconnect()
         for message in page:
             cursor=max(cursor,message.id)
@@ -145,7 +171,9 @@ async def collect(s,actor,uid,source):
             else:
                 existing['ids']+=piece['ids'];existing['files']+=piece['files']
                 for field in ('photos','videos','gifs','elements'):existing[field]+=piece[field]
-        if len(page)<100:break
+        data['cursor']=cursor;data['complete']=len(page)<100
+        await s.repo.set_setting(checkpoint_key,s.repo.encode(data).hex())
+        if data['complete']:break
     if s.stopping:raise ValueError('El servicio se está reiniciando. Vuelve a abrir el panel.')
     for e in data['entries']:
         if e['files'] and all(tuple(f) in saved for f in e['files']):e['status']='saved'
@@ -172,7 +200,7 @@ async def open_board(s,actor,uid,source,refresh=False):
         try:data=await collect(s,actor,uid,source)
         except errors.FloodWaitError as exc:
             await s.repo.set_setting(f'link-list-wait:{s.bot_id}:{uid}',time.time()+max(1,exc.seconds)+10)
-            raise ValueError(f'Telegram pide esperar {exc.seconds} segundos. Después repite /enlace {uid} {source}. No se cambió el avance guardado.') from exc
+            raise ValueError(f'Telegram pide esperar {exc.seconds} segundos. Después repite /enlace {uid} {source}. El listado parcial quedó guardado y continuará desde su último punto.') from exc
         if row:
             skipped={e['mid']:e for e in s.repo.decode(row['payload'])['entries'] if e['status']=='skipped'}
             for e in data['entries']:
@@ -183,6 +211,7 @@ async def open_board(s,actor,uid,source,refresh=False):
             SET actor=excluded.actor,token=excluded.token,payload=excluded.payload,position=excluded.position,message_id=NULL,closed=FALSE,busy=FALSE
             WHERE NOT descarga_manual_boards.busy RETURNING *''',s.bot_id,uid,source,actor,token,s.repo.encode(data),advance(data,0))
         if not row:raise ValueError('Hay una descarga en curso. Espera antes de cambiar la sesión del panel.')
+        await s.repo.set_setting(f'manual-scan:{s.bot_id}:{uid}:{source}','')
     if not await s.repo.setting(last_key(s,actor,uid)):
         await s.repo.set_setting(last_key(s,actor,uid),source)
     await s.repo.set_setting(context_key(s,actor),'')
