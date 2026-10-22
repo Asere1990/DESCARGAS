@@ -312,7 +312,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         sql,*args=s.repo.pool.execute.call_args.args
         db=sqlite3.connect(':memory:')
         self.addCleanup(db.close)
-        db.execute("CREATE TABLE descarga_group_exports(bot_id INTEGER,uid INTEGER,source INTEGER,actor INTEGER,generation INTEGER,state TEXT,phase TEXT,media_filter TEXT,cursor INTEGER DEFAULT 0,total INTEGER DEFAULT 0,resume_at REAL DEFAULT 0,scan INTEGER DEFAULT 0,PRIMARY KEY(bot_id,uid,source))")
+        db.execute("CREATE TABLE descarga_group_exports(bot_id INTEGER,uid INTEGER,source INTEGER,actor INTEGER,generation INTEGER,state TEXT,phase TEXT,media_filter TEXT,cursor INTEGER DEFAULT 0,total INTEGER DEFAULT 0,resume_at REAL DEFAULT 0,scan INTEGER DEFAULT 0,retry_message INTEGER DEFAULT 0,PRIMARY KEY(bot_id,uid,source))")
         db.execute(sql,args)
         for state in ('paused','done'):
             db.execute("UPDATE descarga_group_exports SET cursor=81,total=50,state=?",(state,))
@@ -363,3 +363,48 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
     def test_pending_parser_rejects_filters_and_accepts_bot_suffix(self):
         self.assertEqual(g.parse_command('/pendientes@Bot 12 -100123'),('pendientes',12,-100123,'all'))
         self.assertIsNone(g.parse_command('/pendientes 12 -100123 video'))
+
+
+    async def test_admin_retry_queues_selected_account_without_resetting_cursor(self):
+        s=self.service();s.repo.pool.fetchrow.return_value={**self.job(),'state':'done','cursor':90}
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/reintentar 12 https://t.me/c/0000000123/55',chat={'type':'private'},**{'from':{'id':99}}))
+        sql,*args=s.repo.pool.execute.call_args.args
+        self.assertIn("'retry'",sql)
+        self.assertNotIn('cursor=',sql)
+        self.assertEqual(args,[7,12,-1000000000123,99,4,55])
+        self.assertIn('ALMACEN',s.tell.call_args.args[1])
+
+    async def test_retry_rejects_uncertain_send_and_invalid_links(self):
+        s=self.service();s.repo.pool.fetchrow.return_value={**self.job(),'state':'paused','sending':True}
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/reintentar 12 https://t.me/c/123/55',chat={'type':'private'},**{'from':{'id':99}}))
+        s.repo.pool.execute.assert_not_awaited()
+        self.assertIn('incierto',s.tell.call_args.args[1])
+        for text in ['/reintentar 12 https://t.me/+invite','/reintentar 12 https://evil.test/c/123/55','/reintentar 12 https://t.me/c/123/0']:
+            with patch.object(g,'authorized',return_value=True):
+                await g.command(s,dict(text=text,chat={'type':'private'},**{'from':{'id':99}}))
+            self.assertIn('Uso:',s.tell.call_args.args[1])
+
+    async def test_retry_only_reads_requested_album_and_does_not_advance_history(self):
+        s=self.service();job={**self.job(),'phase':'retry','retry_message':55}
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)),iter_messages=AsyncMock())
+        s.client=lambda session:client
+        items=[NS(id=55),NS(id=56)]
+        s.source_items.return_value=((job['source'],888),items)
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=2)) as archive:
+            await g.step(s,job)
+        s.source_items.assert_awaited_once_with(client,'https://t.me/c/0000000123/55')
+        archive.assert_awaited_once_with(s,job,client,(job['source'],888),items,'A')
+        client.iter_messages.assert_not_called()
+        sql=s.repo.pool.execute.call_args.args[0]
+        self.assertNotIn('cursor=',sql)
+        self.assertIn('state=retry_return_state',sql)
+        self.assertIn('terminado',s.tell.call_args.args[1])
+
+    async def test_nonadmin_cannot_retry_using_another_account(self):
+        s=self.service()
+        with patch.object(g,'authorized',return_value=False):
+            await g.command(s,dict(text='/reintentar 12 https://t.me/c/123/55',chat={'type':'private'},**{'from':{'id':99}}))
+        s.repo.account.assert_not_awaited();s.repo.pool.execute.assert_not_awaited()

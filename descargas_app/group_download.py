@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS descarga_group_exports(
  PRIMARY KEY(bot_id,uid,source));
 ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS scan BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS resume_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS retry_message BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS retry_return_state TEXT NOT NULL DEFAULT 'paused';
 ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS media_filter TEXT NOT NULL DEFAULT 'all';
 ALTER TABLE descarga_group_exports ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'download';
 '''
@@ -50,13 +52,25 @@ def media_kind(message):
 
 async def command(service, message):
     text = message.get('text', '').strip()
-    if not re.match(r'^/(?:descargar|stop|pendientes)(?:@|\s|$)', text, re.IGNORECASE):
+    if not re.match(r'^/(?:descargar|stop|pendientes|reintentar)(?:@|\s|$)', text, re.IGNORECASE):
         return False
     actor = message.get('from', {}).get('id')
     chat = message.get('chat', {})
     if chat.get('type') != 'private' or not authorized(actor):
         return True
-    parsed = parse_command(text)
+    retry_mid=0
+    retry=re.fullmatch(r'/reintentar(?:@[A-Za-z0-9_]+)?\s+(\d+)\s+(\S+)\s*',text,re.IGNORECASE)
+    if re.match(r'^/reintentar(?:@|\s|$)',text,re.IGNORECASE):
+        try:
+            from .service import parse_link
+            source,retry_mid=parse_link(retry.group(2)) if retry else (None,0)
+            if not isinstance(source,int) or not 0<retry_mid<2**31:raise ValueError()
+            parsed=('reintentar',int(retry.group(1)),source,'all')
+        except (ValueError,AttributeError):
+            await service.tell(actor,'Uso: /reintentar telegram_id https://t.me/c/ID/MENSAJE\nUtiliza el enlace privado que muestra /pendientes.')
+            return True
+    else:
+        parsed = parse_command(text)
     if not parsed or not 0 < parsed[1] < 2**63 or not -(2**63) < parsed[2] < 0:
         await service.tell(actor, 'Uso: /descargar telegram_id group_id [video|fotos|gif]\nPausar: /stop telegram_id group_id\nPendientes: /pendientes telegram_id group_id (también canal_id)')
         return True
@@ -71,7 +85,7 @@ async def command(service, message):
         return True
     cooldown=await pool.fetchval('SELECT max(resume_at) FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2',service.bot_id,uid) or 0
     if cooldown>time.time():
-        await service.tell(actor,f'Telegram exige esperar todavía {math.ceil(cooldown-time.time())} segundos. Después, vuelve a enviar /descargar {uid} {source}.')
+        await service.tell(actor,f'Telegram exige esperar todavía {math.ceil(cooldown-time.time())} segundos. Después, vuelve a enviar '+(text if retry_mid else f'/descargar {uid} {source}')+'.')
         return True
     if not service.almacen or source == service.almacen:
         await service.tell(actor, 'Configura ALMACEN y elige un origen diferente al destino.')
@@ -82,6 +96,9 @@ async def command(service, message):
         return True
     # Do not silently replay a possibly accepted Telegram upload after a crash.
     row = await pool.fetchrow('SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3', service.bot_id, uid, source)
+    if row and row['sending'] and retry_mid:
+        await service.tell(actor,'El envío anterior sigue incierto o en curso. Revisa ALMACEN; no se forzará otra subida que pueda duplicarlo.')
+        return True
     if row and row['sending']:
         # Same cross-worker lock as _run: a paused upload may still be finishing.
         async with pool.acquire() as conn:
@@ -100,10 +117,18 @@ async def command(service, message):
     if row and row['state']=='running':
         await service.tell(actor,'La revisión del grupo ya está activa. Usa /stop para pausarla.')
         return True
+    if retry_mid:
+        await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,retry_message,retry_return_state)
+            VALUES($1,$2,$3,$4,$5,'running','retry',$6,'paused') ON CONFLICT(bot_id,uid,source)
+            DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='retry',retry_message=excluded.retry_message,
+            retry_return_state=CASE WHEN descarga_group_exports.state='done' THEN 'done' ELSE 'paused' END,
+            scan=descarga_group_exports.scan+1''',service.bot_id,uid,source,actor,account['generation'],retry_mid)
+        await service.tell(actor,f'▶️ Reintento registrado con la cuenta {uid}. Solo revisará el archivo o álbum del enlace y lo guardará en ALMACEN si falta. No modifica el avance del grupo.')
+        return True
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,media_filter)
         VALUES($1,$2,$3,$4,$5,'running','count',$6) ON CONFLICT(bot_id,uid,source)
         DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='count',media_filter=excluded.media_filter,
-        cursor=descarga_group_exports.cursor,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
+        cursor=descarga_group_exports.cursor,retry_message=0,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
     await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Primero contará fotos, videos y GIF del historial accesible. Continuará desde el avance guardado aunque cambies el filtro, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
@@ -272,6 +297,20 @@ async def step(service, job):
             service.export_operation='get_account'
             me = await client.get_me()
             name = ' '.join(filter(None, [me.first_name, me.last_name])) or 'Usuario'
+            if job.get('phase')=='retry':
+                mid=job['retry_message']
+                link=f'https://t.me/c/{str(job["source"])[4:]}/{mid}'
+                service.export_operation='retry_album'
+                key,items=await service.source_items(client,link)
+                if key[0]!=job['source']:raise ValueError('El enlace no corresponde al origen registrado.')
+                count=await archive_items(service,job,client,key,items,name)
+                if count is None:return
+                from .export_inventory import resolve_pending
+                for item_id in {mid,*(m.id for m in items)}:
+                    await resolve_pending(service,job,item_id)
+                await service.repo.pool.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,total=total+$5 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0),count)
+                await service.tell(job['actor'],f'✅ Reintento terminado con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.')
+                return
             if job.get('phase')=='count':
                 counts=[]
                 for filter_type in (types.InputMessagesFilterPhotos,types.InputMessagesFilterVideo,types.InputMessagesFilterGif):
@@ -481,6 +520,7 @@ async def defer_flood(service,job,exc):
     sending=await service.repo.pool.fetchval('SELECT sending FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source'])
     seconds=max(60,int(exc.seconds)+10)
     await service.repo.pool.execute("UPDATE descarga_group_exports SET resume_at=GREATEST(resume_at,$3),state=CASE WHEN state='running' THEN 'paused' ELSE state END WHERE bot_id=$1 AND uid=$2",service.bot_id,job['uid'],time.time()+seconds)
+    restart=(f'/reintentar {job["uid"]} https://t.me/c/{str(job["source"])[4:]}/{job["retry_message"]}' if job.get('phase')=='retry' else f'/descargar {job["uid"]} {job["source"]}'+(' '+job['media_filter'] if job.get('media_filter','all')!='all' else ''))
     note=' El envío incierto quedará pendiente de revisión sin repetirse; los demás podrán continuar.' if sending else ''
-    try:await service.tell(job['actor'],f'⏳ Telegram pide {exc.seconds} segundos; aplicamos una pausa prudente de {seconds} segundos para la cuenta {job["uid"]}. La reactivación será manual: cuando termine la espera, usa /descargar {job["uid"]} {job["source"]}'+(' '+job['media_filter'] if job.get('media_filter','all')!='all' else '')+f'. El avance quedó guardado.{note}')
+    try:await service.tell(job['actor'],f'⏳ Telegram pide {exc.seconds} segundos; aplicamos una pausa prudente de {seconds} segundos para la cuenta {job["uid"]}. La reactivación será manual: cuando termine la espera, usa {restart}. El avance quedó guardado.{note}')
     except Exception:pass
