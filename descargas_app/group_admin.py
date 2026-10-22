@@ -196,6 +196,12 @@ async def input_text(s,actor,text,update_id):
     state=await load(s,actor,pending_key)
     if not state:return False
     await validate(s,actor,state)
+    if update_id is None:raise ValueError('No se pudo identificar esta respuesta. Envíala otra vez.')
+    # Claim every input, not only mutations: a repeated permission selection must
+    # never be reinterpreted as the next step (for example, the admin's tag).
+    receipt=f'group-admin-input:{s.bot_id}:{update_id}'
+    claimed=await s.repo.pool.fetchval('INSERT INTO descarga_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO NOTHING RETURNING key',receipt,'seen')
+    if not claimed:return True
     stage=state['stage']
     if stage=='admins':
         users=s.repo.decode(bytes.fromhex(state['admins']))['users']

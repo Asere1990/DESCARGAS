@@ -22,6 +22,7 @@ class Client:
 class GroupAdminTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         await fixtures.BoardTests.asyncSetUp(self)
+        self.pool.db.execute("CREATE TABLE descarga_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)")
         self.own=NS(is_creator=False,is_admin=True,has_left=False,participant=NS(admin_rights=types.ChatAdminRights(add_admins=True,ban_users=True,delete_messages=True),can_edit=True))
         self.target=NS(is_creator=False,is_admin=False,has_left=False,participant=NS(banned_rights=None))
         self.client=Client(self.own,self.target)
@@ -274,8 +275,8 @@ class GroupAdminTests(unittest.IsolatedAsyncioTestCase):
         async def participants(entity,**kwargs):yield user
         self.client.iter_participants=participants
         await g.execute(self.s,99,self.state,'admins',None,1)
-        for value in ('0','2','1,2','-1','hello'):
-            with self.assertRaisesRegex(ValueError,'número'):await g.input_text(self.s,99,value,2)
+        for update,value in enumerate(('0','2','1,2','-1','hello'),10):
+            with self.assertRaisesRegex(ValueError,'número'):await g.input_text(self.s,99,value,update)
         await g.clear(self.s,99)
         self.assertFalse(await g.input_text(self.s,99,'1',3))
         self.assertFalse(self.client.calls)
@@ -304,3 +305,13 @@ class GroupAdminTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('1. ⭐️ Propietario',text);self.assertIn('2. 👨🏻‍💻 Administrador',text)
         self.assertIn('3. Miembro',text)
         self.assertIsNone(await g.load(self.s,99,g.key))
+
+    async def test_duplicate_permission_input_cannot_be_reinterpreted_as_admin_tag(self):
+        await g.execute(self.s,99,self.state,'add_id',42,100)
+        await g.input_text(self.s,99,'1,3',101)
+        self.assertEqual((await g.load(self.s,99,g.pending_key))['stage'],'rank')
+        await g.input_text(self.s,99,'1,3',101)
+        self.assertFalse(self.client.calls)
+        await g.input_text(self.s,99,'Ayudante',102)
+        self.assertEqual(len(self.client.calls),1)
+        self.assertEqual(self.client.calls[0].rank,'Ayudante')
