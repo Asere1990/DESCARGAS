@@ -88,7 +88,7 @@ async def collect_page(s,actor,uid,source,data=None):
                 if state['done']:continue
                 if await users_busy(s):break
                 await s.repo.pace(f'enlace-read:{uid}',3.1)
-                page=[m async for m in client.iter_messages(entity,filter=kind(),search=data.get('query') or None,offset_id=state['offset'],limit=50)]
+                page=[m async for m in client.iter_messages(entity,filter=kind(),search=data.get('query') or None,offset_id=state['offset'],min_id=data.get('after',0),limit=50)]
                 candidates=page
                 if data.get('query'):
                     # Match captions directly, or a text reply's explicit parent.

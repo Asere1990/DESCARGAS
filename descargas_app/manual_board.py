@@ -148,7 +148,10 @@ async def open_board(s,actor,uid,source,refresh=False,query=None):
         await s.tell(actor,'🔎 Consultando multimedia; no es necesario leer todo el chat…')
         previous=s.repo.decode(row['payload']) if row and s.repo.decode(row['payload'])['generation']==account['generation'] else None
         if previous is None:previous={'title':str(source),'generation':account['generation'],'entries':[],'query':query or ''}
-        previous.pop('force_open',None)
+        changing_view=previous.pop('force_open',False)
+        if previous.get('complete') and not changing_view and not previous.get('query'):
+            previous['after']=max((e['mid'] for e in previous['entries']),default=0)
+            previous['streams']={};previous['complete']=False;previous.pop('totals',None)
         try:data=await collect(s,actor,uid,source,previous)
         except errors.FloodWaitError as exc:
             await s.repo.set_setting(f'link-list-wait:{s.bot_id}:{uid}',time.time()+max(1,exc.seconds)+10)
