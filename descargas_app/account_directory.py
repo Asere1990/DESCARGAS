@@ -23,6 +23,10 @@ async def accounts(panel,actor,argument,single=False,selectable=False):
     from .moderation import authorized
     try:start,end=page_range(argument,single)
     except ValueError as exc:return await panel.send(actor,str(exc))
+    if not authorized(actor):return
+    if selectable:
+        from .admin_home import begin
+        selection_token=await begin(panel,actor)
     # Only identifiers/profiles are read, never session ciphertext. Deterministic
     # numbering by Telegram ID; reconnecting does not reorder existing accounts.
     rows=await panel.pool.fetch('''WITH connected AS (
@@ -68,7 +72,7 @@ async def accounts(panel,actor,argument,single=False,selectable=False):
     title+='\nLa numeración puede cambiar si se conectan o desconectan cuentas. No verifica si Telegram revocó la sesión.'
     if selectable:
         from .admin_home import remember
-        await remember(panel,actor,rows)
+        if not await remember(panel,actor,rows,token=selection_token):return
         title+='\nEscribe el número de la cuenta para abrir su menú (ejemplo: 23). Selección válida 30 minutos.'
     await panel.pages(actor,title,[e for e in entries if e])
 

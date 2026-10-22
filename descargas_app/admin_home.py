@@ -2,6 +2,7 @@
 import asyncio
 import json
 import time
+import uuid
 from .moderation import authorized
 
 
@@ -41,9 +42,19 @@ async def home(panel,actor):
     await panel.send(actor,text,[[{'text':'𝐂𝐔𝐄𝐍𝐓𝐀𝐒','style':'primary','callback_data':'stats:account_menu_list'}]])
 
 
-async def remember(panel,actor,rows):
+async def begin(panel,actor):
+    token=uuid.uuid4().hex
+    await panel.s.repo.set_setting(key(panel.s,actor),json.dumps({'listing':token,'expires':time.time()+1800}))
+    return token
+
+
+async def remember(panel,actor,rows,token=None):
+    if token:
+        current=await panel.s.repo.setting(key(panel.s,actor))
+        if not current or json.loads(current).get('listing')!=token:return False
     await panel.s.repo.set_setting(key(panel.s,actor),json.dumps({'expires':time.time()+1800,
         'snapshot':panel.s.repo.encode({'numbers':{str(r['number']):r['uid'] for r in rows}}).hex()}))
+    return True
 
 
 async def select(panel,actor,text):
@@ -53,6 +64,8 @@ async def select(panel,actor,text):
     data=json.loads(saved)
     if data.get('expires',0)<=time.time():
         await panel.send(actor,'La lista de cuentas venció. Abre /menu y pulsa CUENTAS otra vez.');return True
+    if data.get('listing'):
+        await panel.send(actor,'Se está preparando la lista de cuentas. Espera a que aparezca para elegir un número.');return True
     if data.get('home'):
         await panel.send(actor,'Pulsa CUENTAS para elegir una cuenta de la lista.');return True
     snapshot=panel.s.repo.decode(bytes.fromhex(data['snapshot']))

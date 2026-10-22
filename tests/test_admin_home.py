@@ -98,3 +98,15 @@ class HomeTests(unittest.IsolatedAsyncioTestCase):
         self.p.pool.fetchrow.assert_not_awaited()
         await self.p.run(99,-1009,'menu','')
         self.assertIn('DM del bot',self.p.send.call_args.args[1])
+
+    async def test_late_account_listing_cannot_replace_a_newer_group_menu(self):
+        token=await h.begin(self.p,99)
+        self.assertTrue(await h.select(self.p,99,'23'))
+        self.assertIn('preparando',self.p.send.call_args.args[1])
+        await h.clear(self.s,99)
+        self.assertFalse(await h.remember(self.p,99,[{'number':23,'uid':100}],token=token))
+        self.assertFalse(self.settings[h.key(self.s,99)])
+        old=await h.begin(self.p,99)
+        new=await h.begin(self.p,99)
+        self.assertFalse(await h.remember(self.p,99,[{'number':23,'uid':100}],token=old))
+        self.assertTrue(await h.remember(self.p,99,[{'number':23,'uid':200}],token=new))
