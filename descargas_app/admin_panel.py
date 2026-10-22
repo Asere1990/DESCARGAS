@@ -51,7 +51,7 @@ Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
 /menu telegram_id — Menú GRUPOS, CANALES y ÚLTIMA DESCARGA. Escribe el número de un destino para abrir su botonera.
-/menu telegram_id — Las descargas por número incluyen ANTERIOR/SIGUIENTE, ATRÁS y MENÚ PRINCIPAL en la confirmación. Incluye lotes de 10 fotos, videos o álbumes (2+ elementos), y FOTO/VIDEO/ÁLBUM NÚMERO para seleccionar una posición de cada lista.
+/menu telegram_id — INICIAR DESDE permite elegir un enlace y avanzar o retroceder de cinco en cinco. Las descargas por número incluyen ANTERIOR/SIGUIENTE, ATRÁS y MENÚ PRINCIPAL en la confirmación. Incluye lotes de 10 fotos, videos o álbumes (2+ elementos), y FOTO/VIDEO/ÁLBUM NÚMERO para seleccionar una posición de cada lista.
 /add ubicación — Guardar una ubicación para usar en BUSCAR (ejemplo: /add miami).
 /enlace telegram_id group_id — Botonera por páginas de multimedia, con totales aproximados, DESCARGAR, DESCARGAR 10, MENSAJES GUARDADOS y BUSCAR por caption o respuesta. Admite canal_id. Reabre desde el avance guardado.
 /descargar telegram_id enlace — Descargar solo ese archivo/álbum hacia ALMACEN con la cuenta conectada indicada, sin mover el avance. Usa el enlace privado de /pendientes. No fuerza envíos inciertos.
@@ -95,7 +95,8 @@ class AdminPanel:
         if not query and not match and text and not text.startswith('/') and authorized(message.get('from',{}).get('id')) and message.get('chat',{}).get('type')=='private':
             pending=await self.s.repo.setting(f'manual-search:{self.s.bot_id}:{message.get("from",{}).get("id")}')
             numbered=await self.s.repo.setting(f'manual-number:{self.s.bot_id}:{message.get("from",{}).get("id")}')
-            search_text=(isinstance(pending,str) and pending.startswith('{')) or (isinstance(numbered,str) and numbered.startswith('{'))
+            anchored=await self.s.repo.setting(f'manual-anchor:{self.s.bot_id}:{message.get("from",{}).get("id")}')
+            search_text=(isinstance(anchored,str) and anchored.startswith('{')) or (isinstance(pending,str) and pending.startswith('{')) or (isinstance(numbered,str) and numbered.startswith('{'))
         if not (match or callback or numeric or account_selection or search_text):return False
         actor=query.get('from',{}) if query else message.get('from',{});uid=actor.get('id');chat=message.get('chat',{});chat_id=chat.get('id')
         if not authorized(uid) or actor.get('is_bot') or message.get('sender_chat') or not (chat.get('type')=='private' or chat_id==self.s.almacen):
@@ -120,11 +121,14 @@ class AdminPanel:
                     await self.s.repo.set_setting(context_key(self.s,uid),'')
                     await self.s.repo.set_setting(f'manual-number:{self.s.bot_id}:{uid}','')
                     await self.s.repo.set_setting(f'manual-search:{self.s.bot_id}:{uid}','')
+                    await self.s.repo.set_setting(f'manual-anchor:{self.s.bot_id}:{uid}','')
                 if op in ('add','manual_search'):
                     if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
                     from .manual_gallery import add_location,search_input
                     if op=='add':await add_location(self.s,uid,arg)
                     else:
+                        from .manual_anchor import input_link
+                        if await input_link(self.s,uid,arg):return
                         from .manual_types import number_input
                         if not await number_input(self.s,uid,arg):await search_input(self.s,uid,arg)
                 elif op in ('enlace','menu','manual'):

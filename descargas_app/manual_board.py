@@ -49,6 +49,9 @@ def advance(data,position):
 
 
 def presentation(row,data):
+    if data.get('mode')=='anchor':
+        from .manual_anchor import presentation as anchored
+        return anchored(row,data)
     entries=data['entries'];position=row['position']
     saved=[(i,e) for i,e in enumerate(entries,1) if e['status']=='saved']
     totals=data.get('totals') or {}
@@ -84,6 +87,7 @@ def presentation(row,data):
         buttons.append([{'text':label,'style':'success' if action.startswith('f') else 'primary','callback_data':f'manual:{"w" if row["busy"] else action}:{row["token"]}:{position}'}])
     if partial and not row['busy']:
         buttons.append([{'text':'CARGAR MÁS ENLACES','callback_data':f'manual:n:{row["token"]}:{position}'}])
+    buttons.append([{'text':'𝐈𝐍𝐈𝐂𝐈𝐀𝐑 𝐃𝐄𝐒𝐃𝐄','style':'primary','callback_data':f'manual:as:{row["token"]}:{position}'}])
     buttons.append([{'text':'𝐌𝐄𝐍𝐒𝐀𝐉𝐄𝐒 𝐆𝐔𝐀𝐑𝐃𝐀𝐃𝐎𝐒','callback_data':f'manual:s:{row["token"]}:{position}'}])
     buttons.append([{'text':'𝐁𝐔𝐒𝐂𝐀𝐑','callback_data':f'manual:q:{row["token"]}:{position}'}])
     buttons.append([{'text':'𝐌𝐄𝐍Ú 𝐏𝐑𝐈𝐍𝐂𝐈𝐏𝐀𝐋','style':'primary','callback_data':f'manual:b:{row["uid"]}'}])
@@ -126,6 +130,9 @@ async def cooldown(s,uid):
 
 
 async def collect(s,actor,uid,source,data=None):
+    if data and data.get('mode')=='anchor':
+        from .manual_anchor import collect as anchored
+        return await anchored(s,actor,uid,source,data)
     from .manual_gallery import collect_page
     return await collect_page(s,actor,uid,source,data)
 
@@ -181,6 +188,7 @@ async def open_board(s,actor,uid,source,refresh=False,query=None,mode=""):
     await s.repo.set_setting(context_key(s,actor),'')
     await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
     await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
+    await s.repo.set_setting(f'manual-anchor:{s.bot_id}:{actor}','')
     await render(s,row,new=not bool(row["message_id"]))
 
 
@@ -198,6 +206,7 @@ async def menu(s,actor,uid):
     await s.repo.set_setting(context_key(s,actor),'')
     await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
     await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
+    await s.repo.set_setting(f'manual-anchor:{s.bot_id}:{actor}','')
     await s.api('sendMessage',{'chat_id':actor,'text':f'𝐌𝐄𝐍Ú 𝐃𝐄 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\nCuenta: {uid}',
         'reply_markup':{'inline_keyboard':[
             [{'text':'𝐆𝐑𝐔𝐏𝐎𝐒','style':'primary','callback_data':f'manual:g:{uid}'},
@@ -297,10 +306,14 @@ async def enqueue(s,actor,token,position,message_id,batch=1,number=None,notice_i
 async def callback(s,actor,query):
     if not authorized(actor) or query.get('message',{}).get('chat',{}).get('id')!=actor:return
     parts=query['data'].split(':');action=parts[1]
+    if action in ('as','ax','ay','az','am'):
+        from .manual_anchor import callback as anchored
+        return await anchored(s,actor,query)
     if action in ('zn','zp','zb','zm'):
         from .manual_navigation import callback as navigate
         return await navigate(s,actor,query)
     if action not in ('np','nv','na'):await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
+    await s.repo.set_setting(f'manual-anchor:{s.bot_id}:{actor}','')
     if action!='q':await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
     if action in ('g','h','l','b','v'):
         uid=int(parts[2])
@@ -368,6 +381,10 @@ async def complete(s,job,items,count):
                 data['entries'][pos]['status']='saved' if saved else 'skipped'
                 if saved:data['last_downloaded']=pos+1
                 data['notice']=f'Último enlace procesado: {pos+1}. '+('Guardado en ALMACEN. Descarga y envío: 100%.' if saved else 'Omitido por una exclusión; no se cuenta como descargado.')
+                if data.get('mode')=='anchor':
+                    data['anchor_cursor']=data['entries'][pos]['mid']
+                    data['anchor_skip_ids']=list(dict.fromkeys([data['anchor_cursor'],*([m.id for m in items] or data['entries'][pos]['ids'])]))
+                    data['anchor_started']=True
                 numbered='return_position' in data
                 if numbered and data.get('mode') in ('photo','video','album'):
                     navigation={'uid':row['uid'],'source':row['source'],'generation':data['generation'],'mode':data['mode'],'query':data.get('query') or '', 'number':pos+1,'saved':saved}
@@ -379,7 +396,7 @@ async def complete(s,job,items,count):
                 updated=dict(row,payload=s.repo.encode(data),position=pos,busy=False)
         remaining=max(0,data.get('batch_remaining',1)-1) if updated else 0
         if updated:data['batch_remaining']=remaining
-        needs_page=bool(updated and not numbered and not row['closed'] and pos>=len(data['entries']) and data.get('lazy') and not data.get('complete'))
+        needs_page=bool(updated and not numbered and (data.get('mode')!='anchor' or remaining>0) and not row['closed'] and pos>=len(data['entries']) and data.get('lazy') and not data.get('complete'))
         continuing=bool(updated and not row['closed'] and remaining and pos<len(data['entries']))
         if continuing or needs_page:
             await conn.execute('UPDATE descarga_manual_boards SET payload=$3,busy=TRUE WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data))
@@ -429,6 +446,7 @@ async def load_batch(s,job):
         pos=advance(data,data.pop('return_position'));data.pop('number_request',None);data['batch_remaining']=0
         numbered=False
     available=pos<len(data['entries'])
+    if data.get('mode')=='anchor' and not available and data.get('complete'):data['notice']='No hay más contenido multimedia en esa dirección.'
     waiting=not row['closed'] and not available and not data.get('complete')
     continuing=not row['closed'] and available and data.get('batch_remaining',0)>0
     busy=bool(waiting or continuing)
