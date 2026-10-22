@@ -144,63 +144,48 @@ class BoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(data['caption'].endswith('Enlace de origen: https://t.me/c/123/10'))
         self.assertEqual(data['caption_entities'][0]['url'],'https://t.me/example')
 
-    async def test_collect_merges_album_across_pages_and_counts_inventory(self):
-        from telethon import types
-        import test_group_download as helpers
-        s=helpers.GroupExportTests().service()
-        s.repo.encode=lambda d:json.dumps(d).encode()
-        s.repo.decode=lambda d:json.loads(d)
-        s.repo.pool.fetchval.side_effect=None;s.repo.pool.fetchval.return_value=0
-        s.repo.pool.fetch=AsyncMock(return_value=[{'kind':'document','file_id':102}])
-        s.resolve.return_value=types.Channel(id=123,title='Grupo',photo=types.ChatPhotoEmpty(),date=None)
-        def item(mid,kind=None,gid=None):
-            return NS(id=mid,media=None,grouped_id=gid,gif=None,sticker=None,
-                photo=NS(id=mid) if kind=='photo' else None,
-                document=NS(id=mid,mime_type=kind) if kind and '/' in kind else None)
-        pages=iter([[item(i) for i in range(1,99)]+[item(99,'photo',88),item(100,'video/mp4',88)],
-                    [item(101,'photo',88),item(102,'image/jpeg')]])
-        async def history(*args,**kwargs):
-            for m in next(pages):yield m
-        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),iter_messages=history)
-        s.client=lambda session:client
-        with patch.object(b,'authorized',return_value=True),patch.object(b,'ensure_allowed',AsyncMock()),patch.object(b,'require_entity'):
-            data=await b.collect(s,99,12,-1000000000123)
-        self.assertEqual(len(data['entries']),2)
-        album=data['entries'][0]
-        self.assertEqual((album['elements'],album['photos'],album['videos']),(3,2,1))
-        self.assertEqual(data['entries'][1]['status'],'saved')
-        self.assertEqual(client.disconnect.await_count,2)
+    async def test_batch_ten_chains_durably_and_replay_cannot_duplicate(self):
+        self.data['entries']=[dict(self.data['entries'][1],mid=i,ids=[i]) for i in range(1,13)]
+        await self.pool.execute('UPDATE descarga_manual_boards SET payload=$1',self.s.repo.encode(self.data))
+        await b.enqueue(self.s,99,'token',0,50,batch=10)
+        first=await self.job()
+        with patch('descargas_app.export_inventory.stored',AsyncMock(return_value=True)):
+            await b.complete(self.s,first,[],1)
+            await b.complete(self.s,first,[],1)
+            self.assertEqual((await self.row())['position'],1)
+            for _ in range(9):await b.complete(self.s,await self.job(),[],1)
+        row=await self.row();job=await self.job()
+        self.assertEqual(row['position'],10);self.assertFalse(row['busy'])
+        self.assertEqual(job['total'],10);self.assertEqual(job['state'],'paused')
+        self.assertIsNone(job['manual_token'])
 
-    async def test_long_flood_resumes_checkpoint_and_preserves_split_album(self):
-        from telethon import types,errors
-        self.s.stopping=False
-        self.pool.fetch=AsyncMock(return_value=[])
-        self.s.repo.pace=AsyncMock()
-        @asynccontextmanager
-        async def lock(*args,**kwargs):yield
-        self.s.repo.account_lock=lock
-        self.s.get_session=AsyncMock(return_value='session')
-        self.s.resolve=AsyncMock(return_value=types.Channel(id=123,title='Grupo',photo=types.ChatPhotoEmpty(),date=None))
-        def msg(mid,photo=False,gid=None):
-            return NS(id=mid,grouped_id=gid,media=None,gif=None,sticker=None,document=None,photo=NS(id=mid) if photo else None)
-        minimums=[];page_number=0
-        async def history(*args,**kwargs):
-            nonlocal page_number
-            page_number+=1;minimums.append(kwargs['min_id'])
-            if page_number==1:
-                for i in range(1,101):yield msg(i,i>=99,88 if i>=99 else None)
-            elif page_number==2:raise errors.FloodWaitError(request=None,capture=61)
-            else:
-                yield msg(101,True,88);yield msg(102,True)
-        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),iter_messages=history)
-        self.s.client=lambda session:client
-        with patch.object(b,'authorized',return_value=True),patch.object(b,'ensure_allowed',AsyncMock()),patch.object(b,'require_entity'):
-            with self.assertRaises(errors.FloodWaitError):await b.collect(self.s,99,12,-1000000000123)
-            data=await b.collect(self.s,99,12,-1000000000123)
-        self.assertEqual(minimums,[0,100,100])
-        self.assertEqual(len(data['entries']),2)
-        self.assertEqual(data['entries'][0]['elements'],3)
-        self.assertEqual(data['entries'][0]['ids'],[99,100,101])
-        self.s.resolve.assert_awaited_once()
-        self.assertEqual(client.flood_sleep_threshold,30)
-        self.assertTrue(data['complete'])
+    async def test_back_from_search_preserves_original_group_progress(self):
+        from descargas_app.manual_gallery import switch_view
+        await self.pool.execute('UPDATE descarga_manual_boards SET position=1')
+        original=await self.row()
+        search=await switch_view(self.s,original,12,-100123,'Santiago')
+        self.assertEqual(self.s.repo.decode(search['payload'])['query'],'Santiago')
+        restored=await switch_view(self.s,search,12,-100123,None)
+        self.assertEqual(restored['position'],1)
+        self.assertEqual(self.s.repo.decode(restored['payload'])['entries'],self.data['entries'])
+
+    async def test_batch_reaches_next_page_and_stops_after_ten_not_at_page_boundary(self):
+        self.data.update(lazy=True,complete=False)
+        await self.pool.execute('UPDATE descarga_manual_boards SET payload=$1',self.s.repo.encode(self.data))
+        await b.enqueue(self.s,99,'token',0,50,batch=10)
+        with patch('descargas_app.export_inventory.stored',AsyncMock(return_value=True)):
+            await b.complete(self.s,await self.job(),[],1)
+            await b.complete(self.s,await self.job(),[],1)
+        self.assertEqual((await self.job())['phase'],'manual_load')
+        self.assertTrue((await self.row())['busy'])
+        async def page(s,actor,uid,source,data):
+            data['entries'] += [dict(self.data['entries'][1],mid=i,ids=[i]) for i in range(100,110)]
+            data['complete']=True
+            return data
+        with patch.object(b,'collect',page):await b.load_batch(self.s,await self.job())
+        self.assertEqual((await self.job())['retry_message'],100)
+        with patch('descargas_app.export_inventory.stored',AsyncMock(return_value=True)):
+            for _ in range(8):await b.complete(self.s,await self.job(),[],1)
+        self.assertEqual((await self.row())['position'],10)
+        self.assertFalse((await self.row())['busy'])
+        self.assertEqual((await self.job())['total'],10)

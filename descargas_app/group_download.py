@@ -268,6 +268,12 @@ async def step(service, job):
     """One history page per lock, releasing the user's session between pages."""
     if not await checked(service, job):
         return
+    service.export_uid=job['uid']
+    service.export_generation=job['generation']
+    if job.get('phase')=='manual_load' and job.get('manual_token'):
+        from .manual_board import load_batch
+        await load_batch(service,job)
+        return
     # Convert an in-progress metadata-only scan from the previous version once.
     # Start its single pass at zero, retaining inventory/totals and fencing stale
     # workers with the scan generation. Interactive requests are untouched.
@@ -289,8 +295,9 @@ async def step(service, job):
             if not await client.is_user_authorized():
                 raise ValueError('La sesión fue revocada. Conecta de nuevo la cuenta.')
             service.export_operation='resolve_source'
-            entity = await service.resolve(client, job['source'])
-            if not isinstance(entity, (types.Channel, types.Chat)) or utils.get_peer_id(entity) != job['source']:
+            saved_source=bool(job.get('manual_token') and job['source']==job['uid'])
+            entity = await client.get_me() if saved_source else await service.resolve(client, job['source'])
+            if (not saved_source and not isinstance(entity, (types.Channel, types.Chat))) or utils.get_peer_id(entity) != job['source']:
                 raise ValueError('El origen debe ser un grupo o canal accesible por esa cuenta.')
             require_entity(entity, job['uid'])
             service.export_operation='get_account'
@@ -298,9 +305,22 @@ async def step(service, job):
             name = ' '.join(filter(None, [me.first_name, me.last_name])) or 'Usuario'
             if job.get('phase')=='retry':
                 mid=job['retry_message']
-                link=f'https://t.me/c/{str(job["source"])[4:]}/{mid}'
+                from .manual_board import link as source_link
+                link=source_link(job['source'],mid)
                 service.export_operation='retry_album'
-                key,items=await service.source_items(client,link)
+                if saved_source:
+                    from .service import album
+                    message=await client.get_messages(entity,ids=mid)
+                    if not message:raise ValueError('El archivo de Mensajes guardados ya no está disponible.')
+                    from .paid_media import purchased_items
+                    paid=purchased_items(message)
+                    items=paid if paid is not None else await album(client,entity,message)
+                    key=(job['source'],getattr(message,'grouped_id',None) or mid)
+                else:key,items=await service.source_items(client,link)
+                if job.get('manual_token'):
+                    from .link_listing import media_label
+                    items=[m for m in items if media_label(m)]
+                    if not items:raise ValueError('El enlace no contiene multimedia admitida.')
                 if key[0]!=job['source']:raise ValueError('El enlace no corresponde al origen registrado.')
                 count=await archive_items(service,job,client,key,items,name)
                 if count is None:return

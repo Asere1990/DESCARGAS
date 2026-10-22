@@ -51,7 +51,8 @@ Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
 /menu telegram_id — Menú GRUPOS, CANALES y ÚLTIMA DESCARGA. Escribe el número de un destino para abrir su botonera.
-/enlace telegram_id group_id — Botonera de descarga manual, un enlace por pulsación, con totales, avance y botones DESCARGAR, ATRÁS y CERRAR. Admite canal_id. Reabre desde el avance guardado.
+/add ubicación — Guardar una ubicación para usar en BUSCAR (ejemplo: /add miami).
+/enlace telegram_id group_id — Botonera por páginas de multimedia, con totales aproximados, DESCARGAR, DESCARGAR 10, MENSAJES GUARDADOS y BUSCAR por caption o respuesta. Admite canal_id. Reabre desde el avance guardado.
 /descargar telegram_id enlace — Descargar solo ese archivo/álbum hacia ALMACEN con la cuenta conectada indicada, sin mover el avance. Usa el enlace privado de /pendientes. No fuerza envíos inciertos.
 /pendientes telegram_id group_id — Mostrar enlaces y error registrado de los archivos/álbumes pendientes. Admite canal_id. Solo consulta, no reintenta ni borra.
 /stop telegram_id group_id — Pausar tras el archivo/álbum en curso. Admite channel_id.
@@ -85,11 +86,15 @@ class AdminPanel:
     async def update(self,update):
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})
         text=message.get('text','').strip() if not query else query.get('data','')
-        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat|enlace|menu)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
+        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat|enlace|menu|add)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
         callback=query and text.startswith(('stats:','manual:'))
         numeric=not query and text.isdecimal() and len(text)<=6
         account_selection=not query and re.fullmatch(r'[1-9][0-9]{0,15}\s*,\s*[1-9][0-9]{0,5}',text)
-        if not (match or callback or numeric or account_selection):return False
+        search_text=False
+        if not query and not match and text and not text.startswith('/') and authorized(message.get('from',{}).get('id')) and message.get('chat',{}).get('type')=='private':
+            pending=await self.s.repo.setting(f'manual-search:{self.s.bot_id}:{message.get("from",{}).get("id")}')
+            search_text=isinstance(pending,str) and pending.startswith('{')
+        if not (match or callback or numeric or account_selection or search_text):return False
         actor=query.get('from',{}) if query else message.get('from',{});uid=actor.get('id');chat=message.get('chat',{});chat_id=chat.get('id')
         if not authorized(uid) or actor.get('is_bot') or message.get('sender_chat') or not (chat.get('type')=='private' or chat_id==self.s.almacen):
             if query:await self.s.api('answerCallbackQuery',{'callback_query_id':query['id'],'text':'Solo administradores autorizados.'})
@@ -99,6 +104,7 @@ class AdminPanel:
             await self.send(chat_id,'Hay varias consultas administrativas en curso. Inténtalo en unos segundos.');return True
         op,arg=(match.group(1),match.group(2) or '') if match else (text.split(':',1)[1], '') if callback else ('account_permissions' if account_selection else 'selection',text)
         if query and text.startswith('manual:'):op,arg='manual',json.dumps(query)
+        if search_text:op,arg='manual_search',text
         task=asyncio.create_task(self.run(uid,chat_id,op,arg,update.get('update_id')));self.tasks.add(task);task.add_done_callback(self.tasks.discard)
         return True
     async def send(self,chat,text,buttons=None):
@@ -107,10 +113,15 @@ class AdminPanel:
         async with self.slots:
             try:
                 if not authorized(uid):return
-                if op not in ('enlace','menu','manual','selection'):
+                if op not in ('enlace','menu','manual','selection','manual_search','add'):
                     from .manual_board import context_key
                     await self.s.repo.set_setting(context_key(self.s,uid),'')
-                if op in ('enlace','menu','manual'):
+                if op in ('add','manual_search'):
+                    if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
+                    from .manual_gallery import add_location,search_input
+                    if op=='add':await add_location(self.s,uid,arg)
+                    else:await search_input(self.s,uid,arg)
+                elif op in ('enlace','menu','manual'):
                     if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
                     from . import manual_board
                     if op=='enlace':await manual_board.open_command(self.s,uid,arg)
