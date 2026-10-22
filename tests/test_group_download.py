@@ -394,7 +394,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         s.client=lambda session:client
         items=[NS(id=55),NS(id=56)]
         s.source_items.return_value=((job['source'],888),items)
-        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=2)) as archive:
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'require_entity'),patch.object(g,'archive_items',AsyncMock(return_value=2)) as archive,patch.object(g,'latest_confirmation',AsyncMock()) as notice:
             await g.step(s,job)
         s.source_items.assert_awaited_once_with(client,'https://t.me/c/0000000123/55')
         archive.assert_awaited_once_with(s,job,client,(job['source'],888),items,'A')
@@ -402,7 +402,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         sql=s.repo.pool.execute.call_args.args[0]
         self.assertNotIn('cursor=',sql)
         self.assertIn('state=retry_return_state',sql)
-        self.assertIn('terminada',s.tell.call_args.args[1])
+        self.assertIn('terminada',notice.call_args.args[2])
 
     async def test_nonadmin_cannot_retry_using_another_account(self):
         s=self.service()

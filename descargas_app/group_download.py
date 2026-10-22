@@ -11,6 +11,7 @@ from .protected import require_entity
 from .service import MAX_FILE, MAX_ALBUM, archive_attribution, apply_archive_caption, prepare_media_for_bot
 from .transfer import prepare_album
 from .media_cache import cache_key, append_archive_source
+from .download_notices import latest_confirmation
 
 LOG = logging.getLogger(__name__)
 SCHEMA = '''
@@ -312,7 +313,7 @@ async def step(service, job):
                 else:
                     await service.repo.pool.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,total=total+$5 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0),count)
                 try:
-                    await service.tell(job['actor'],f'✅ Descarga del enlace terminada con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.\nEnlace de origen: {link}')
+                    await latest_confirmation(service,job['actor'],f'✅ Descarga del enlace terminada con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.\nEnlace de origen: {link}')
                 except Exception:LOG.warning('Link completed; administrator notification unavailable')
                 return
             if job.get('phase')=='count':
