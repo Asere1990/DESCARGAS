@@ -200,3 +200,17 @@ El mensaje de finalización de una descarga por enlace incluye ahora el enlace d
 
 
 La preparación de /enlace guarda un checkpoint cifrado por cuenta/origen y generación de sesión después de cada página del historial. Si Telegram exige una espera larga, el siguiente intento retoma esa página en vez de volver al inicio; conserva los álbumes que cruzan páginas. Las consultas de metadatos esperan automáticamente hasta 30 segundos cuando Telegram lo exige. La entidad del origen se reutiliza por cuenta y generación para evitar enumerar todos los diálogos en cada página. Las descargas/envíos mantienen sus propias protecciones y esperas.
+
+### Administración de Telegram desde el menú de una cuenta
+
+Solo los administradores de `admins.txt`, desde el privado del bot, pueden usar esta función. `/menu telegram_id` marca con 👨🏻‍💻 las cuentas administradoras y con ⭐️ las propietarias en la lista de destinos. La ficha muestra el rol y los permisos administrativos de la última consulta, sin añadir un recorrido del historial ni consultas adicionales al contador de multimedia. GRUPO INFO actualiza esa información desde Telegram.
+
+- **ADD ADMIN**: ID del usuario/bot (también admite @username cuando Telegram no permite resolver el ID), permisos numerados separados por comas (`1,3,4`), y etiqueta del administrador (`-` para dejarla vacía). Solo ofrece los permisos que puede otorgar esa cuenta y los verifica otra vez antes de aplicar.
+- **REMOVE ADMIN**: ID o @username del administrador que se desea retirar. Telegram determina si la cuenta puede editarlo; no se modifica al propietario ni a la propia cuenta conectada.
+- **INFO USUARIO**: nombre, ID, username, tipo de cuenta/bot, pertenencia, rol, permisos, etiqueta, baneo y restricciones.
+- **INFO ADMINS**: lista numerada de todos los administradores visibles para la cuenta, incluidos bots y propietario. Consulta el filtro de administradores de Telegram, sin recorrer los miembros. Escribe un número para abrir su ficha con permisos actualizados; la selección conserva los mismos números y vence con el contexto del grupo. Los access_hash se guardan cifrados y quedan vinculados a esa cuenta y generación de sesión.
+- **GRUPO INFO**: permisos predeterminados de los miembros. Los números separados por comas cambian únicamente esos permisos entre permitidos y prohibidos; los demás se conservan.
+
+Mientras está abierta la ficha del grupo, `/ban ID`, `/unban ID`, `/restringir ID` y `/free ID` administran al miembro de ese grupo. `/free` levanta restricciones individuales y respeta los límites del grupo; `/unban` permite volver a entrar, sin invitar automáticamente. `/menu`, salir de la ficha o cambiar de grupo cierra o reemplaza este contexto; después se conservan los significados generales de los comandos del bot. El contexto vence a los 30 minutos y una ficha vencida exige reabrirla antes de operar.
+
+La gestión comprueba el administrador autorizado, la cuenta y su generación de sesión, el grupo y el token del panel; usa el bloqueo de la cuenta y rechaza cambios durante sus descargas. Cada operación reserva su update_id antes de solicitar el cambio a Telegram; los resultados inciertos requieren consultar INFO, no se repiten automáticamente. No modifica la cola de descargas, membresías, pagos, captions ni ALMACEN. La administración detallada está disponible para supergrupos y canales; los grupos básicos no admiten estos mismos permisos granulares. Telegram puede exigir esperar o rechazar cambios por privacidad, antigüedad de la sesión o derechos insuficientes.

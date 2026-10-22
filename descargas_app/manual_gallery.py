@@ -85,6 +85,10 @@ async def collect_page(s,actor,uid,source,data=None):
             if not await client.is_user_authorized():raise ValueError('Conecta de nuevo la cuenta.')
             entity=await entity_for(s,client,uid,source,data['generation'])
             data['title']='Mensajes guardados' if source==uid else ' '.join(entity.title.split())[:128]
+            if source<0 and 'account_rights' not in data:
+                from .group_admin import entity_snapshot
+                data['account_rights']=entity_snapshot(entity)
+
             if not data.get('query') and 'totals' not in data:
                 await s.repo.pace(f'enlace-read:{uid}',3.1)
                 counters=await client(functions.messages.GetSearchCountersRequest(peer=entity,filters=[types.InputMessagesFilterPhotos(),types.InputMessagesFilterVideo(),types.InputMessagesFilterGif(),types.InputMessagesFilterDocument()]))

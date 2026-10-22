@@ -84,7 +84,7 @@ async def destinations(service,actor,argument):
         saved=await service.repo.setting(key)
         data=json.loads(saved) if saved else {}
         entries=None
-        if data.get('expires',0)>time.time() and data.get('generation')==account['generation'] and data.get('snapshot'):
+        if data.get('roles_version')==1 and data.get('expires',0)>time.time() and data.get('generation')==account['generation'] and data.get('snapshot'):
             entries=service.repo.decode(bytes.fromhex(data['snapshot']))['entries']
         if entries is None:
             cooldown=await service.repo.pool.fetchval('SELECT max(resume_at) FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2',service.bot_id,uid) or 0
@@ -104,14 +104,16 @@ async def destinations(service,actor,argument):
                     source=utils.get_peer_id(entity)
                     if source in seen:continue
                     seen.add(source)
-                    entries.append({'id':source,'name':' '.join((getattr(entity,'title',None) or 'Sin nombre').split())[:128],
-                        'kind':'Canal' if getattr(entity,'broadcast',False) else 'Grupo'})
+                    from .group_admin import entity_snapshot
+                    entries.append({'id':source,'account_rights':entity_snapshot(entity),'name':' '.join((getattr(entity,'title',None) or 'Sin nombre').split())[:128],
+                        'kind':'Canal' if getattr(entity,'broadcast',False) else 'Grupo',
+                        'role_icon':'⭐️' if getattr(entity,'creator',False) else '👨🏻‍💻' if getattr(entity,'admin_rights',None) else ''})
             current=await service.repo.account(uid)
             if not current or not current['session'] or current['generation']!=account['generation']:
                 raise ValueError('La sesión cambió durante la consulta. Vuelve a intentarlo.')
             entries.sort(key=lambda entry:entry['id'])
             data={'ids':[e['id'] for e in entries],'expires':time.time()+1800,'generation':account['generation'],
-                'snapshot':service.repo.encode({'entries':entries}).hex()}
+                'roles_version':1,'snapshot':service.repo.encode({'entries':entries}).hex()}
             await service.repo.set_setting(key,json.dumps(data))
         if not authorized(actor):return
         total=len(entries);selected=entries[start-1:end]
@@ -120,7 +122,7 @@ async def destinations(service,actor,argument):
         header+='Lista guardada durante 30 minutos.\n\n'
         text=header
         for number,entry in enumerate(selected,start):
-            line=f'{number}. {entry["name"]} · {entry["kind"]}\nID: {entry["id"]}\n/descargar {uid} {entry["id"]}\n\n'
+            line=f'{number}. {(entry.get("role_icon","")+" ") if entry.get("role_icon") else ""}{entry["name"]} · {entry["kind"]}\nID: {entry["id"]}\n/descargar {uid} {entry["id"]}\n\n'
             if len((text+line).encode('utf-16-le'))//2>3500:
                 await service.tell(actor,text);text=header
             text+=line

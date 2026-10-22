@@ -52,6 +52,8 @@ Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots n
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
 /menu telegram_id — Menú GRUPOS, CANALES y ÚLTIMA DESCARGA. Escribe el número de un destino para abrir su botonera.
 /menu telegram_id — INICIAR DESDE permite elegir un enlace y avanzar o retroceder de cinco en cinco. Las descargas por número incluyen ANTERIOR/SIGUIENTE, ATRÁS y MENÚ PRINCIPAL en la confirmación. Incluye lotes de 10 fotos, videos o álbumes (2+ elementos), y FOTO/VIDEO/ÁLBUM NÚMERO para seleccionar una posición de cada lista.
+En la botonera del grupo: ADD ADMIN, REMOVE ADMIN, INFO USUARIO, INFO ADMINS y GRUPO INFO. INFO ADMINS lista cuentas y bots; escribe su número para ver nombre, ID, username y permisos. Los permisos se seleccionan por números separados por comas (1,3,4). Solo se pueden otorgar permisos que tenga la cuenta conectada.
+Dentro de esa ficha: /ban ID, /unban ID, /restringir ID y /free ID administran al miembro de ese grupo. /menu cierra ese contexto; fuera de él se conservan los comandos generales del bot.
 /add ubicación — Guardar una ubicación para usar en BUSCAR (ejemplo: /add miami).
 /enlace telegram_id group_id — Botonera por páginas de multimedia, con totales aproximados, DESCARGAR, DESCARGAR 10, MENSAJES GUARDADOS y BUSCAR por caption o respuesta. Admite canal_id. Reabre desde el avance guardado.
 /descargar telegram_id enlace — Descargar solo ese archivo/álbum hacia ALMACEN con la cuenta conectada indicada, sin mover el avance. Usa el enlace privado de /pendientes. No fuerza envíos inciertos.
@@ -91,13 +93,21 @@ class AdminPanel:
         callback=query and text.startswith(('stats:','manual:'))
         numeric=not query and text.isdecimal() and len(text)<=6
         account_selection=not query and re.fullmatch(r'[1-9][0-9]{0,15}\s*,\s*[1-9][0-9]{0,5}',text)
+        management=None
+        if not query and authorized(message.get('from',{}).get('id')) and message.get('chat',{}).get('type')=='private':
+            from .group_admin import load,key,pending_key
+            actor_id=message['from']['id']
+            if re.fullmatch(r'/(ban|unban|free|restringir)(?:@[A-Za-z0-9_]+)?(?:\s+.*)?',text,re.S):
+                if await load(self.s,actor_id,key):management='group_command'
+            elif text and not text.startswith('/') and await load(self.s,actor_id,pending_key):
+                management='group_input'
         search_text=False
         if not query and not match and text and not text.startswith('/') and authorized(message.get('from',{}).get('id')) and message.get('chat',{}).get('type')=='private':
             pending=await self.s.repo.setting(f'manual-search:{self.s.bot_id}:{message.get("from",{}).get("id")}')
             numbered=await self.s.repo.setting(f'manual-number:{self.s.bot_id}:{message.get("from",{}).get("id")}')
             anchored=await self.s.repo.setting(f'manual-anchor:{self.s.bot_id}:{message.get("from",{}).get("id")}')
             search_text=(isinstance(anchored,str) and anchored.startswith('{')) or (isinstance(pending,str) and pending.startswith('{')) or (isinstance(numbered,str) and numbered.startswith('{'))
-        if not (match or callback or numeric or account_selection or search_text):return False
+        if not (match or callback or numeric or account_selection or search_text or management):return False
         actor=query.get('from',{}) if query else message.get('from',{});uid=actor.get('id');chat=message.get('chat',{});chat_id=chat.get('id')
         if not authorized(uid) or actor.get('is_bot') or message.get('sender_chat') or not (chat.get('type')=='private' or chat_id==self.s.almacen):
             if query:await self.s.api('answerCallbackQuery',{'callback_query_id':query['id'],'text':'Solo administradores autorizados.'})
@@ -108,6 +118,7 @@ class AdminPanel:
         op,arg=(match.group(1),match.group(2) or '') if match else (text.split(':',1)[1], '') if callback else ('account_permissions' if account_selection else 'selection',text)
         if query and text.startswith('manual:'):op,arg='manual',json.dumps(query)
         if search_text:op,arg='manual_search',text
+        if management:op,arg=management,text
         task=asyncio.create_task(self.run(uid,chat_id,op,arg,update.get('update_id')));self.tasks.add(task);task.add_done_callback(self.tasks.discard)
         return True
     async def send(self,chat,text,buttons=None):
@@ -116,13 +127,21 @@ class AdminPanel:
         async with self.slots:
             try:
                 if not authorized(uid):return
-                if op not in ('enlace','menu','manual','selection','manual_search','add'):
+                if op not in ('group_command','group_input') and op not in ('manual','manual_search','selection'):
+                    from .group_admin import clear
+                    await clear(self.s,uid)
+                if op not in ('enlace','menu','manual','selection','manual_search','add','group_command','group_input'):
                     from .manual_board import context_key
                     await self.s.repo.set_setting(context_key(self.s,uid),'')
                     await self.s.repo.set_setting(f'manual-number:{self.s.bot_id}:{uid}','')
                     await self.s.repo.set_setting(f'manual-search:{self.s.bot_id}:{uid}','')
                     await self.s.repo.set_setting(f'manual-anchor:{self.s.bot_id}:{uid}','')
-                if op in ('add','manual_search'):
+                if op in ('group_command','group_input'):
+                    from .group_admin import command,input_text
+                    if chat!=uid:return
+                    if op=='group_command':await command(self.s,uid,arg,update_id)
+                    else:await input_text(self.s,uid,arg,update_id)
+                elif op in ('add','manual_search'):
                     if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
                     from .manual_gallery import add_location,search_input
                     if op=='add':await add_location(self.s,uid,arg)

@@ -48,7 +48,7 @@ def advance(data,position):
     return position
 
 
-def presentation(row,data):
+def _presentation(row,data):
     if data.get('mode')=='anchor':
         from .manual_anchor import presentation as anchored
         return anchored(row,data)
@@ -94,6 +94,15 @@ def presentation(row,data):
     buttons.append([{'text':'𝐀𝐓𝐑Á𝐒' ,'style':'danger','callback_data':f'manual:a:{row["token"]}:{position}'},
         {'text':'𝐂𝐄𝐑𝐑𝐀𝐑','style':'danger','callback_data':f'manual:c:{row["token"]}:{position}'}])
     return text,buttons
+
+
+def presentation(row,data):
+    text,keyboard=_presentation(row,data)
+    if row['source']<0:
+        from .group_admin import header,buttons
+        text=header(data.get('account_rights'))+'\n'+text
+        if data.get('mode')!='anchor':keyboard=keyboard[:-2]+buttons(row)+keyboard[-2:]
+    return text,keyboard
 
 
 async def _render(s,row,new=False):
@@ -189,6 +198,20 @@ async def open_board(s,actor,uid,source,refresh=False,query=None,mode=""):
     await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
     await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
     await s.repo.set_setting(f'manual-anchor:{s.bot_id}:{actor}','')
+    from .group_admin import bind
+    if source<0 and not row['busy']:
+        payload=s.repo.decode(row['payload'])
+        from .account_chat import selection_key
+        cached=await s.repo.setting(selection_key(s,actor,uid))
+        snapshot=json.loads(cached) if cached else {}
+        if snapshot.get('generation')==account['generation'] and snapshot.get('expires',0)>time.time() and snapshot.get('snapshot'):
+            directory=s.repo.decode(bytes.fromhex(snapshot['snapshot']))['entries']
+            found=next((e.get('account_rights') for e in directory if e['id']==source),None)
+            if found and found.get('checked',0)>payload.get('account_rights',{}).get('checked',0):
+                payload['account_rights']=found
+                await s.repo.pool.execute('UPDATE descarga_manual_boards SET payload=$3 WHERE bot_id=$1 AND token=$2 AND NOT busy',s.bot_id,row['token'],s.repo.encode(payload))
+                row=dict(row,payload=s.repo.encode(payload))
+    await bind(s,actor,row)
     await render(s,row,new=not bool(row["message_id"]))
 
 
@@ -200,6 +223,8 @@ async def open_command(s,actor,arg):
 
 
 async def menu(s,actor,uid):
+    from .group_admin import clear
+    await clear(s,actor)
     if not authorized(actor):return
     account=await s.repo.account(uid)
     if not account or not account['session']:raise ValueError('Esa cuenta no está conectada.')
@@ -216,6 +241,8 @@ async def menu(s,actor,uid):
 
 
 async def destinations(s,actor,uid,channels):
+    from .group_admin import clear
+    await clear(s,actor)
     from .account_directory import destinations as existing
     from .account_chat import selection_key
     # Reuse the existing protected, generation-bound dialog snapshot.
@@ -224,7 +251,7 @@ async def destinations(s,actor,uid,channels):
     cached=await s.repo.setting(key)
     data=json.loads(cached) if cached else {}
     if not account or not account['session']:raise ValueError('Esa cuenta no está conectada.')
-    if data.get('expires',0)<=time.time() or data.get('generation')!=account['generation'] or not data.get('snapshot'):
+    if data.get('roles_version')!=1 or data.get('expires',0)<=time.time() or data.get('generation')!=account['generation'] or not data.get('snapshot'):
         await cooldown(s,uid)
         # Same loader, suppressing its old textual command listing only.
         class Snapshot:
@@ -239,7 +266,7 @@ async def destinations(s,actor,uid,channels):
     header=f'{"𝐂𝐀𝐍𝐀𝐋𝐄𝐒" if channels else "𝐆𝐑𝐔𝐏𝐎𝐒"} · Cuenta {uid}\nEscribe el número para abrir la descarga.\n\n'
     text=header
     for i,e in enumerate(entries,1):
-        line=f'{i}. {e["name"]}\nID: {e["id"]}\n'
+        line=f'{i}. {(e.get("role_icon","")+" ") if e.get("role_icon") else ""}{e["name"]}\nID: {e["id"]}\n'
         if len((text+line).encode('utf-16-le'))//2>3500:
             await s.tell(actor,text);text=header
         text+=line
@@ -306,6 +333,11 @@ async def enqueue(s,actor,token,position,message_id,batch=1,number=None,notice_i
 async def callback(s,actor,query):
     if not authorized(actor) or query.get('message',{}).get('chat',{}).get('id')!=actor:return
     parts=query['data'].split(':');action=parts[1]
+    if action in ('ga','gr','gu','gi','gl'):
+        from .group_admin import callback as manage
+        return await manage(s,actor,query)
+    from .group_admin import pending_key
+    await s.repo.set_setting(pending_key(s,actor),'')
     if action in ('as','ax','ay','az','am'):
         from .manual_anchor import callback as anchored
         return await anchored(s,actor,query)
@@ -353,6 +385,8 @@ async def callback(s,actor,query):
     if action in ('d','t'):return await enqueue(s,actor,token,position,query['message']['message_id'],10 if action=='t' else 1)
     if action=='w':return await s.tell(actor,'El enlace sigue descargándose. La botonera se actualizará al terminar.')
     if action=='c':
+        from .group_admin import clear
+        await clear(s,actor)
         row=await s.repo.pool.fetchrow('UPDATE descarga_manual_boards SET closed=TRUE WHERE bot_id=$1 AND token=$2 AND actor=$3 AND message_id=$4 RETURNING uid',s.bot_id,token,actor,query['message']['message_id'])
         if row:
             async with s.repo.pool.acquire() as conn:
