@@ -175,6 +175,9 @@ async def append_archive_source(attribution,message,source):
         attribution['caption']=prefix+title+f'\nID de origen: {source}'
     else:
         attribution['caption']+=f'\nGrupo de origen: {source}'
+    mid=getattr(message,'id',None)
+    if mid and source and str(source).startswith('-100'):
+        attribution['caption']+=f'\nEnlace de origen: https://t.me/c/{str(source)[4:]}/{mid}'
 
 
 async def archive_once(service,identity,uid,name,delivered):

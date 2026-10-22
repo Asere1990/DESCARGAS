@@ -118,7 +118,7 @@ async def command(service, message):
     if retry_mid:
         await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,retry_message,retry_return_state)
             VALUES($1,$2,$3,$4,$5,'running','retry',$6,'paused') ON CONFLICT(bot_id,uid,source)
-            DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='retry',retry_message=excluded.retry_message,
+            DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='retry',retry_message=excluded.retry_message,manual_token=NULL,
             retry_return_state=CASE WHEN descarga_group_exports.state='done' THEN 'done' ELSE 'paused' END,
             scan=descarga_group_exports.scan+1''',service.bot_id,uid,source,actor,account['generation'],retry_mid)
         await service.tell(actor,f'▶️ Descarga del enlace registrada con la cuenta {uid}. Solo revisará el archivo o álbum del enlace y lo guardará en ALMACEN si falta. No modifica el avance del grupo.')
@@ -126,7 +126,7 @@ async def command(service, message):
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,media_filter)
         VALUES($1,$2,$3,$4,$5,'running','count',$6) ON CONFLICT(bot_id,uid,source)
         DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='count',media_filter=excluded.media_filter,
-        cursor=descarga_group_exports.cursor,retry_message=0,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
+        cursor=descarga_group_exports.cursor,retry_message=0,manual_token=NULL,resume_at=0,scan=descarga_group_exports.scan+1 ''', service.bot_id, uid, source, actor, account['generation'], media_filter)
     await service.tell(actor, '▶️ Descarga registrada hacia ALMACEN. Primero contará fotos, videos y GIF del historial accesible. Continuará desde el avance guardado aunque cambies el filtro, omitirá los archivos ya guardados y avisará aquí al terminar.')
     return True
 
@@ -306,8 +306,14 @@ async def step(service, job):
                 from .export_inventory import resolve_pending
                 for item_id in {mid,*(m.id for m in items)}:
                     await resolve_pending(service,job,item_id)
-                await service.repo.pool.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,total=total+$5 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0),count)
-                await service.tell(job['actor'],f'✅ Descarga del enlace terminada con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.')
+                if job.get('manual_token'):
+                    from .manual_board import complete
+                    await complete(service,job,items,count)
+                else:
+                    await service.repo.pool.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,total=total+$5 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0),count)
+                try:
+                    await service.tell(job['actor'],f'✅ Descarga del enlace terminada con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.\nEnlace de origen: {link}')
+                except Exception:LOG.warning('Link completed; administrator notification unavailable')
                 return
             if job.get('phase')=='count':
                 counts=[]
@@ -430,6 +436,9 @@ async def _run(service):
                     except Exception as exc:
                         if isinstance(exc,errors.FloodWaitError):
                             await defer_flood(service,fresh,exc)
+                            if fresh.get('manual_token'):
+                                from .manual_board import failed
+                                await failed(service,fresh,f'Telegram pide esperar {max(60,int(exc.seconds)+10)} segundos. Pulsa DESCARGAR cuando termine la espera.')
                             continue
                         # A busy account is temporary, not a failed export.
                         if isinstance(exc,ValueError) and str(exc).startswith('Espera a que termine'):
@@ -439,6 +448,9 @@ async def _run(service):
                         try:
                             from .service import error_message
                             detail = str(exc) if isinstance(exc,ValueError) else error_message(exc)
+                            if fresh.get('manual_token'):
+                                from .manual_board import failed
+                                await failed(service,fresh,detail)
                             await service.tell(job['actor'], f'⏸ Descarga pausada. Cuenta {job["uid"]}, origen {job["source"]}.\n{detail}\nEl avance quedó guardado.')
                         except Exception:pass
                     finally:

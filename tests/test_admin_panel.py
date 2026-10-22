@@ -7,7 +7,7 @@ from descargas_app.protected import require_source,ProtectedSource,MESSAGE
 
 class AdminTests(unittest.IsolatedAsyncioTestCase):
     def panel(self):
-        s=NS(bot_id=123,almacen=-1009,api=AsyncMock(),repo=NS(decode=lambda x:x,encode=lambda x:x))
+        s=NS(bot_id=123,almacen=-1009,api=AsyncMock(),repo=NS(decode=lambda x:x,encode=lambda x:x,setting=AsyncMock(return_value=None),set_setting=AsyncMock()))
         p=AdminPanel(s);p.pool=NS(fetchrow=AsyncMock(),fetch=AsyncMock(),fetchval=AsyncMock(),execute=AsyncMock());return p
     async def test_search_validates_positive_user_id_and_dispatches_detail(self):
         p=self.panel();p.detail=AsyncMock()
@@ -69,3 +69,23 @@ class AdminTests(unittest.IsolatedAsyncioTestCase):
             with patch('descargas_app.protected.FILE',path):
                 with self.assertRaisesRegex(ProtectedSource,'Este grupo esta protegido'):require_source(-100123)
                 require_source(-100999)
+
+    def test_help_pages_include_new_manual_commands_within_telegram_limit(self):
+        from descargas_app.admin_panel import HELP,help_pages
+        pages=help_pages(HELP)
+        self.assertTrue(all(len(p.encode('utf-16-le'))//2<=3500 for p in pages))
+        self.assertIn('/menu telegram_id',''.join(pages))
+        self.assertIn('/enlace telegram_id group_id',''.join(pages))
+        self.assertTrue(all(p.count('<b>')==p.count('</b>') for p in pages))
+
+    async def test_manual_callback_routes_to_background_task_with_query_identity(self):
+        import json
+        p=self.panel();p.run=AsyncMock()
+        query={'id':'query','from':{'id':10},'data':'manual:d:token:0',
+            'message':{'chat':{'id':10,'type':'private'},'message_id':50}}
+        with patch('descargas_app.admin_panel.authorized',return_value=True):
+            self.assertTrue(await p.update({'callback_query':query}))
+            await asyncio.gather(*p.tasks)
+        args=p.run.call_args.args
+        self.assertEqual(args[:3],(10,10,'manual'))
+        self.assertEqual(json.loads(args[3]),query)

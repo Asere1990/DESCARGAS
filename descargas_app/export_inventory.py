@@ -74,7 +74,7 @@ async def reply_lock(service,message,operation,actor):
     if not digest:
         # Existing exports predate caption refs. Strip only our complete trusted suffix.
         text=original.get('caption','')
-        suffix=rf'(?:^|\n\n)Usuario: [^\n]*\nTelegram ID: {origin["uid"]}(?:\nGrupo de origen: [^\n]*(?:\nID de origen: -?\d+)?)?$'
+        suffix=rf'(?:^|\n\n)Usuario: [^\n]*\nTelegram ID: {origin["uid"]}(?:\nGrupo de origen: [^\n]*(?:\nID de origen: -?\d+)?)?(?:\nEnlace de origen: https://t\.me/c/[0-9]+/[0-9]+)?$'
         match=re.search(suffix,text)
         if match:text=text[:match.start()]
         digest=caption_hash(text)

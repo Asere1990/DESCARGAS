@@ -60,6 +60,6 @@ class LinkListingTests(unittest.IsolatedAsyncioTestCase):
     async def test_router_sends_private_admin_listing_to_task(self):
         from descargas_app.admin_panel import AdminPanel
         s,c=self.setup_service([[]]);panel=AdminPanel(s)
-        with patch('descargas_app.admin_panel.authorized',return_value=True),patch.object(l,'run',AsyncMock()) as run:
+        with patch('descargas_app.admin_panel.authorized',return_value=True),patch('descargas_app.manual_board.open_command',AsyncMock()) as run:
             await panel.run(99,99,'enlace','12 -1000000000123')
             run.assert_awaited_once_with(s,99,'12 -1000000000123')

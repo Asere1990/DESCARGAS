@@ -47,7 +47,8 @@ CREATE INDEX IF NOT EXISTS descarga_backup_pending ON descarga_backups(bot_id,av
 from .group_download import SCHEMA as GROUP_EXPORT_SCHEMA
 from .account_chat import SCHEMA as ACCOUNT_CHAT_SCHEMA
 from .export_inventory import SCHEMA as EXPORT_INVENTORY_SCHEMA
-SCHEMA+=BILLING_SCHEMA+ADMIN_SCHEMA+GROUP_EXPORT_SCHEMA+ACCOUNT_CHAT_SCHEMA+EXPORT_INVENTORY_SCHEMA
+from .manual_board import SCHEMA as MANUAL_BOARD_SCHEMA
+SCHEMA+=BILLING_SCHEMA+ADMIN_SCHEMA+GROUP_EXPORT_SCHEMA+ACCOUNT_CHAT_SCHEMA+EXPORT_INVENTORY_SCHEMA+MANUAL_BOARD_SCHEMA
 
 class Repository(BillingRepository,AdminRepository):
     def __init__(self,url,cipher,pool_size=10):

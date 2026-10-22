@@ -1,5 +1,5 @@
 """Bounded admin-only reports, isolated from download lanes and polling."""
-import asyncio,html,re,time,unicodedata
+import asyncio,html,json,re,time,unicodedata
 import asyncpg
 from babel import Locale
 from .moderation import authorized
@@ -50,7 +50,8 @@ Ejemplo: 1609522430,3 — Permisos del destino número 3.
 Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
-/enlace telegram_id group_id — Lista numerada de fotos, videos, GIF e imágenes/videos como archivo. Un enlace por álbum; omite texto y otros documentos. Admite canal_id.
+/menu telegram_id — Menú GRUPOS, CANALES y ÚLTIMA DESCARGA. Escribe el número de un destino para abrir su botonera.
+/enlace telegram_id group_id — Botonera de descarga manual, un enlace por pulsación, con totales, avance y botones DESCARGAR, ATRÁS y CERRAR. Admite canal_id. Reabre desde el avance guardado.
 /descargar telegram_id enlace — Descargar solo ese archivo/álbum hacia ALMACEN con la cuenta conectada indicada, sin mover el avance. Usa el enlace privado de /pendientes. No fuerza envíos inciertos.
 /pendientes telegram_id group_id — Mostrar enlaces y error registrado de los archivos/álbumes pendientes. Admite canal_id. Solo consulta, no reintenta ni borra.
 /stop telegram_id group_id — Pausar tras el archivo/álbum en curso. Admite channel_id.
@@ -61,6 +62,17 @@ Repetir /descargar continúa desde el avance guardado, aunque cambies el filtro.
 Un ID de grupo/canal por línea; admite comentarios con #. No acepta descargas de esos orígenes.
 
 Las descargas se cuentan por archivo entregado: un álbum de 10 elementos cuenta como 10. Los aciertos de caché también cuentan. Las cifras antiguas solo incluyen el historial aún disponible; los contadores nuevos no caducan.'''
+
+
+def help_pages(text):
+    pages=[];page=''
+    for line in text.splitlines(keepends=True):
+        if len((page+line).encode('utf-16-le'))//2>3500 and page:
+            pages.append(page);page=''
+        page+=line
+    if page:pages.append(page)
+    return pages
+
 
 class AdminPanel:
     def __init__(self,service):self.s=service;self.pool=None;self.tasks=set();self.slots=asyncio.Semaphore(2)
@@ -73,9 +85,9 @@ class AdminPanel:
     async def update(self,update):
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})
         text=message.get('text','').strip() if not query else query.get('data','')
-        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat|enlace)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
-        callback=query and text.startswith('stats:')
-        numeric=not query and text.isdecimal() and len(text)<=3
+        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat|enlace|menu)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
+        callback=query and text.startswith(('stats:','manual:'))
+        numeric=not query and text.isdecimal() and len(text)<=6
         account_selection=not query and re.fullmatch(r'[1-9][0-9]{0,15}\s*,\s*[1-9][0-9]{0,5}',text)
         if not (match or callback or numeric or account_selection):return False
         actor=query.get('from',{}) if query else message.get('from',{});uid=actor.get('id');chat=message.get('chat',{});chat_id=chat.get('id')
@@ -86,6 +98,7 @@ class AdminPanel:
         if len(self.tasks)>=20:
             await self.send(chat_id,'Hay varias consultas administrativas en curso. Inténtalo en unos segundos.');return True
         op,arg=(match.group(1),match.group(2) or '') if match else (text.split(':',1)[1], '') if callback else ('account_permissions' if account_selection else 'selection',text)
+        if query and text.startswith('manual:'):op,arg='manual',json.dumps(query)
         task=asyncio.create_task(self.run(uid,chat_id,op,arg,update.get('update_id')));self.tasks.add(task);task.add_done_callback(self.tasks.discard)
         return True
     async def send(self,chat,text,buttons=None):
@@ -94,10 +107,16 @@ class AdminPanel:
         async with self.slots:
             try:
                 if not authorized(uid):return
-                if op=='enlace':
+                if op not in ('enlace','menu','manual','selection'):
+                    from .manual_board import context_key
+                    await self.s.repo.set_setting(context_key(self.s,uid),'')
+                if op in ('enlace','menu','manual'):
                     if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
-                    from .link_listing import run as list_links
-                    await list_links(self.s,uid,arg)
+                    from . import manual_board
+                    if op=='enlace':await manual_board.open_command(self.s,uid,arg)
+                    elif op=='manual':await manual_board.callback(self.s,uid,json.loads(arg))
+                    elif re.fullmatch(r'[1-9][0-9]{0,18}',arg.strip()) and int(arg)<2**63:await manual_board.menu(self.s,uid,int(arg))
+                    else:await self.send(chat,'Uso: /menu telegram_id')
                 elif op in ('account_permissions','chat'):
                     if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
                     from .account_chat import show_permissions,send_text
@@ -115,7 +134,8 @@ class AdminPanel:
                 elif op=='search':
                     if not re.fullmatch(r'[1-9][0-9]{0,15}',arg.strip()):return await self.send(chat,'Usa <code>/search telegram_id</code>. Ejemplo: <code>/search 1609522430</code>.')
                     await self.detail(chat,int(arg.strip()))
-                elif op in ('comando','comandos'):await self.send(chat,HELP)
+                elif op in ('comando','comandos'):
+                    for page in help_pages(HELP):await self.send(chat,page)
                 elif op in ('usuario','usuarios','topuser','telefono','telefonos'):
                     country=country_code(arg) if op.startswith('telefono') else None
                     if op.startswith('telefono') and not country:return await self.send(chat,'Indica el país. Ejemplo: <code>/telefono Cuba</code> o <code>/telefonos ES</code>.')
@@ -130,12 +150,16 @@ class AdminPanel:
                     await self.send(chat,'<b>🌍 PAÍSES CON MÁS USUARIOS</b>\n'+('\n'.join(f'{i}. {html.escape(country_name(r["country"]))}: {r["total"]}' for i,r in enumerate(rows,1)) or 'Sin datos todavía.')+'\n\nPaís inferido por el prefijo telefónico, no por ubicación actual.')
                 elif op=='earnings':await self.earnings(chat)
                 elif op=='selection':
+                    if chat==uid:
+                        from .manual_board import select_number
+                        if await select_number(self.s,uid,arg):return
                     row=await self.pool.fetchrow('SELECT payload FROM descarga_admin_selections WHERE bot_id=$1 AND admin=$2 AND chat=$3 AND expires>$4',self.s.bot_id,uid,chat,time.time())
                     if row:
                         ids=self.s.repo.decode(row['payload'])['ids'];number=int(arg)
                         if 1<=number<=len(ids):await self.detail(chat,ids[number-1])
                         else:await self.send(chat,'Ese número no está en tu lista. Vuelve a consultar /usuarios o /telefono país.')
             except asyncio.CancelledError:raise
+            except ValueError as exc:await self.send(chat,html.escape(str(exc)))
             except Exception:await self.send(chat,'No se pudo completar la consulta. Inténtalo de nuevo en unos segundos.')
     async def users(self,admin,chat,country,limit):
         rows=await self.pool.fetch('''SELECT d.uid,d.name,d.country,COALESCE(t.total,0) AS total,a.profile,

@@ -312,7 +312,7 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         sql,*args=s.repo.pool.execute.call_args.args
         db=sqlite3.connect(':memory:')
         self.addCleanup(db.close)
-        db.execute("CREATE TABLE descarga_group_exports(bot_id INTEGER,uid INTEGER,source INTEGER,actor INTEGER,generation INTEGER,state TEXT,phase TEXT,media_filter TEXT,cursor INTEGER DEFAULT 0,total INTEGER DEFAULT 0,resume_at REAL DEFAULT 0,scan INTEGER DEFAULT 0,retry_message INTEGER DEFAULT 0,PRIMARY KEY(bot_id,uid,source))")
+        db.execute("CREATE TABLE descarga_group_exports(bot_id INTEGER,uid INTEGER,source INTEGER,actor INTEGER,generation INTEGER,state TEXT,phase TEXT,media_filter TEXT,cursor INTEGER DEFAULT 0,total INTEGER DEFAULT 0,resume_at REAL DEFAULT 0,scan INTEGER DEFAULT 0,retry_message INTEGER DEFAULT 0,manual_token TEXT,PRIMARY KEY(bot_id,uid,source))")
         db.execute(sql,args)
         for state in ('paused','done'):
             db.execute("UPDATE descarga_group_exports SET cursor=81,total=50,state=?",(state,))
