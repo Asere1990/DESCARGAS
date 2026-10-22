@@ -97,9 +97,6 @@ async def command(service, message):
         return True
     # Do not silently replay a possibly accepted Telegram upload after a crash.
     row = await pool.fetchrow('SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3', service.bot_id, uid, source)
-    if row and row['sending'] and retry_mid:
-        await service.tell(actor,'El envío anterior sigue incierto o en curso. Revisa ALMACEN; no se forzará otra subida que pueda duplicarlo.')
-        return True
     if row and row['sending']:
         # Same cross-worker lock as _run: a paused upload may still be finishing.
         async with pool.acquire() as conn:

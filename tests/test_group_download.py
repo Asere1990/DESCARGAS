@@ -375,12 +375,13 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args,[7,12,-1000000000123,99,4,55])
         self.assertIn('ALMACEN',s.tell.call_args.args[1])
 
-    async def test_retry_rejects_uncertain_send_and_invalid_links(self):
+    async def test_retry_rejects_active_send_and_invalid_links(self):
         s=self.service();s.repo.pool.fetchrow.return_value={**self.job(),'state':'paused','sending':True}
+        s.repo.pool.fetchval.side_effect=None;s.repo.pool.fetchval.return_value=0
         with patch.object(g,'authorized',return_value=True):
             await g.command(s,dict(text='/reintentar 12 https://t.me/c/123/55',chat={'type':'private'},**{'from':{'id':99}}))
         s.repo.pool.execute.assert_not_awaited()
-        self.assertIn('incierto',s.tell.call_args.args[1])
+        self.assertIn('en curso',s.tell.call_args.args[1])
         for text in ['/reintentar 12 https://t.me/+invite','/reintentar 12 https://evil.test/c/123/55','/reintentar 12 https://t.me/c/123/0']:
             with patch.object(g,'authorized',return_value=True):
                 await g.command(s,dict(text=text,chat={'type':'private'},**{'from':{'id':99}}))
@@ -426,3 +427,15 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
             await g.command(s,dict(text='/descargar 12 https://t.me/+invite',chat={'type':'private'},**{'from':{'id':99}}))
         s.repo.account.assert_not_awaited();s.repo.pool.execute.assert_not_awaited()
         self.assertIn('Uso: /descargar',s.tell.call_args.args[1])
+
+
+    async def test_download_link_recovers_stale_group_flag_but_keeps_file_guards(self):
+        s=self.service();s.repo.pool.fetchrow.return_value={**self.job(),'state':'paused','sending':True}
+        s.repo.pool.fetchval.side_effect=lambda sql,*args: 1 if 'pg_try_advisory_lock' in sql else 0
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/descargar 12 https://t.me/c/0000000123/55',chat={'type':'private'},**{'from':{'id':99}}))
+        sqls=[c.args[0] for c in s.repo.pool.execute.call_args_list]
+        self.assertTrue(any('sending=FALSE' in sql for sql in sqls))
+        self.assertTrue(any("'retry'" in sql for sql in sqls))
+        self.assertFalse(any('descarga_media_cache' in sql or 'descarga_export_uncertain' in sql for sql in sqls))
+        self.assertEqual(s.repo.pool.execute.call_args.args[-1],55)
