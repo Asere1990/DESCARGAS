@@ -84,6 +84,7 @@ async def command(service, message):
         await service.tell(actor, '⏸ Pausa solicitada. El archivo o álbum en curso terminará; /descargar continuará desde el avance guardado.' if row else 'No hay una descarga registrada para esa cuenta y grupo.')
         return True
     cooldown=await pool.fetchval('SELECT max(resume_at) FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2',service.bot_id,uid) or 0
+    cooldown=max(cooldown,float(await service.repo.setting(f'link-list-wait:{service.bot_id}:{uid}') or 0))
     if cooldown>time.time():
         await service.tell(actor,f'Telegram exige esperar todavía {math.ceil(cooldown-time.time())} segundos. Después, vuelve a enviar '+(text if retry_mid else f'/descargar {uid} {source}')+'.')
         return True

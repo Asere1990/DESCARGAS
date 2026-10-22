@@ -189,3 +189,7 @@ Los FloodWait guardan siempre el plazo de espera, incluso durante envíos. Un re
 `/descargar telegram_id https://t.me/c/ID/MENSAJE` usa la sesión conectada de la cuenta indicada para revisar únicamente ese archivo/álbum y guardarlo en ALMACEN. Solo administradores por DM. Respeta permisos, bloqueos, exclusiones, caché, esperas de Telegram y envíos inciertos; no fuerza duplicados. Conserva el cursor y limpia el pendiente del enlace/álbum cuando termina correctamente. Rechaza iniciar otro trabajo sobre un origen que ya está activo. Si hay FloodWait, reactivar con el mismo /descargar de enlace cuando venza la espera. Admite los enlaces privados generados por /pendientes; no enlaces de invitación ni nombres públicos.
 
 `/descargar telegram_id group_id` conserva la descarga del grupo completo. `/reintentar` se mantiene como alias compatible para enlaces privados.
+
+
+### Listar enlaces de multimedia
+`/enlace telegram_id group_id` (también canal_id) consulta el historial accesible con la cuenta conectada indicada y envía al administrador por DM enlaces numerados, por partes. Solo fotos, videos, GIF y documentos con MIME de imagen/video; un enlace por álbum. No descarga archivos ni cambia el cursor de /descargar. Solo IDs -100 de supergrupos/canales. Si Telegram exige esperar o la cuenta está ocupada, muestra cómo continuar con `/enlace telegram_id group_id ultimo_id`. La numeración comienza de nuevo al continuar. Respeta acceso, orígenes protegidos y sesión actual. Los mensajes pagados sin acceso completo quedan fuera.

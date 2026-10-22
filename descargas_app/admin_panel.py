@@ -50,6 +50,7 @@ Ejemplo: 1609522430,3 — Permisos del destino número 3.
 Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
+/enlace telegram_id group_id — Lista numerada de fotos, videos, GIF e imágenes/videos como archivo. Un enlace por álbum; omite texto y otros documentos. Admite canal_id.
 /descargar telegram_id enlace — Descargar solo ese archivo/álbum hacia ALMACEN con la cuenta conectada indicada, sin mover el avance. Usa el enlace privado de /pendientes. No fuerza envíos inciertos.
 /pendientes telegram_id group_id — Mostrar enlaces y error registrado de los archivos/álbumes pendientes. Admite canal_id. Solo consulta, no reintenta ni borra.
 /stop telegram_id group_id — Pausar tras el archivo/álbum en curso. Admite channel_id.
@@ -72,7 +73,7 @@ class AdminPanel:
     async def update(self,update):
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})
         text=message.get('text','').strip() if not query else query.get('data','')
-        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
+        match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat|enlace)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
         callback=query and text.startswith('stats:')
         numeric=not query and text.isdecimal() and len(text)<=3
         account_selection=not query and re.fullmatch(r'[1-9][0-9]{0,15}\s*,\s*[1-9][0-9]{0,5}',text)
@@ -93,7 +94,11 @@ class AdminPanel:
         async with self.slots:
             try:
                 if not authorized(uid):return
-                if op in ('account_permissions','chat'):
+                if op=='enlace':
+                    if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
+                    from .link_listing import run as list_links
+                    await list_links(self.s,uid,arg)
+                elif op in ('account_permissions','chat'):
                     if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
                     from .account_chat import show_permissions,send_text
                     if op=='chat':await send_text(self.s,uid,arg,update_id)
