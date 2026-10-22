@@ -295,8 +295,11 @@ async def step(service, job):
             if not await client.is_user_authorized():
                 raise ValueError('La sesión fue revocada. Conecta de nuevo la cuenta.')
             service.export_operation='resolve_source'
-            saved_source=bool(job.get('manual_token') and job['source']==job['uid'])
-            entity = await client.get_me() if saved_source else await service.resolve(client, job['source'])
+            saved_source=bool(job.get('manual_token') and job['source']>0)
+            if saved_source:
+                from .manual_gallery import entity_for
+                entity=await entity_for(service,client,job['uid'],job['source'],job['generation'])
+            else:entity=await service.resolve(client,job['source'])
             if (not saved_source and not isinstance(entity, (types.Channel, types.Chat))) or utils.get_peer_id(entity) != job['source']:
                 raise ValueError('El origen debe ser un grupo o canal accesible por esa cuenta.')
             require_entity(entity, job['uid'])

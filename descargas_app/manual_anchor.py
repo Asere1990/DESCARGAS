@@ -41,7 +41,7 @@ async def input_link(s,actor,text):
         values=parse_qs(urlparse(text).query)
         try:source=int(values['user_id'][0]);mid=int(values['message_id'][0])
         except (KeyError,ValueError,IndexError):raise ValueError('Ese enlace de Mensajes guardados no es válido.')
-        if source!=row['uid'] or row['source']!=row['uid']:raise ValueError('El enlace debe pertenecer al origen de esta botonera.')
+        if source!=row['source'] or source<=0:raise ValueError('El enlace debe pertenecer al origen de esta botonera.')
     else:
         source,mid=parse_link(text.strip())
         if isinstance(source,str):
@@ -142,7 +142,8 @@ async def collect(s,actor,uid,source,data):
             await client.connect()
             if not await client.is_user_authorized():raise ValueError('Conecta de nuevo esa cuenta.')
             entity=await entity_for(s,client,uid,source,data['generation'])
-            data['title']='Mensajes guardados' if source==uid else ' '.join(entity.title.split())[:128]
+            from .private_chats import title
+            data['title']=title(entity,uid,source)
             for index,kind in enumerate(FILTERS):
                 state=streams.setdefault(str(index),{'offset':0,'done':False})
                 if state['done']:continue

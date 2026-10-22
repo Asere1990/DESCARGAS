@@ -34,6 +34,9 @@ async def entity_for(s,client,uid,source,generation):
         entity=await client.get_me()
         if entity.id!=uid:raise ValueError('La sesión no corresponde a esa cuenta.')
         return entity
+    if source>0:
+        from .private_chats import resolve
+        return await resolve(s,client,uid,source,generation)
     if not str(source).startswith('-100'):raise ValueError('Se necesita el ID -100 de un grupo o canal.')
     cache=getattr(s,'_manual_sources',None)
     if cache is None:cache={};s._manual_sources=cache
@@ -84,7 +87,8 @@ async def collect_page(s,actor,uid,source,data=None):
             await client.connect()
             if not await client.is_user_authorized():raise ValueError('Conecta de nuevo la cuenta.')
             entity=await entity_for(s,client,uid,source,data['generation'])
-            data['title']='Mensajes guardados' if source==uid else ' '.join(entity.title.split())[:128]
+            from .private_chats import title
+            data['title']=title(entity,uid,source)
             if source<0 and 'account_rights' not in data:
                 from .group_admin import entity_snapshot
                 data['account_rights']=entity_snapshot(entity)

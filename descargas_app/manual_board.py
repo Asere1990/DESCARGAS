@@ -236,6 +236,7 @@ async def menu(s,actor,uid):
         'reply_markup':{'inline_keyboard':[
             [{'text':'𝐆𝐑𝐔𝐏𝐎𝐒','style':'primary','callback_data':f'manual:g:{uid}'},
              {'text':'𝐂𝐀𝐍𝐀𝐋𝐄𝐒','style':'primary','callback_data':f'manual:h:{uid}'}],
+            [{'text':'𝐂𝐇𝐀𝐓𝐒 𝐏𝐑𝐈𝐕𝐀𝐃𝐎𝐒','style':'primary','callback_data':f'manual:p:{uid}'}],
             [{'text':'𝐌𝐄𝐍𝐒𝐀𝐉𝐄𝐒 𝐆𝐔𝐀𝐑𝐃𝐀𝐃𝐎𝐒','callback_data':f'manual:v:{uid}'}],
             [{'text':'Ú𝐋𝐓𝐈𝐌𝐀 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀','style':'success','callback_data':f'manual:l:{uid}'}]]}})
 
@@ -347,8 +348,11 @@ async def callback(s,actor,query):
     if action not in ('np','nv','na'):await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
     await s.repo.set_setting(f'manual-anchor:{s.bot_id}:{actor}','')
     if action!='q':await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
-    if action in ('g','h','l','b','v'):
+    if action in ('g','h','l','b','v','p'):
         uid=int(parts[2])
+        if action=='p':
+            from .private_chats import listing
+            return await listing(s,actor,uid)
         if action=='v':return await open_board(s,actor,uid,uid)
         if action=='b':return await menu(s,actor,uid)
         if action in ('g','h'):return await destinations(s,actor,uid,action=='h')
