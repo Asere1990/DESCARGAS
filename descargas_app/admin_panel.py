@@ -51,7 +51,7 @@ Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
 /menu telegram_id — Menú GRUPOS, CANALES y ÚLTIMA DESCARGA. Escribe el número de un destino para abrir su botonera.
-/menu telegram_id — Incluye lotes de 10 fotos, videos o álbumes (2+ elementos), y FOTO/VIDEO/ÁLBUM NÚMERO para seleccionar una posición de cada lista.
+/menu telegram_id — Las descargas por número incluyen ANTERIOR/SIGUIENTE, ATRÁS y MENÚ PRINCIPAL en la confirmación. Incluye lotes de 10 fotos, videos o álbumes (2+ elementos), y FOTO/VIDEO/ÁLBUM NÚMERO para seleccionar una posición de cada lista.
 /add ubicación — Guardar una ubicación para usar en BUSCAR (ejemplo: /add miami).
 /enlace telegram_id group_id — Botonera por páginas de multimedia, con totales aproximados, DESCARGAR, DESCARGAR 10, MENSAJES GUARDADOS y BUSCAR por caption o respuesta. Admite canal_id. Reabre desde el avance guardado.
 /descargar telegram_id enlace — Descargar solo ese archivo/álbum hacia ALMACEN con la cuenta conectada indicada, sin mover el avance. Usa el enlace privado de /pendientes. No fuerza envíos inciertos.

@@ -64,7 +64,7 @@ async def collect_page(s,actor,uid,source,data=None):
     if checkpoint:
         cached=s.repo.decode(bytes.fromhex(checkpoint))
         if cached['generation']==data['generation']:
-            for field in ('batch_remaining','return_position','number_request','notice','progress'):
+            for field in ('batch_remaining','return_position','number_request','number_notice','notice','progress'):
                 cached.pop(field,None)
                 if field in data:cached[field]=data[field]
             data=cached

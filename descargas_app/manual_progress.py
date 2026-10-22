@@ -33,8 +33,13 @@ class ManualProgress:
                 if row['position']>=len(data['entries']) or data['entries'][row['position']]['mid']!=job['retry_message']:return
                 data['progress']=progress_text
                 text,buttons=presentation(row,data)
+                target=row['message_id']
+                if data.get('number_notice') and data.get('number_request'):
+                    target=data['number_notice'];buttons=[]
+                    label={'photo':'Foto','video':'Video','album':'Álbum'}.get(data.get('mode'),'Elemento')
+                    text=f'⏳ {label} número {data["number_request"]} · Cuenta {row["uid"]}\n{progress_text}'
                 async with asyncio.timeout(2):
-                    await s.api('editMessageText',{'chat_id':row['actor'],'message_id':row['message_id'],'text':text,'reply_markup':{'inline_keyboard':buttons},'link_preview_options':{'is_disabled':True}})
+                    await s.api('editMessageText',{'chat_id':row['actor'],'message_id':target,'text':text,'reply_markup':{'inline_keyboard':buttons},'link_preview_options':{'is_disabled':True}})
                 self.last=progress_text
             finally:await conn.execute('SELECT pg_advisory_unlock(752,hashtext($1))',token)
     async def run(self):

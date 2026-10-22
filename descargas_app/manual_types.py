@@ -37,7 +37,14 @@ async def number_input(s,actor,text):
     data=s.repo.decode(row['payload'])
     await open_board(s,actor,row['uid'],row['source'],query=data.get('query') or None,mode=pending['mode'])
     current=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND uid=$2 AND source=$3',s.bot_id,row['uid'],row['source'])
-    await enqueue(s,actor,current['token'],current['position'],current['message_id'],number=int(text))
+    current_data=s.repo.decode(current['payload']);number=int(text)
+    if number<=len(current_data['entries']) and current_data['entries'][number-1]['status'] in ('saved','skipped'):
+        from .manual_navigation import confirm
+        from .manual_board import link
+        selected=current_data['entries'][number-1]
+        context={'uid':current['uid'],'source':current['source'],'generation':current_data['generation'],'mode':pending['mode'],'query':current_data.get('query') or '', 'number':number,'saved':selected['status']=='saved'}
+        await confirm(s,actor,context,0,link(current['source'],selected['mid']))
+    else:await enqueue(s,actor,current['token'],current['position'],current['message_id'],number=number)
     await s.repo.set_setting(key,'')
     return True
 

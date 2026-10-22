@@ -253,7 +253,7 @@ async def select_number(s,actor,text):
     return True
 
 
-async def enqueue(s,actor,token,position,message_id,batch=1,number=None):
+async def enqueue(s,actor,token,position,message_id,batch=1,number=None,notice_id=None):
     row=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2',s.bot_id,token)
     if not row or row['actor']!=actor or row['message_id']!=message_id or row['closed']:raise ValueError('Esta botonera ya no está activa. Abre /menu telegram_id.')
     if not s.almacen or row['source']==s.almacen:raise ValueError('El origen no puede ser ALMACEN.')
@@ -267,12 +267,14 @@ async def enqueue(s,actor,token,position,message_id,batch=1,number=None):
         row=await conn.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2 FOR UPDATE',s.bot_id,token)
         if row['busy'] or row['position']!=position or row['actor']!=actor or row['message_id']!=message_id or row['closed']:raise ValueError('Ese enlace ya cambió o está descargándose. Usa la botonera actual.')
         data=s.repo.decode(row['payload'])
+        data.pop('number_notice',None)
         initial_position=position
         if number is not None:
             position=number-1
             if position<0:raise ValueError('El número debe ser mayor que cero.')
             if position<len(data['entries']) and data['entries'][position]['status'] in ('saved','skipped'):raise ValueError('Ese elemento ya está guardado o excluido.')
             data['return_position']=initial_position;data['number_request']=number
+            if notice_id:data['number_notice']=notice_id
         loading=position>=len(data['entries'])
         if loading and data.get('complete'):raise ValueError('Ese número no está en esta lista.' if number is not None else 'No hay elementos pendientes en esta lista.')
         if job and job['state']=='running':raise ValueError('Ya hay una descarga activa en ese origen. Espera o usa /stop.')
@@ -295,6 +297,9 @@ async def enqueue(s,actor,token,position,message_id,batch=1,number=None):
 async def callback(s,actor,query):
     if not authorized(actor) or query.get('message',{}).get('chat',{}).get('id')!=actor:return
     parts=query['data'].split(':');action=parts[1]
+    if action in ('zn','zp','zb','zm'):
+        from .manual_navigation import callback as navigate
+        return await navigate(s,actor,query)
     if action not in ('np','nv','na'):await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
     if action!='q':await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
     if action in ('g','h','l','b','v'):
@@ -349,7 +354,7 @@ async def complete(s,job,items,count):
     """Commit export completion and UI progress together, so crashes can replay safely."""
     from .export_inventory import stored
     saved=await stored(s,job['source'],items)
-    token=job['manual_token'];updated=None
+    token=job['manual_token'];updated=None;navigation=None
     async with s.repo.pool.acquire() as conn,conn.transaction():
         current=await conn.fetchrow('SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3 FOR UPDATE',s.bot_id,job['uid'],job['source'])
         if not current or current['scan']!=job.get('scan',0) or current['manual_token']!=token:return
@@ -364,6 +369,9 @@ async def complete(s,job,items,count):
                 if saved:data['last_downloaded']=pos+1
                 data['notice']=f'Último enlace procesado: {pos+1}. '+('Guardado en ALMACEN. Descarga y envío: 100%.' if saved else 'Omitido por una exclusión; no se cuenta como descargado.')
                 numbered='return_position' in data
+                if numbered and data.get('mode') in ('photo','video','album'):
+                    navigation={'uid':row['uid'],'source':row['source'],'generation':data['generation'],'mode':data['mode'],'query':data.get('query') or '', 'number':pos+1,'saved':saved}
+                data.pop('number_notice',None)
                 pos=advance(data,data.pop('return_position')) if numbered else advance(data,pos+1)
                 data.pop('number_request',None)
                 data.pop('progress',None)
@@ -383,6 +391,7 @@ async def complete(s,job,items,count):
     if updated:
         try:await render(s,updated)
         except Exception:pass # State remains durable; /menu reopens it.
+    return navigation
 
 
 async def failed(s,job,detail):
@@ -393,11 +402,15 @@ async def failed(s,job,detail):
         if not row:return
         data=s.repo.decode(row['payload'])
         position=advance(data,data.pop('return_position')) if 'return_position' in data else row['position']
+        notice=data.pop('number_notice',None)
         data.pop('number_request',None);data['batch_remaining']=0;data.pop('progress',None)
         data['notice']='⏸ '+detail[:450]+' No se avanzó al siguiente enlace.'
         await conn.execute('UPDATE descarga_manual_boards SET busy=FALSE,payload=$3,position=$4 WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data),position)
     try:await render(s,dict(row,busy=False,payload=s.repo.encode(data),position=position))
     except Exception:pass
+    if notice:
+        from .manual_navigation import restore_notice
+        await restore_notice(s,row['actor'],notice,detail)
 
 
 async def load_batch(s,job):
@@ -407,10 +420,12 @@ async def load_batch(s,job):
     if not row:raise ValueError('La botonera ya no está disponible.')
     data=s.repo.decode(row['payload'])
     if not row['closed']:data=await collect(s,row['actor'],row['uid'],row['source'],data)
+    unavailable_notice=None
     numbered='number_request' in data
     pos=row['position'] if numbered else advance(data,row['position'])
     if numbered and ((pos>=len(data['entries']) and data.get('complete')) or (pos<len(data['entries']) and data['entries'][pos]['status'] in ('saved','skipped'))):
         data['notice']=f'Número {data["number_request"]}: '+('ya guardado o excluido.' if pos<len(data['entries']) else 'no existe en esta lista.')
+        unavailable_notice=data.pop('number_notice',None)
         pos=advance(data,data.pop('return_position'));data.pop('number_request',None);data['batch_remaining']=0
         numbered=False
     available=pos<len(data['entries'])
@@ -431,3 +446,6 @@ async def load_batch(s,job):
     from .manual_gallery import view_key
     await s.repo.set_setting(view_key(s,row['uid'],row['source'],data.get('query'),data.get('mode',''))+':page','')
     await render(s,dict(board,payload=s.repo.encode(data),position=pos,busy=busy))
+    if unavailable_notice:
+        from .manual_navigation import restore_notice
+        await restore_notice(s,row['actor'],unavailable_notice,data['notice'])

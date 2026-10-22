@@ -341,13 +341,17 @@ async def step(service, job):
                 from .export_inventory import resolve_pending
                 for item_id in {mid,*(m.id for m in items)}:
                     await resolve_pending(service,job,item_id)
+                navigation=None
                 if job.get('manual_token'):
                     from .manual_board import complete
-                    await complete(service,job,full_items,count)
+                    navigation=await complete(service,job,full_items,count)
                 else:
                     await service.repo.pool.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,total=total+$5 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0),count)
                 try:
-                    await latest_confirmation(service,job['actor'],f'✅ Descarga del enlace terminada con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.\nEnlace de origen: {link}')
+                    if isinstance(navigation,dict):
+                        from .manual_navigation import confirm
+                        await confirm(service,job['actor'],navigation,count,link)
+                    else:await latest_confirmation(service,job['actor'],f'✅ Descarga del enlace terminada con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.\nEnlace de origen: {link}')
                 except Exception:LOG.warning('Link completed; administrator notification unavailable')
                 return
             if job.get('phase')=='count':
