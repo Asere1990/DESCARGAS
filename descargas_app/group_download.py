@@ -322,14 +322,28 @@ async def step(service, job):
                     items=[m for m in items if media_label(m)]
                     if not items:raise ValueError('El enlace no contiene multimedia admitida.')
                 if key[0]!=job['source']:raise ValueError('El enlace no corresponde al origen registrado.')
-                count=await archive_items(service,job,client,key,items,name)
+                full_items=items
+                if job.get('manual_token'):
+                    from .manual_types import select_items
+                    key,full_items=await select_items(service,job,key,items)
+                    from .export_inventory import stored
+                    items=[m for m in full_items if not await stored(service,job['source'],[m])]
+                    if items:
+                        from .manual_progress import ManualProgress
+                        from .progress import ACTIVE
+                        progress=ManualProgress(service,job,items).start();marker=ACTIVE.set(progress)
+                        try:count=await archive_items(service,job,client,key,items,name)
+                        finally:
+                            ACTIVE.reset(marker);await progress.close()
+                    else:count=0
+                else:count=await archive_items(service,job,client,key,items,name)
                 if count is None:return
                 from .export_inventory import resolve_pending
                 for item_id in {mid,*(m.id for m in items)}:
                     await resolve_pending(service,job,item_id)
                 if job.get('manual_token'):
                     from .manual_board import complete
-                    await complete(service,job,items,count)
+                    await complete(service,job,full_items,count)
                 else:
                     await service.repo.pool.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,total=total+$5 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0),count)
                 try:

@@ -62,6 +62,8 @@ def presentation(row,data):
         f'Videos descargados: {sum(e["videos"] for _,e in saved)}\n'
         f'Enlaces descargados: {len(saved)}\n'
         f'Último enlace descargado: {data.get("last_downloaded",max((i for i,_ in saved),default=0))}\n')
+    if data.get('mode'):text+='\nLista de '+{'photo':'FOTOS','video':'VIDEOS','album':'ÁLBUMES'}[data['mode']]+' · Numeración propia de esta lista.\n'
+    if data.get('progress'):text+='\n'+data['progress']+'\n'
     if data.get('query'):text+='\nBúsqueda: '+data['query']+'\nElementos relacionados encontrados: '+str(sum(e['elements'] for e in entries))+'\n'
     if totals:text+='\nDocumentos (incluye otros tipos): '+str(totals.get('documents',0))+'\nTotales de galería aproximados; documentos multimedia se identifican al cargar.\n'
     if partial:text+='\nLista parcial: se cargarán más enlaces al avanzar.\n'
@@ -78,6 +80,8 @@ def presentation(row,data):
     if position<len(entries):
         buttons.append([{'text':'⏳ DESCARGANDO' if row['busy'] else ('𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝟏𝟎 𝐆𝐔𝐀𝐑𝐃𝐀𝐃𝐎𝐒' if row['source']==row['uid'] else '𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝟏𝟎'),
             'style':'success','callback_data':f'manual:{"w" if row["busy"] else "t"}:{row["token"]}:{position}'}])
+    for label,action in (('𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝐕𝐈𝐃𝐄𝐎𝐒 𝟏𝟎','fv'),('𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝐅𝐎𝐓𝐎𝐒 𝟏𝟎','fp'),('𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝐀𝐋𝐁𝐔𝐌 𝟏𝟎','fa'),('𝐕𝐈𝐃𝐄𝐎 𝐍Ú𝐌𝐄𝐑𝐎','nv'),('𝐅𝐎𝐓𝐎 𝐍Ú𝐌𝐄𝐑𝐎','np'),('𝐀𝐋𝐁𝐔𝐌 𝐍Ú𝐌𝐄𝐑𝐎','na')):
+        buttons.append([{'text':label,'style':'success' if action.startswith('f') else 'primary','callback_data':f'manual:{"w" if row["busy"] else action}:{row["token"]}:{position}'}])
     if partial and not row['busy']:
         buttons.append([{'text':'CARGAR MÁS ENLACES','callback_data':f'manual:n:{row["token"]}:{position}'}])
     buttons.append([{'text':'𝐌𝐄𝐍𝐒𝐀𝐉𝐄𝐒 𝐆𝐔𝐀𝐑𝐃𝐀𝐃𝐎𝐒','callback_data':f'manual:s:{row["token"]}:{position}'}])
@@ -126,7 +130,7 @@ async def collect(s,actor,uid,source,data=None):
     return await collect_page(s,actor,uid,source,data)
 
 
-async def open_board(s,actor,uid,source,refresh=False,query=None):
+async def open_board(s,actor,uid,source,refresh=False,query=None,mode=""):
     if not authorized(actor):return
     if not s.almacen or source==s.almacen:raise ValueError('Elige un origen diferente a ALMACEN.')
     row=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND uid=$2 AND source=$3',s.bot_id,uid,source)
@@ -134,7 +138,7 @@ async def open_board(s,actor,uid,source,refresh=False,query=None):
     account=await s.repo.account(uid)
     if not account or not account['session']:raise ValueError('Esa cuenta no está conectada.')
     from .manual_gallery import switch_view
-    row=await switch_view(s,row,uid,source,query)
+    row=await switch_view(s,row,uid,source,query,mode)
     finished=row and row['position']>=len(s.repo.decode(row['payload'])['entries'])
     if row and s.repo.decode(row['payload'])['generation']==account['generation'] and (row['busy'] or not (refresh or finished or s.repo.decode(row['payload']).get('force_open'))):
         await s.repo.pool.execute('UPDATE descarga_manual_boards SET actor=$4,closed=FALSE WHERE bot_id=$1 AND uid=$2 AND source=$3',s.bot_id,uid,source,actor)
@@ -147,7 +151,7 @@ async def open_board(s,actor,uid,source,refresh=False,query=None):
     else:
         await s.tell(actor,'🔎 Consultando multimedia; no es necesario leer todo el chat…')
         previous=s.repo.decode(row['payload']) if row and s.repo.decode(row['payload'])['generation']==account['generation'] else None
-        if previous is None:previous={'title':str(source),'generation':account['generation'],'entries':[],'query':query or ''}
+        if previous is None:previous={'title':str(source),'generation':account['generation'],'entries':[],'query':query or '','mode':mode}
         changing_view=previous.pop('force_open',False)
         if previous.get('complete') and not changing_view and not previous.get('query'):
             previous['after']=max((e['mid'] for e in previous['entries']),default=0)
@@ -167,7 +171,7 @@ async def open_board(s,actor,uid,source,refresh=False,query=None):
             WHERE NOT descarga_manual_boards.busy RETURNING *''',s.bot_id,uid,source,actor,token,s.repo.encode(data),advance(data,row['position'] if row else 0))
         if not row:raise ValueError('Hay una descarga en curso. Espera antes de cambiar la sesión del panel.')
         from .manual_gallery import view_key
-        await s.repo.set_setting(view_key(s,uid,source,data.get('query'))+':page','')
+        await s.repo.set_setting(view_key(s,uid,source,data.get('query'),data.get('mode',''))+':page','')
         await s.repo.set_setting(f'manual-scan:{s.bot_id}:{uid}:{source}','')
         if old_message_id:
             await s.repo.pool.execute('UPDATE descarga_manual_boards SET message_id=$3 WHERE bot_id=$1 AND token=$2',s.bot_id,token,old_message_id)
@@ -175,6 +179,8 @@ async def open_board(s,actor,uid,source,refresh=False,query=None):
     if not await s.repo.setting(last_key(s,actor,uid)):
         await s.repo.set_setting(last_key(s,actor,uid),source)
     await s.repo.set_setting(context_key(s,actor),'')
+    await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
+    await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
     await render(s,row,new=not bool(row["message_id"]))
 
 
@@ -191,6 +197,7 @@ async def menu(s,actor,uid):
     if not account or not account['session']:raise ValueError('Esa cuenta no está conectada.')
     await s.repo.set_setting(context_key(s,actor),'')
     await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
+    await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
     await s.api('sendMessage',{'chat_id':actor,'text':f'𝐌𝐄𝐍Ú 𝐃𝐄 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒\nCuenta: {uid}',
         'reply_markup':{'inline_keyboard':[
             [{'text':'𝐆𝐑𝐔𝐏𝐎𝐒','style':'primary','callback_data':f'manual:g:{uid}'},
@@ -246,7 +253,7 @@ async def select_number(s,actor,text):
     return True
 
 
-async def enqueue(s,actor,token,position,message_id,batch=1):
+async def enqueue(s,actor,token,position,message_id,batch=1,number=None):
     row=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2',s.bot_id,token)
     if not row or row['actor']!=actor or row['message_id']!=message_id or row['closed']:raise ValueError('Esta botonera ya no está activa. Abre /menu telegram_id.')
     if not s.almacen or row['source']==s.almacen:raise ValueError('El origen no puede ser ALMACEN.')
@@ -260,26 +267,35 @@ async def enqueue(s,actor,token,position,message_id,batch=1):
         row=await conn.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2 FOR UPDATE',s.bot_id,token)
         if row['busy'] or row['position']!=position or row['actor']!=actor or row['message_id']!=message_id or row['closed']:raise ValueError('Ese enlace ya cambió o está descargándose. Usa la botonera actual.')
         data=s.repo.decode(row['payload'])
-        if position>=len(data['entries']):raise ValueError('Esta lista ya terminó.')
+        initial_position=position
+        if number is not None:
+            position=number-1
+            if position<0:raise ValueError('El número debe ser mayor que cero.')
+            if position<len(data['entries']) and data['entries'][position]['status'] in ('saved','skipped'):raise ValueError('Ese elemento ya está guardado o excluido.')
+            data['return_position']=initial_position;data['number_request']=number
+        loading=position>=len(data['entries'])
+        if loading and data.get('complete'):raise ValueError('Ese número no está en esta lista.' if number is not None else 'No hay elementos pendientes en esta lista.')
         if job and job['state']=='running':raise ValueError('Ya hay una descarga activa en ese origen. Espera o usa /stop.')
-        mid=data['entries'][position]['mid']
+        mid=data['entries'][position]['mid'] if not loading else 0
         await conn.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,retry_message,manual_token)
-            VALUES($1,$2,$3,$4,$5,'running','retry',$6,$7) ON CONFLICT(bot_id,uid,source) DO UPDATE SET
-            actor=excluded.actor,generation=excluded.generation,state='running',phase='retry',retry_message=excluded.retry_message,
+            VALUES($1,$2,$3,$4,$5,'running',$8,$6,$7) ON CONFLICT(bot_id,uid,source) DO UPDATE SET
+            actor=excluded.actor,generation=excluded.generation,state='running',phase=excluded.phase,retry_message=excluded.retry_message,
             manual_token=excluded.manual_token,sending=FALSE,scan=descarga_group_exports.scan+1,
             retry_return_state=CASE WHEN descarga_group_exports.state='done' THEN 'done' ELSE 'paused' END''',
-            s.bot_id,row['uid'],row['source'],actor,account['generation'],mid,token)
-        data['notice']=''
+            s.bot_id,row['uid'],row['source'],actor,account['generation'],mid,token,'manual_load' if loading else 'retry')
+        data['notice']='';data.pop('progress',None)
         data['batch_remaining']=batch
-        await conn.execute('UPDATE descarga_manual_boards SET busy=TRUE,payload=$3 WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data))
+        await conn.execute('UPDATE descarga_manual_boards SET busy=TRUE,payload=$3,position=$4 WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data),position)
     await s.repo.set_setting(last_key(s,actor,row['uid']),row['source'])
     await s.repo.set_setting(last_key(s,actor,row['uid'])+':query',data.get('query') or '')
+    await s.repo.set_setting(last_key(s,actor,row['uid'])+':mode',data.get('mode') or '')
     await render(s,dict(row,busy=True,payload=s.repo.encode(data)))
 
 
 async def callback(s,actor,query):
     if not authorized(actor) or query.get('message',{}).get('chat',{}).get('id')!=actor:return
     parts=query['data'].split(':');action=parts[1]
+    if action not in ('np','nv','na'):await s.repo.set_setting(f'manual-number:{s.bot_id}:{actor}','')
     if action!='q':await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}','')
     if action in ('g','h','l','b','v'):
         uid=int(parts[2])
@@ -289,14 +305,21 @@ async def callback(s,actor,query):
         source=await s.repo.setting(last_key(s,actor,uid))
         if not source:return await s.tell(actor,'Todavía no hay una descarga abierta para esa cuenta. Elige GRUPOS o CANALES.')
         last_query=await s.repo.setting(last_key(s,actor,uid)+':query')
+        last_mode=await s.repo.setting(last_key(s,actor,uid)+':mode')
+        if last_mode:return await open_board(s,actor,uid,int(source),query=last_query or None,mode=last_mode)
         if last_query:return await open_board(s,actor,uid,int(source),query=last_query)
         return await open_board(s,actor,uid,int(source))
     token=parts[2];position=int(parts[3])
+    if action in ('fp','fv','fa','np','nv','na'):
+        from .manual_types import typed_action
+        return await typed_action(s,actor,query,action,token,position)
     if action in ('s','q','n','a'):
         row=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2',s.bot_id,token)
         if not row or row['actor']!=actor or row['closed'] or row['message_id']!=query['message']['message_id']:raise ValueError('Abre la botonera actual.')
         if row['busy']:raise ValueError('Espera a que termine la descarga actual.')
         if action=='a':
+            previous=s.repo.decode(row['payload'])
+            if previous.get('mode'):return await open_board(s,actor,row['uid'],row['source'],query=previous.get('query') or None)
             if s.repo.decode(row['payload']).get('query'):return await open_board(s,actor,row['uid'],row['source'])
             parent=await s.repo.setting(f'manual-parent:{s.bot_id}:{actor}:{row["uid"]}')
             if row['source']==row['uid'] and parent and int(parent)!=row['uid']:return await open_board(s,actor,row['uid'],int(parent))
@@ -304,7 +327,7 @@ async def callback(s,actor,query):
         if action=='s':
             if row['source']!=row['uid']:await s.repo.set_setting(f'manual-parent:{s.bot_id}:{actor}:{row["uid"]}',row['source'])
             return await open_board(s,actor,row['uid'],row['uid'])
-        if action=='n':return await open_board(s,actor,row['uid'],row['source'],refresh=True,query=s.repo.decode(row['payload']).get('query') or None)
+        if action=='n':return await open_board(s,actor,row['uid'],row['source'],refresh=True,query=s.repo.decode(row['payload']).get('query') or None,mode=s.repo.decode(row['payload']).get('mode',''))
         await s.repo.set_setting(f'manual-search:{s.bot_id}:{actor}',json.dumps({'token':token,'message_id':row['message_id'],'generation':s.repo.decode(row['payload'])['generation'],'expires':time.time()+1800}))
         locations=json.loads(await s.repo.setting(f'manual-locations:{s.bot_id}') or '[]')
         extra=('\nUbicaciones agregadas: '+', '.join(locations[-20:])) if locations else ''
@@ -339,13 +362,16 @@ async def complete(s,job,items,count):
                     for field in ('photos','videos','gifs','elements','files','ids'):data['entries'][pos][field]=actual[field]
                 data['entries'][pos]['status']='saved' if saved else 'skipped'
                 if saved:data['last_downloaded']=pos+1
-                data['notice']=f'Último enlace procesado: {pos+1}. '+('Guardado en ALMACEN.' if saved else 'Omitido por una exclusión; no se cuenta como descargado.')
-                pos=advance(data,pos+1)
+                data['notice']=f'Último enlace procesado: {pos+1}. '+('Guardado en ALMACEN. Descarga y envío: 100%.' if saved else 'Omitido por una exclusión; no se cuenta como descargado.')
+                numbered='return_position' in data
+                pos=advance(data,data.pop('return_position')) if numbered else advance(data,pos+1)
+                data.pop('number_request',None)
+                data.pop('progress',None)
                 await conn.execute('UPDATE descarga_manual_boards SET payload=$3,position=$4,busy=FALSE WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data),pos)
                 updated=dict(row,payload=s.repo.encode(data),position=pos,busy=False)
         remaining=max(0,data.get('batch_remaining',1)-1) if updated else 0
         if updated:data['batch_remaining']=remaining
-        needs_page=bool(updated and not row['closed'] and pos>=len(data['entries']) and data.get('lazy') and not data.get('complete'))
+        needs_page=bool(updated and not numbered and not row['closed'] and pos>=len(data['entries']) and data.get('lazy') and not data.get('complete'))
         continuing=bool(updated and not row['closed'] and remaining and pos<len(data['entries']))
         if continuing or needs_page:
             await conn.execute('UPDATE descarga_manual_boards SET payload=$3,busy=TRUE WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data))
@@ -365,9 +391,12 @@ async def failed(s,job,detail):
     async with s.repo.pool.acquire() as conn,conn.transaction():
         row=await conn.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2 FOR UPDATE',s.bot_id,token)
         if not row:return
-        data=s.repo.decode(row['payload']);data['notice']='⏸ '+detail[:450]+' No se avanzó al siguiente enlace.'
-        await conn.execute('UPDATE descarga_manual_boards SET busy=FALSE,payload=$3 WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data))
-    try:await render(s,dict(row,busy=False,payload=s.repo.encode(data)))
+        data=s.repo.decode(row['payload'])
+        position=advance(data,data.pop('return_position')) if 'return_position' in data else row['position']
+        data.pop('number_request',None);data['batch_remaining']=0;data.pop('progress',None)
+        data['notice']='⏸ '+detail[:450]+' No se avanzó al siguiente enlace.'
+        await conn.execute('UPDATE descarga_manual_boards SET busy=FALSE,payload=$3,position=$4 WHERE bot_id=$1 AND token=$2',s.bot_id,token,s.repo.encode(data),position)
+    try:await render(s,dict(row,busy=False,payload=s.repo.encode(data),position=position))
     except Exception:pass
 
 
@@ -378,7 +407,12 @@ async def load_batch(s,job):
     if not row:raise ValueError('La botonera ya no está disponible.')
     data=s.repo.decode(row['payload'])
     if not row['closed']:data=await collect(s,row['actor'],row['uid'],row['source'],data)
-    pos=advance(data,row['position'])
+    numbered='number_request' in data
+    pos=row['position'] if numbered else advance(data,row['position'])
+    if numbered and ((pos>=len(data['entries']) and data.get('complete')) or (pos<len(data['entries']) and data['entries'][pos]['status'] in ('saved','skipped'))):
+        data['notice']=f'Número {data["number_request"]}: '+('ya guardado o excluido.' if pos<len(data['entries']) else 'no existe en esta lista.')
+        pos=advance(data,data.pop('return_position'));data.pop('number_request',None);data['batch_remaining']=0
+        numbered=False
     available=pos<len(data['entries'])
     waiting=not row['closed'] and not available and not data.get('complete')
     continuing=not row['closed'] and available and data.get('batch_remaining',0)>0
@@ -395,5 +429,5 @@ async def load_batch(s,job):
         else:
             await conn.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,manual_token=NULL WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",s.bot_id,job['uid'],job['source'],job.get('scan',0))
     from .manual_gallery import view_key
-    await s.repo.set_setting(view_key(s,row['uid'],row['source'],data.get('query'))+':page','')
+    await s.repo.set_setting(view_key(s,row['uid'],row['source'],data.get('query'),data.get('mode',''))+':page','')
     await render(s,dict(board,payload=s.repo.encode(data),position=pos,busy=busy))

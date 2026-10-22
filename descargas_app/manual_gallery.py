@@ -11,19 +11,19 @@ from .link_listing import media_label
 FILTERS=(types.InputMessagesFilterPhotoVideo,types.InputMessagesFilterGif,types.InputMessagesFilterDocument)
 
 
-def view_key(s,uid,source,query):
-    digest=hashlib.sha256((query or '').encode()).hexdigest()[:24]
+def view_key(s,uid,source,query,mode=""):
+    digest=hashlib.sha256(((query or '')+('\0'+mode if mode else '')).encode()).hexdigest()[:24]
     return f'manual-view:{s.bot_id}:{uid}:{source}:{digest}'
 
 
-async def switch_view(s,row,uid,source,query):
+async def switch_view(s,row,uid,source,query,mode=""):
     if not row:return None
     old=s.repo.decode(row['payload'])
-    if (old.get('query') or '')==(query or ''):return row
+    if (old.get('query') or '')==(query or '') and old.get('mode','')==mode:return row
     if row['busy']:raise ValueError('Espera a que termine la descarga antes de cambiar la búsqueda.')
-    await s.repo.set_setting(view_key(s,uid,source,old.get('query')),s.repo.encode({'data':old,'position':row['position']}).hex())
-    cached=await s.repo.setting(view_key(s,uid,source,query))
-    current=s.repo.decode(bytes.fromhex(cached)) if cached else {'data':{'generation':old['generation'],'title':old['title'],'entries':[],'query':query or ''},'position':0}
+    await s.repo.set_setting(view_key(s,uid,source,old.get('query'),old.get('mode','')),s.repo.encode({'data':old,'position':row['position']}).hex())
+    cached=await s.repo.setting(view_key(s,uid,source,query,mode))
+    current=s.repo.decode(bytes.fromhex(cached)) if cached else {'data':{'generation':old['generation'],'title':old['title'],'entries':[],'query':query or '','mode':mode},'position':0}
     # The active panel is replaced by open_board; old callbacks must be fenced.
     current['data']['force_open']=True
     return dict(row,payload=s.repo.encode(current['data']),position=current['position'],message_id=None)
@@ -59,15 +59,22 @@ async def collect_page(s,actor,uid,source,data=None):
     if data['generation']!=account['generation']:raise ValueError('La sesión cambió. Abre de nuevo el panel.')
     if data.get('complete'):return data
     if await users_busy(s):raise ValueError('Espera a que termine la descarga al DM y vuelve a abrir la botonera.')
-    checkpoint_key=view_key(s,uid,source,data.get('query'))+':page'
+    checkpoint_key=view_key(s,uid,source,data.get('query'),data.get('mode',''))+':page'
     checkpoint=await s.repo.setting(checkpoint_key)
     if checkpoint:
         cached=s.repo.decode(bytes.fromhex(checkpoint))
-        if cached['generation']==data['generation']:data=cached
+        if cached['generation']==data['generation']:
+            for field in ('batch_remaining','return_position','number_request','notice','progress'):
+                cached.pop(field,None)
+                if field in data:cached[field]=data[field]
+            data=cached
     data['lazy']=True
     streams=data.setdefault('streams',{})
     existing={e.get('group') or ('single',e['mid']):e for e in data['entries']}
+    parts=data.setdefault('album_parts',{})
+    existing.update({int(key):value for key,value in parts.items()})
     fresh=[]
+    mode=data.get('mode','')
     async with s.repo.account_lock(uid,wait=False):
         await ensure_allowed(s,uid,source)
         current=await s.repo.account(uid)
@@ -82,7 +89,7 @@ async def collect_page(s,actor,uid,source,data=None):
                 await s.repo.pace(f'enlace-read:{uid}',3.1)
                 counters=await client(functions.messages.GetSearchCountersRequest(peer=entity,filters=[types.InputMessagesFilterPhotos(),types.InputMessagesFilterVideo(),types.InputMessagesFilterGif(),types.InputMessagesFilterDocument()]))
                 data['totals']={name:counter.count for name,counter in zip(('photos','videos','gifs','documents'),counters)}
-            filters=(types.InputMessagesFilterEmpty,) if data.get('query') else FILTERS
+            filters=(types.InputMessagesFilterEmpty,) if data.get('query') else ((types.InputMessagesFilterPhotos,types.InputMessagesFilterDocument) if mode=='photo' else (types.InputMessagesFilterVideo,types.InputMessagesFilterDocument) if mode=='video' else FILTERS)
             for index,kind in enumerate(filters):
                 state=streams.setdefault(str(index),{'offset':0,'done':False})
                 if state['done']:continue
@@ -98,8 +105,14 @@ async def collect_page(s,actor,uid,source,data=None):
                 for message in candidates:
                     try:paid=purchased_items(message)
                     except ValueError:continue
-                    piece=entry(message,paid if paid is not None else [message])
+                    selected=paid if paid is not None else [message]
+                    if mode in ('photo','video'):
+                        selected=[m for m in selected if media_label(m) in (('Foto','Imagen') if mode=='photo' else ('Video',))]
+                    piece=entry(message,selected)
+                    if mode in ('photo','video'):
+                        piece['group']=None;piece['ids']=[m.id for m in selected]
                     if not piece['elements']:continue
+                    if mode=='album' and not piece['group'] and piece['elements']<2:continue
                     key=piece['group'] or ('single',message.id)
                     previous=existing.get(key)
                     if previous:
@@ -107,7 +120,12 @@ async def collect_page(s,actor,uid,source,data=None):
                         # Grouped media can span pages and filter categories.
                         previous['ids']+=piece['ids'];previous['files']+=piece['files']
                         for field in ('photos','videos','gifs','elements'):previous[field]+=piece[field]
-                    else:existing[key]=piece;fresh.append(piece)
+                    else:
+                        existing[key]=piece
+                        if mode!='album' or piece['elements']>=2:fresh.append(piece)
+                        else:parts[str(key)]=piece
+                    if mode=='album' and str(key) in parts and existing[key]['elements']>=2:
+                        fresh.append(parts.pop(str(key)))
                 if page:state['offset']=min(m.id for m in page)
                 state['done']=len(page)<50
                 data['entries']+=sorted(fresh,key=lambda e:e['mid'],reverse=True);fresh=[]

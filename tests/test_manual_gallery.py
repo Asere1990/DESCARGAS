@@ -92,3 +92,29 @@ class GalleryTests(unittest.IsolatedAsyncioTestCase):
         data=await g.collect_page(self.s,99,12,-1000000000123)
         self.assertEqual(len(data['entries']),1);self.assertEqual(c.counter_calls,1)
         self.assertEqual(sum(isinstance(k['filter'],types.InputMessagesFilterPhotoVideo) for k in c.calls),1)
+
+    async def test_photo_mode_lists_individual_album_photos_and_image_documents_only(self):
+        def history(kw):
+            if isinstance(kw['filter'],types.InputMessagesFilterPhotos):return [message(10,'photo',77),message(9,'photo',77)]
+            return [message(8,'image'),message(7,'video'),message(6,'gif'),message(5,'pdf')]
+        c=Client(history);self.s.client=lambda session:c
+        data=await g.collect_page(self.s,99,12,-1000000000123,{'title':'Grupo','generation':4,'entries':[],'mode':'photo'})
+        self.assertEqual([e['mid'] for e in data['entries']],[10,9,8])
+        self.assertTrue(all(e['elements']==1 and e['group'] is None for e in data['entries']))
+        self.assertEqual([type(k['filter']) for k in c.calls],[types.InputMessagesFilterPhotos,types.InputMessagesFilterDocument])
+
+    async def test_video_mode_deduplicates_document_stream_and_excludes_gifs(self):
+        c=Client(lambda kw:[message(10,'video',77)] if isinstance(kw['filter'],types.InputMessagesFilterVideo) else [message(10,'video',77),message(9,'gif'),message(8,'image')])
+        self.s.client=lambda session:c
+        data=await g.collect_page(self.s,99,12,-1000000000123,{'title':'Grupo','generation':4,'entries':[],'mode':'video'})
+        self.assertEqual(len(data['entries']),1);self.assertEqual(data['entries'][0]['elements'],1)
+        self.assertIsNone(data['entries'][0]['group'])
+
+    async def test_album_mode_requires_two_items_and_merges_category_boundaries(self):
+        c=Client(lambda kw:[message(10,'photo',77),message(8,'photo'),message(7,'photo',88)] if isinstance(kw['filter'],types.InputMessagesFilterPhotoVideo) else [message(9,'image',77)] if isinstance(kw['filter'],types.InputMessagesFilterDocument) else [])
+        self.s.client=lambda session:c
+        data=await g.collect_page(self.s,99,12,-1000000000123,{'title':'Grupo','generation':4,'entries':[],'mode':'album'})
+        self.assertEqual(len(data['entries']),1)
+        self.assertEqual(data['entries'][0]['group'],77)
+        self.assertEqual(data['entries'][0]['elements'],2)
+        self.assertIn('88',data['album_parts'])

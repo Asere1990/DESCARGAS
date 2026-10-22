@@ -446,10 +446,23 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         item=NS(id=55,media=None,photo=NS(id=1),document=None,grouped_id=None,gif=None,sticker=None,message='Caption original',entities=[])
         client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=me),get_messages=AsyncMock(return_value=item))
         s.client=lambda session:client
-        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'archive_items',AsyncMock(return_value=1)) as archive,patch('descargas_app.manual_board.complete',AsyncMock()) as complete,patch.object(g,'latest_confirmation',AsyncMock()):
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'archive_items',AsyncMock(return_value=1)) as archive,patch('descargas_app.manual_board.complete',AsyncMock()) as complete,patch('descargas_app.manual_types.select_items',AsyncMock(side_effect=lambda service,job,key,items:(key,items))),patch.object(g,'latest_confirmation',AsyncMock()):
             await g.step(s,job)
         s.resolve.assert_not_awaited();s.source_items.assert_not_awaited()
         client.get_messages.assert_awaited_once_with(me,ids=55)
         self.assertEqual(archive.call_args.args[4][0].message,'Caption original')
         self.assertEqual(archive.call_args.args[3],(12,55))
         complete.assert_awaited_once_with(s,job,[item],1)
+
+    async def test_manual_album_sends_only_missing_files_but_completes_full_album_inventory(self):
+        s=self.service();job={**self.job(),'phase':'retry','retry_message':55,'manual_token':'token'}
+        s.resolve.return_value=types.Channel(id=123,title='Origen',photo=types.ChatPhotoEmpty(),date=None)
+        client=NS(connect=AsyncMock(),disconnect=AsyncMock(),is_user_authorized=AsyncMock(return_value=True),get_me=AsyncMock(return_value=NS(first_name='A',last_name=None)))
+        s.client=lambda session:client
+        items=[NS(id=i,photo=NS(id=i),document=None,gif=None,sticker=None,file=NS(size=100)) for i in (55,56)]
+        s.source_items.return_value=((job['source'],888),items)
+        async def stored(service,source,selected):return selected[0].id==55
+        with patch.object(g,'checked',AsyncMock(return_value=True)),patch.object(g,'archive_items',AsyncMock(return_value=1)) as archive,patch('descargas_app.manual_board.complete',AsyncMock()) as complete,patch('descargas_app.manual_types.select_items',AsyncMock(side_effect=lambda service,job,key,selected:(key,selected))),patch('descargas_app.export_inventory.stored',stored),patch.object(g,'latest_confirmation',AsyncMock()):
+            await g.step(s,job)
+        self.assertEqual([m.id for m in archive.call_args.args[4]],[56])
+        complete.assert_awaited_once_with(s,job,items,1)

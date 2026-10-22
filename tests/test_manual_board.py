@@ -189,3 +189,69 @@ class BoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.row())['position'],10)
         self.assertFalse((await self.row())['busy'])
         self.assertEqual((await self.job())['total'],10)
+
+    async def test_numbered_selection_downloads_only_target_and_preserves_cursor(self):
+        self.data['mode']='photo';self.data['complete']=True
+        self.data['entries']=[dict(self.data['entries'][1],mid=i,ids=[i]) for i in range(1,61)]
+        await self.pool.execute('UPDATE descarga_manual_boards SET payload=$1,position=3',self.s.repo.encode(self.data))
+        await b.enqueue(self.s,99,'token',3,50,number=53)
+        self.assertEqual((await self.job())['retry_message'],53)
+        self.assertEqual((await self.row())['position'],52)
+        with patch('descargas_app.export_inventory.stored',AsyncMock(return_value=True)):
+            await b.complete(self.s,await self.job(),[],1)
+        row=await self.row();data=self.s.repo.decode(row['payload'])
+        self.assertEqual(row['position'],3)
+        self.assertEqual(data['entries'][52]['status'],'saved')
+        self.assertEqual(data['entries'][51]['status'],'pending')
+        self.assertEqual((await self.job())['state'],'paused')
+
+    async def test_numbered_selection_loads_unseen_pages_without_downloading_preceding_entries(self):
+        self.data.update(mode='photo',lazy=True,complete=False)
+        await self.pool.execute('UPDATE descarga_manual_boards SET payload=$1',self.s.repo.encode(self.data))
+        await b.enqueue(self.s,99,'token',0,50,number=53)
+        self.assertEqual((await self.job())['phase'],'manual_load')
+        self.assertEqual((await self.job())['retry_message'],0)
+        async def page(s,actor,uid,source,data):
+            data['entries']=[dict(self.data['entries'][1],mid=i,ids=[i]) for i in range(1,61)]
+            data['complete']=True
+            return data
+        with patch.object(b,'collect',page):await b.load_batch(self.s,await self.job())
+        self.assertEqual((await self.job())['retry_message'],53)
+        self.assertEqual((await self.job())['total'],0)
+        with patch('descargas_app.export_inventory.stored',AsyncMock(return_value=True)):
+            await b.complete(self.s,await self.job(),[],1)
+        self.assertEqual((await self.row())['position'],0)
+
+    async def test_missing_number_is_reported_without_downloading_a_different_element(self):
+        self.data.update(mode='photo',lazy=True,complete=False)
+        await self.pool.execute('UPDATE descarga_manual_boards SET payload=$1',self.s.repo.encode(self.data))
+        await b.enqueue(self.s,99,'token',0,50,number=53)
+        async def page(s,actor,uid,source,data):data['complete']=True;return data
+        with patch.object(b,'collect',page):await b.load_batch(self.s,await self.job())
+        self.assertEqual((await self.job())['state'],'paused')
+        self.assertEqual((await self.job())['total'],0)
+        row=await self.row();self.assertFalse(row['busy']);self.assertEqual(row['position'],0)
+        self.assertIn('no existe',self.s.repo.decode(row['payload'])['notice'])
+
+    async def test_category_switch_restores_separate_progress_for_each_type(self):
+        from descargas_app.manual_gallery import switch_view
+        row=await self.row()
+        photo=await switch_view(self.s,row,12,-100123,None,'photo')
+        data=self.s.repo.decode(photo['payload']);data['entries']=self.data['entries'];data['mode']='photo'
+        photo=dict(photo,payload=self.s.repo.encode(data),position=1)
+        video=await switch_view(self.s,photo,12,-100123,None,'video')
+        restored=await switch_view(self.s,video,12,-100123,None,'photo')
+        self.assertEqual(restored['position'],1)
+        self.assertEqual(self.s.repo.decode(restored['payload'])['mode'],'photo')
+
+    async def test_failed_numbered_selection_returns_to_previous_cursor(self):
+        self.data.update(mode='photo',complete=True)
+        self.data['entries']=[dict(self.data['entries'][1],mid=i,ids=[i]) for i in range(1,61)]
+        await self.pool.execute('UPDATE descarga_manual_boards SET payload=$1,position=3',self.s.repo.encode(self.data))
+        await b.enqueue(self.s,99,'token',3,50,number=53)
+        await self.pool.execute("UPDATE descarga_group_exports SET state='paused'")
+        await b.failed(self.s,await self.job(),'Telegram exige esperar')
+        row=await self.row();data=self.s.repo.decode(row['payload'])
+        self.assertEqual(row['position'],3);self.assertFalse(row['busy'])
+        self.assertNotIn('number_request',data);self.assertNotIn('return_position',data)
+        self.assertEqual(data['entries'][52]['status'],'pending')
