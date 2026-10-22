@@ -18,7 +18,7 @@ def page_range(argument, single=False):
     return start,end
 
 
-async def accounts(panel,actor,argument,single=False):
+async def accounts(panel,actor,argument,single=False,selectable=False):
     from .admin_panel import person,country_name
     from .moderation import authorized
     try:start,end=page_range(argument,single)
@@ -66,6 +66,10 @@ async def accounts(panel,actor,argument,single=False):
     title=f'<b>CUENTAS CON SESIÓN GUARDADA</b>\nTotal: {total}\nMostrando: {shown}\nOrden: Telegram ID ascendente.'
     if end<total:title+=f'\nSiguiente: /cuentas {end+1}-{end+100}'
     title+='\nLa numeración puede cambiar si se conectan o desconectan cuentas. No verifica si Telegram revocó la sesión.'
+    if selectable:
+        from .admin_home import remember
+        await remember(panel,actor,rows)
+        title+='\nEscribe el número de la cuenta para abrir su menú (ejemplo: 23). Selección válida 30 minutos.'
     await panel.pages(actor,title,[e for e in entries if e])
 
 

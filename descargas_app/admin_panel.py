@@ -50,6 +50,7 @@ Ejemplo: 1609522430,3 — Permisos del destino número 3.
 Ejemplo: /chat 1609522430 -1001234567890 Hola a todos.
 Enlaces en texto y vistas previas son permisos diferentes; los filtros de bots no se pueden anticipar.
 /descargar telegram_id group_id [video|fotos|gif] — Continuar desde el último avance guardado: comprobar cada archivo/álbum y descargarlo enseguida si falta en ALMACEN. Admite channel_id. Se comparan los archivos guardados por su identidad de Telegram y su caché; antes de descargar muestra el conteo de fotos, videos y GIF del historial visible. Sin filtro guarda todos los tipos; con filtro selecciona también dentro de álbumes mixtos.
+/menu — Panel de administradores con usuarios registrados, cuentas conectadas y acceso a CUENTAS. Escribe el número de una cuenta de la lista para abrir su menú.
 /menu telegram_id — Menú GRUPOS, CANALES y ÚLTIMA DESCARGA. Escribe el número de un destino para abrir su botonera.
 /menu telegram_id — INICIAR DESDE permite elegir un enlace y avanzar o retroceder de cinco en cinco. Las descargas por número incluyen ANTERIOR/SIGUIENTE, ATRÁS y MENÚ PRINCIPAL en la confirmación. Incluye lotes de 10 fotos, videos o álbumes (2+ elementos), y FOTO/VIDEO/ÁLBUM NÚMERO para seleccionar una posición de cada lista.
 En la botonera del grupo: ADD ADMIN, REMOVE ADMIN, INFO USUARIO, INFO ADMINS y GRUPO INFO. INFO ADMINS lista cuentas y bots; escribe su número para ver nombre, ID, username y permisos. Los permisos se seleccionan por números separados por comas (1,3,4). Solo se pueden otorgar permisos que tenga la cuenta conectada.
@@ -127,6 +128,9 @@ class AdminPanel:
         async with self.slots:
             try:
                 if not authorized(uid):return
+                if op not in ('selection','account_menu_list','cuentas'):
+                    from .admin_home import clear as clear_accounts
+                    await clear_accounts(self.s,uid)
                 if op not in ('group_command','group_input') and op not in ('manual','manual_search','selection'):
                     from .group_admin import clear
                     await clear(self.s,uid)
@@ -155,6 +159,9 @@ class AdminPanel:
                     from . import manual_board
                     if op=='enlace':await manual_board.open_command(self.s,uid,arg)
                     elif op=='manual':await manual_board.callback(self.s,uid,json.loads(arg))
+                    elif not arg.strip():
+                        from .admin_home import home
+                        await home(self,uid)
                     elif re.fullmatch(r'[1-9][0-9]{0,18}',arg.strip()) and int(arg)<2**63:await manual_board.menu(self.s,uid,int(arg))
                     else:await self.send(chat,'Uso: /menu telegram_id')
                 elif op in ('account_permissions','chat'):
@@ -162,10 +169,10 @@ class AdminPanel:
                     from .account_chat import show_permissions,send_text
                     if op=='chat':await send_text(self.s,uid,arg,update_id)
                     else:await show_permissions(self.s,uid,arg)
-                elif op in ('cuenta','cuentas'):
+                elif op in ('cuenta','cuentas','account_menu_list'):
                     if chat!=uid:return await self.send(chat,'Usa este comando en el DM del bot.')
                     from .account_directory import accounts
-                    await accounts(self,uid,arg,single=op=='cuenta')
+                    await accounts(self,uid,arg,single=op=='cuenta',selectable=op!='cuenta')
                 elif op=='datos':
                     registered=await self.pool.fetchval('SELECT count(*) FROM descarga_directory WHERE bot_id=$1',self.s.bot_id)
                     active=await self.pool.fetchval('SELECT count(*) FROM descarga_directory WHERE bot_id=$1 AND last_seen>$2',self.s.bot_id,time.time()-300)
@@ -191,6 +198,8 @@ class AdminPanel:
                 elif op=='earnings':await self.earnings(chat)
                 elif op=='selection':
                     if chat==uid:
+                        from .admin_home import select as select_account
+                        if await select_account(self,uid,arg):return
                         from .manual_board import select_number
                         if await select_number(self.s,uid,arg):return
                     row=await self.pool.fetchrow('SELECT payload FROM descarga_admin_selections WHERE bot_id=$1 AND admin=$2 AND chat=$3 AND expires>$4',self.s.bot_id,uid,chat,time.time())
