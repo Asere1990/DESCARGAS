@@ -401,10 +401,28 @@ class GroupExportTests(unittest.IsolatedAsyncioTestCase):
         sql=s.repo.pool.execute.call_args.args[0]
         self.assertNotIn('cursor=',sql)
         self.assertIn('state=retry_return_state',sql)
-        self.assertIn('terminado',s.tell.call_args.args[1])
+        self.assertIn('terminada',s.tell.call_args.args[1])
 
     async def test_nonadmin_cannot_retry_using_another_account(self):
         s=self.service()
         with patch.object(g,'authorized',return_value=False):
             await g.command(s,dict(text='/reintentar 12 https://t.me/c/123/55',chat={'type':'private'},**{'from':{'id':99}}))
         s.repo.account.assert_not_awaited();s.repo.pool.execute.assert_not_awaited()
+
+
+    async def test_download_private_link_uses_selected_account_and_only_link_job(self):
+        s=self.service();s.repo.pool.fetchrow.return_value={**self.job(),'state':'done'}
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/descargar@Bot 12 https://t.me/c/0000000123/55',chat={'type':'private'},**{'from':{'id':99}}))
+        sql,*args=s.repo.pool.execute.call_args.args
+        self.assertIn("'retry'",sql)
+        self.assertNotIn('cursor=',sql)
+        self.assertEqual(args,[7,12,-1000000000123,99,4,55])
+        self.assertIn('Descarga del enlace registrada',s.tell.call_args.args[1])
+
+    async def test_download_invalid_link_does_not_start_full_history(self):
+        s=self.service()
+        with patch.object(g,'authorized',return_value=True):
+            await g.command(s,dict(text='/descargar 12 https://t.me/+invite',chat={'type':'private'},**{'from':{'id':99}}))
+        s.repo.account.assert_not_awaited();s.repo.pool.execute.assert_not_awaited()
+        self.assertIn('Uso: /descargar',s.tell.call_args.args[1])

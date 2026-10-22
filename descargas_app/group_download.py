@@ -59,15 +59,15 @@ async def command(service, message):
     if chat.get('type') != 'private' or not authorized(actor):
         return True
     retry_mid=0
-    retry=re.fullmatch(r'/reintentar(?:@[A-Za-z0-9_]+)?\s+(\d+)\s+(\S+)\s*',text,re.IGNORECASE)
-    if re.match(r'^/reintentar(?:@|\s|$)',text,re.IGNORECASE):
+    retry=re.fullmatch(r'/(?:reintentar|descargar)(?:@[A-Za-z0-9_]+)?\s+(\d+)\s+(\S+)\s*',text,re.IGNORECASE)
+    if re.match(r'^/reintentar(?:@|\s|$)',text,re.IGNORECASE) or (retry and not re.fullmatch(r'-\d+',retry.group(2))):
         try:
             from .service import parse_link
             source,retry_mid=parse_link(retry.group(2)) if retry else (None,0)
             if not isinstance(source,int) or not 0<retry_mid<2**31:raise ValueError()
             parsed=('reintentar',int(retry.group(1)),source,'all')
         except (ValueError,AttributeError):
-            await service.tell(actor,'Uso: /reintentar telegram_id https://t.me/c/ID/MENSAJE\nUtiliza el enlace privado que muestra /pendientes.')
+            await service.tell(actor,'Uso: /descargar telegram_id https://t.me/c/ID/MENSAJE\nUtiliza el enlace privado que muestra /pendientes.')
             return True
     else:
         parsed = parse_command(text)
@@ -123,7 +123,7 @@ async def command(service, message):
             DO UPDATE SET actor=excluded.actor,generation=excluded.generation,state='running',phase='retry',retry_message=excluded.retry_message,
             retry_return_state=CASE WHEN descarga_group_exports.state='done' THEN 'done' ELSE 'paused' END,
             scan=descarga_group_exports.scan+1''',service.bot_id,uid,source,actor,account['generation'],retry_mid)
-        await service.tell(actor,f'▶️ Reintento registrado con la cuenta {uid}. Solo revisará el archivo o álbum del enlace y lo guardará en ALMACEN si falta. No modifica el avance del grupo.')
+        await service.tell(actor,f'▶️ Descarga del enlace registrada con la cuenta {uid}. Solo revisará el archivo o álbum del enlace y lo guardará en ALMACEN si falta. No modifica el avance del grupo.')
         return True
     await pool.execute('''INSERT INTO descarga_group_exports(bot_id,uid,source,actor,generation,state,phase,media_filter)
         VALUES($1,$2,$3,$4,$5,'running','count',$6) ON CONFLICT(bot_id,uid,source)
@@ -309,7 +309,7 @@ async def step(service, job):
                 for item_id in {mid,*(m.id for m in items)}:
                     await resolve_pending(service,job,item_id)
                 await service.repo.pool.execute("UPDATE descarga_group_exports SET state=retry_return_state,phase='download',retry_message=0,sending=FALSE,total=total+$5 WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4",job['bot_id'],job['uid'],job['source'],job.get('scan',0),count)
-                await service.tell(job['actor'],f'✅ Reintento terminado con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.')
+                await service.tell(job['actor'],f'✅ Descarga del enlace terminada con la cuenta {job["uid"]}. Archivos nuevos guardados en ALMACEN: {count}. Si ya estaban guardados o excluidos, no se repiten. El avance del grupo se conserva.')
                 return
             if job.get('phase')=='count':
                 counts=[]
@@ -520,7 +520,7 @@ async def defer_flood(service,job,exc):
     sending=await service.repo.pool.fetchval('SELECT sending FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3',job['bot_id'],job['uid'],job['source'])
     seconds=max(60,int(exc.seconds)+10)
     await service.repo.pool.execute("UPDATE descarga_group_exports SET resume_at=GREATEST(resume_at,$3),state=CASE WHEN state='running' THEN 'paused' ELSE state END WHERE bot_id=$1 AND uid=$2",service.bot_id,job['uid'],time.time()+seconds)
-    restart=(f'/reintentar {job["uid"]} https://t.me/c/{str(job["source"])[4:]}/{job["retry_message"]}' if job.get('phase')=='retry' else f'/descargar {job["uid"]} {job["source"]}'+(' '+job['media_filter'] if job.get('media_filter','all')!='all' else ''))
+    restart=(f'/descargar {job["uid"]} https://t.me/c/{str(job["source"])[4:]}/{job["retry_message"]}' if job.get('phase')=='retry' else f'/descargar {job["uid"]} {job["source"]}'+(' '+job['media_filter'] if job.get('media_filter','all')!='all' else ''))
     note=' El envío incierto quedará pendiente de revisión sin repetirse; los demás podrán continuar.' if sending else ''
     try:await service.tell(job['actor'],f'⏳ Telegram pide {exc.seconds} segundos; aplicamos una pausa prudente de {seconds} segundos para la cuenta {job["uid"]}. La reactivación será manual: cuando termine la espera, usa {restart}. El avance quedó guardado.{note}')
     except Exception:pass
