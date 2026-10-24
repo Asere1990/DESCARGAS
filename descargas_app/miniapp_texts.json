@@ -1801,9 +1801,9 @@
     },
     "server.020": {
       "category": "servidor",
-      "label": "Revisión no autorizada o revocada.",
-      "text": "Revisión no autorizada o revocada.",
-      "match": "Revisión no autorizada o revocada."
+      "label": "Confirmar protección.",
+      "text": "Confirmar protección.",
+      "match": "Confirmar protección."
     },
     "server.021": {
       "category": "servidor",
