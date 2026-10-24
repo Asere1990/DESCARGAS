@@ -342,8 +342,8 @@
     },
     "status.revoked": {
       "category": "avisos",
-      "label": "Autorización revocada.",
-      "text": "Autorización revocada.",
+      "label": "Confirmar protección.",
+      "text": "Confirmar protección.",
       "maximum": 4096
     },
     "error.partial_disconnect": {
