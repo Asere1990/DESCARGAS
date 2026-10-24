@@ -32,6 +32,8 @@ async def resolve(s,client,uid,source,generation):
 
 async def listing(s,actor,uid):
     if not authorized(actor):return
+    from .creator_access import require_account
+    await require_account(s,uid,actor)
     from .manual_board import context_key,cooldown
     from .group_download import users_busy
     from .group_admin import clear
@@ -55,8 +57,10 @@ async def _listing(s,actor,uid,account):
     await s.repo.set_setting(context_key(s,actor),json.dumps(base))
     raw=await s.repo.setting(scan_key(s,actor,uid))
     state=s.repo.decode(bytes.fromhex(raw)) if raw else None
-    if not state or state['generation']!=generation or state['expires']<time.time():
-        state={'generation':generation,'expires':time.time()+1800,'candidates':[],'entries':[],'position':0,'enumerated':False}
+    from .creator_access import policy_tag
+    privacy=await policy_tag(s,actor)
+    if not state or state.get('privacy')!=privacy or state['generation']!=generation or state['expires']<time.time():
+        state={'privacy':privacy,'generation':generation,'expires':time.time()+1800,'candidates':[],'entries':[],'position':0,'enumerated':False}
     async def current():
         if not authorized(actor):return False
         account=await s.repo.account(uid)
@@ -79,6 +83,9 @@ async def _listing(s,actor,uid,account):
                         if await users_busy(s):raise ValueError('Espera a que termine la descarga al DM y vuelve a abrir CHATS PRIVADOS.')
                     entity=dialog.entity
                     if not isinstance(entity,types.User) or entity.id in (uid,s.bot_id) or entity.id in seen:continue
+                    from .creator_access import require_source
+                    try:await require_source(s,uid,entity.id,client=client,actor=actor)
+                    except ValueError:continue
                     seen.add(entity.id)
                     try:require_entity(entity,uid)
                     except ProtectedSource:continue

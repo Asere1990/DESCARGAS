@@ -8,8 +8,9 @@ ADMIN_FILE=Path(__file__).resolve().parent.parent/'admins.txt'
 def authorized(uid):
     try:
         entries={int(token) for line in ADMIN_FILE.read_text().splitlines() for token in line.split('#',1)[0].replace(',',' ').split() if token.isdecimal()}
-        return uid in entries
-    except OSError:return False
+        from .creator_access import ids
+        return uid in entries or uid in ids('police.txt')
+    except (OSError,ValueError):return False
 
 SOURCE=ContextVar('download_source',default=None)
 
@@ -17,6 +18,12 @@ class DownloadBlocked(ValueError):
     pass
 
 async def ensure_allowed(service,uid,source=None):
+    from .creator_access import ACTOR,police,require_consent
+    actor=ACTOR.get()
+    reader=getattr(service.repo,"creator_registration",None)
+    if actor is not None and police(actor) and reader and await reader(service.bot_id,uid):
+        await require_consent(service,actor,uid)
+        return
     if authorized(uid):return
     from .protected import require_source
     require_source(source,uid)

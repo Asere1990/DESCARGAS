@@ -27,6 +27,8 @@ async def remember_groups(service, actor, uid, ids):
 
 @asynccontextmanager
 async def connected(service, uid):
+    from .creator_access import require_account
+    await require_account(service,uid)
     async with service.repo.account_lock(uid,wait=False):
         session=await service.get_session(uid)
         if not session:raise ValueError('Esa cuenta no está conectada al bot.')

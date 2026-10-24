@@ -1,0 +1,1 @@
+# IDs de cuentas protegidas frente a admins.txt. Un ID por línea.

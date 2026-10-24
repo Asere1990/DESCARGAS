@@ -30,6 +30,8 @@ async def switch_view(s,row,uid,source,query,mode=""):
 
 
 async def entity_for(s,client,uid,source,generation):
+    from .creator_access import require_source
+    await require_source(s,uid,source,client=client)
     if source==uid:
         entity=await client.get_me()
         if entity.id!=uid:raise ValueError('La sesión no corresponde a esa cuenta.')

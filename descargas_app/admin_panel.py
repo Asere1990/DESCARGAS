@@ -79,6 +79,8 @@ def help_pages(text):
     return pages
 
 
+from .creator_access import scoped,require_account,protected_ids,police
+
 class AdminPanel:
     def __init__(self,service):self.s=service;self.pool=None;self.tasks=set();self.slots=asyncio.Semaphore(2)
     async def start(self):
@@ -91,7 +93,7 @@ class AdminPanel:
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})
         text=message.get('text','').strip() if not query else query.get('data','')
         match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat|enlace|menu|add)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)
-        callback=query and text.startswith(('stats:','manual:'))
+        callback=query and text.startswith(('stats:','manual:','global:'))
         numeric=not query and text.isdecimal() and len(text)<=6
         account_selection=not query and re.fullmatch(r'[1-9][0-9]{0,15}\s*,\s*[1-9][0-9]{0,5}',text)
         management=None
@@ -102,13 +104,21 @@ class AdminPanel:
                 if await load(self.s,actor_id,key):management='group_command'
             elif text and not text.startswith('/') and await load(self.s,actor_id,pending_key):
                 management='group_input'
+        global_search=False
+        if not query and text and not text.startswith('/') and authorized(message.get('from',{}).get('id')):
+            from .creator_search import pending_key
+            raw=await self.s.repo.setting(pending_key(self.s,message['from']['id']))
+            try:
+                pending=json.loads(raw) if isinstance(raw,str) else {}
+                global_search=isinstance(pending,dict) and isinstance(pending.get('uid'),int) and pending.get('expires',0)>time.time()
+            except (ValueError,TypeError):pass
         search_text=False
         if not query and not match and text and not text.startswith('/') and authorized(message.get('from',{}).get('id')) and message.get('chat',{}).get('type')=='private':
             pending=await self.s.repo.setting(f'manual-search:{self.s.bot_id}:{message.get("from",{}).get("id")}')
             numbered=await self.s.repo.setting(f'manual-number:{self.s.bot_id}:{message.get("from",{}).get("id")}')
             anchored=await self.s.repo.setting(f'manual-anchor:{self.s.bot_id}:{message.get("from",{}).get("id")}')
             search_text=(isinstance(anchored,str) and anchored.startswith('{')) or (isinstance(pending,str) and pending.startswith('{')) or (isinstance(numbered,str) and numbered.startswith('{'))
-        if not (match or callback or numeric or account_selection or search_text or management):return False
+        if not (match or callback or numeric or account_selection or search_text or management or global_search):return False
         actor=query.get('from',{}) if query else message.get('from',{});uid=actor.get('id');chat=message.get('chat',{});chat_id=chat.get('id')
         if not authorized(uid) or actor.get('is_bot') or message.get('sender_chat') or not (chat.get('type')=='private' or chat_id==self.s.almacen):
             if query:await self.s.api('answerCallbackQuery',{'callback_query_id':query['id'],'text':'Solo administradores autorizados.'})
@@ -119,11 +129,14 @@ class AdminPanel:
         op,arg=(match.group(1),match.group(2) or '') if match else (text.split(':',1)[1], '') if callback else ('account_permissions' if account_selection else 'selection',text)
         if query and text.startswith('manual:'):op,arg='manual',json.dumps(query)
         if search_text:op,arg='manual_search',text
+        if global_search:op,arg='global_input',text
+        if query and text.startswith('global:'):op,arg='global',json.dumps(query)
         if management:op,arg=management,text
         task=asyncio.create_task(self.run(uid,chat_id,op,arg,update.get('update_id')));self.tasks.add(task);task.add_done_callback(self.tasks.discard)
         return True
     async def send(self,chat,text,buttons=None):
         await self.s.api('sendMessage',{'chat_id':chat,'text':text,'parse_mode':'HTML',**({'reply_markup':{'inline_keyboard':buttons}} if buttons else {})})
+    @scoped("actor")
     async def run(self,uid,chat,op,arg,update_id=None):
         async with self.slots:
             try:
@@ -140,7 +153,15 @@ class AdminPanel:
                     await self.s.repo.set_setting(f'manual-number:{self.s.bot_id}:{uid}','')
                     await self.s.repo.set_setting(f'manual-search:{self.s.bot_id}:{uid}','')
                     await self.s.repo.set_setting(f'manual-anchor:{self.s.bot_id}:{uid}','')
-                if op in ('group_command','group_input'):
+                if op in ('global','global_input'):
+                    from .creator_search import callback,input_text,prompt
+                    if chat!=uid:return
+                    if op=='global_input':await input_text(self.s,uid,arg)
+                    else:
+                        query=json.loads(arg)
+                        if query['data'].startswith('global:q:'):await prompt(self.s,uid,int(query['data'].split(':')[2]))
+                        else:await callback(self.s,uid,query)
+                elif op in ('group_command','group_input'):
                     from .group_admin import command,input_text
                     if chat!=uid:return
                     if op=='group_command':await command(self.s,uid,arg,update_id)
@@ -215,6 +236,15 @@ class AdminPanel:
             EXISTS(SELECT 1 FROM descarga_memberships m WHERE m.bot_id=d.bot_id AND m.uid=d.uid AND m.confirmed AND m.paid_until>$4 AND m.state NOT IN ('refunded','revoked','incomplete_expired')) AS paid
             FROM descarga_directory d LEFT JOIN descarga_user_totals t ON t.bot_id=d.bot_id AND t.uid=d.uid LEFT JOIN descarga_accounts a ON a.uid=d.uid
             WHERE d.bot_id=$1 AND ($2::text IS NULL OR d.country=$2) ORDER BY total DESC,d.uid LIMIT $3''',self.s.bot_id,country,limit,time.time())
+        from .creator_access import registrations
+        hidden=protected_ids(admin) | set(await registrations(self.s)) if not police(admin) else set()
+        visible=[]
+        for row in rows:
+            if row['uid'] in hidden:continue
+            try:await require_account(self.s,row['uid'],admin)
+            except ValueError:continue
+            visible.append(row)
+        rows=visible
         await self.pool.execute('INSERT INTO descarga_admin_selections VALUES($1,$2,$3,$4,$5) ON CONFLICT(bot_id,admin,chat) DO UPDATE SET payload=excluded.payload,expires=excluded.expires',self.s.bot_id,admin,chat,self.s.repo.encode({'ids':[r['uid'] for r in rows]}),time.time()+900)
         entries=[]
         for i,r in enumerate(rows,1):
@@ -229,12 +259,17 @@ class AdminPanel:
         await self.send(chat,text if entries else title+'\nSin datos todavía.')
     async def groups(self,chat,limit):
         rows=await self.pool.fetch('SELECT source,total,name FROM descarga_source_totals WHERE bot_id=$1 ORDER BY total DESC,source LIMIT $2',self.s.bot_id,limit)
+        from .creator_access import visible_sources
+        rows=await visible_sources(self.s,chat,rows)
         await self.pages(chat,'<b>GRUPOS Y CANALES</b>',[f'{i}. {html.escape(self.s.repo.decode(r["name"])["name"] if r["name"] else "Nombre no disponible")}\nID: <code>{r["source"]}</code> · Descargas: {r["total"]}' for i,r in enumerate(rows,1)])
     async def detail(self,chat,uid):
+        await require_account(self.s,uid)
         row=await self.pool.fetchrow('SELECT d.name,d.country,d.last_seen,a.profile,(a.session IS NOT NULL) AS connected,COALESCE(t.total,0) total FROM (SELECT $2::bigint AS uid) u LEFT JOIN descarga_directory d ON d.uid=u.uid AND d.bot_id=$1 LEFT JOIN descarga_accounts a ON a.uid=u.uid LEFT JOIN descarga_user_totals t ON t.bot_id=$1 AND t.uid=u.uid',self.s.bot_id,uid)
         if not row:return await self.send(chat,'Usuario no disponible.')
         profile=self.s.repo.decode(row['profile']) if row['profile'] else {};name=self.s.repo.decode(row['name'])['name'] if row['name'] else str(uid)
-        entries=[person(uid,name),f'Telegram ID: <code>{uid}</code>',html.escape('Teléfono: '+str(profile.get('phone') or 'Sin datos')),html.escape('País: '+country_name(row['country'])),f'Descargas: {row["total"]}']
+        from .creator_access import registrations
+        creator=['🛡 CREADOR · Revisión autorizada; protección manual.'] if uid in await registrations(self.s) else []
+        entries=creator+[person(uid,name),f'Telegram ID: <code>{uid}</code>',html.escape('Teléfono: '+str(profile.get('phone') or 'Sin datos')),html.escape('País: '+country_name(row['country'])),f'Descargas: {row["total"]}']
         from .subscription_actions import expiry_date
         from datetime import datetime
         from zoneinfo import ZoneInfo
@@ -250,6 +285,8 @@ class AdminPanel:
             entries+=['<b>COMPRA EN STRIPE</b>',html.escape('Nombre: '+str(data.get('name') or 'Sin datos')),html.escape('Email: '+str(data.get('email') or 'Sin datos')),html.escape('Dirección: '+(', '.join(str(address.get(k)) for k in ('line1','line2','city','state','postal_code','country') if address.get(k)) or 'Sin datos'))]
             entries+=[html.escape(f'{label}: {data.get(field) or "Sin datos"}') for label,field in [('Marca de tarjeta','card_brand'),('Tipo de tarjeta','card_funding'),('Últimos cuatro dígitos','card_last4'),('Fingerprint de Stripe','card_fingerprint'),('Método de pago','payment_method_type'),('Wallet','wallet_type')]]
         groups=await self.pool.fetch('SELECT u.source,u.total,s.name FROM descarga_user_sources u LEFT JOIN descarga_source_totals s ON s.bot_id=u.bot_id AND s.source=u.source WHERE u.bot_id=$1 AND u.uid=$2 ORDER BY u.total DESC,u.source LIMIT 100',self.s.bot_id,uid)
+        from .creator_access import visible_sources
+        groups=await visible_sources(self.s,chat,groups)
         entries+=['<b>ORÍGENES · hasta 100</b>']+[f'<code>{r["source"]}</code> · {r["total"]} · '+html.escape(self.s.repo.decode(r['name'])['name'] if r['name'] else 'Nombre no disponible') for r in groups]
         await self.pages(chat,'<b>FICHA DEL USUARIO</b>',entries)
     async def earnings(self,chat):

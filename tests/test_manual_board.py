@@ -35,6 +35,7 @@ class Pool:
 
 class BoardTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        role=patch.object(b,"authorized",return_value=True);role.start();self.addCleanup(role.stop)
         self.pool=Pool();self.addCleanup(self.pool.db.close)
         self.settings={}
         async def setting(key):return self.settings.get(key)

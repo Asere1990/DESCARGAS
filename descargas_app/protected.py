@@ -17,6 +17,8 @@ def sources():
     return {int(v) for v in values if v.startswith('-') and v[1:].isdigit()}
 
 def require_source(source,uid=None):
+    from .creator_access import ACTOR,police
+    if ACTOR.get() is not None and police(ACTOR.get()):return
     from .moderation import authorized
     if authorized(uid):return
     if isinstance(source,int) and source in sources():raise ProtectedSource(MESSAGE)

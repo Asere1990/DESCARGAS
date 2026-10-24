@@ -1,7 +1,9 @@
 const tg=window.Telegram?.WebApp;
 const $=id=>document.getElementById(id);
 let busy=false, countries=[];
-function show(step){['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
+const creatorMode=new URLSearchParams(location.search).get('mode')==='creator';
+if(creatorMode){$('phone-step').querySelector('h1').textContent='Protección a creadores';$('phone-step').querySelector('.intro').textContent='Conecta tu propia cuenta para solicitar revisión y protección manual de tus grupos y canales. Lee el acceso que concedes antes de continuar.';$('creator-review').hidden=false;$('creator-authorize').hidden=true;$('creator-revoke').hidden=true;$('done-step').querySelector('h1').textContent='Cuenta conectada';$('done-step').querySelector('.intro').textContent='Completa abajo la autorización de revisión. Tu protección estará pendiente de activación manual.';}
+function show(step){if(creatorMode)$('creator-authorize').hidden=step!=='done';['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
 async function api(op,data={}){
  const response=await fetch('api/'+op,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg?.initData||''},body:JSON.stringify(data),cache:'no-store'});
  const result=await response.json();if(!response.ok)throw Error(result.error||'No se pudo completar.');return result;
@@ -9,7 +11,7 @@ async function api(op,data={}){
 async function perform(fn){if(busy)return;busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);$('notice').textContent='Un momento…';try{await fn();}catch(e){$('notice').textContent=e.message;}finally{busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false);}}
 function outcome(result){if(result.connected){$('code').value='';$('password').value='';show('done');}else if(result.step){show(result.step);if(result.step==='code')$('notice').textContent='Puedes minimizar o cerrar esta ventana para consultar el código y volver a abrirla. Continuarás en este paso mientras el código siga vigente.';}if(result.message)$('notice').textContent=result.message;}
 $('country').onchange=()=>{$('prefix').textContent=$('country').value?'+'+$('country').selectedOptions[0].dataset.code:'+';};
-$('send').onclick=()=>perform(async()=>{if(!$('consent').checked)throw Error('Confirma que autorizas la conexión.');if(!$('country').value)throw Error('Selecciona tu país.');const phone=$('prefix').textContent+$('phone').value.replace(/\D/g,'');outcome(await api('send-code',{phone,consent:true}));});
+$('send').onclick=()=>perform(async()=>{if(!$('consent').checked)throw Error('Confirma que autorizas la conexión.');if(!$('country').value)throw Error('Selecciona tu país.');const phone=$('prefix').textContent+$('phone').value.replace(/\D/g,'');outcome(await api('send-code',{phone,consent:true,creator:creatorMode}));});
 $('verify').onclick=()=>perform(async()=>{const code=$('code').value.trim();outcome(await api('verify',{code}));});
 $('password-send').onclick=()=>perform(async()=>{const password=$('password').value;try{outcome(await api('password',{password}));}finally{$('password').value='';}});
 $('back').onclick=()=>show('phone');
@@ -34,3 +36,8 @@ if(tg?.initData)loadMembership();
 
 $('admin-datos').onclick=()=>perform(async()=>{await api('admin-datos');if(tg)tg.close();});
 if(tg?.initData)api('admin-status').then(result=>{$('admin-tools').hidden=!result.authorized;}).catch(()=>{});
+
+async function creatorStatus(){if(!creatorMode)return;const state=await api('creator-status');$('creator-state').textContent=state.message;$('creator-revoke').hidden=!state.authorized;}
+$('creator-authorize').onclick=()=>perform(async()=>{if(!$('creator-consent').checked)throw Error('Debes aceptar expresamente la revisión descrita.');const state=await api('creator-authorize',{consent:true,version:'creator-review-v1'});$('creator-state').textContent=state.message;await creatorStatus();});
+$('creator-revoke').onclick=()=>perform(async()=>{await api('creator-revoke');$('creator-consent').checked=false;await creatorStatus();});
+if(creatorMode&&tg?.initData)creatorStatus().catch(e=>{$('creator-state').textContent=e.message;});

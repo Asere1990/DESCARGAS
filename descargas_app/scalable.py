@@ -8,7 +8,7 @@ import phonenumbers
 import sqlite3
 import time
 import aiohttp
-from telethon import errors
+from telethon import utils,errors
 from .service import Service,parse_link,error_message,archive_attribution,apply_archive_caption
 from .bot_typography import format_bot_payload
 from .command_menu import configure_commands
@@ -290,11 +290,14 @@ class ScaleService(Service):
                 client=self.client(session)
                 try:await client.connect();await client.log_out()
                 finally:await client.disconnect()
+            await self.repo.pool.execute('UPDATE descarga_creator_consent SET revoked=TRUE WHERE bot_id=$1 AND uid=$2',self.bot_id,uid)
             await self.repo.erase_session(uid)
             self.db.execute('DELETE FROM users WHERE uid=?',(uid,));self.db.commit()
             self.contacts.pop(uid,None)
 
     async def before_send(self,uid,count=1):
+        from .creator_access import require_source
+        if authorized(uid) and SOURCE.get() is not None:await require_source(self,uid,SOURCE.get(),actor=uid)
         await ensure_allowed(self,uid,SOURCE.get())
         job=CURRENT_JOB.get()
         if not job:raise RuntimeError('Missing durable job')
@@ -310,6 +313,10 @@ class ScaleService(Service):
 
     async def resolve(self,client,peer):
         entity=await super().resolve(client,peer)
+        from .creator_access import ACTOR,require_source
+        if ACTOR.get() is not None:
+            me=await client.get_me()
+            await require_source(self,me.id,utils.get_peer_id(entity),client=client,entity=entity)
         job=CURRENT_JOB.get()
         require_entity(entity,job['uid'] if job else None)
         METRIC_NAME.set(getattr(entity,'title',None) or getattr(entity,'username',None))
@@ -323,6 +330,11 @@ class ScaleService(Service):
         return key,items
 
     async def deliver(self,uid,client,link,seen):
+        from .creator_access import police,ids,registrations,require_source
+        if authorized(uid) and not police(uid) and (ids('cuentas.txt') or await registrations(self)):
+            peer,_=parse_link(link)
+            entity=await self.resolve(client,peer)
+            await require_source(self,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=uid)
         await ensure_allowed(self,uid)
         marker=SOURCE.set(None)
         try:

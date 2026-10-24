@@ -49,6 +49,17 @@ def advance(data,position):
 
 
 def _presentation(row,data):
+    if data.get('global_result'):
+        current=data['entries'][0]
+        text=f'🔎 {data["display_query"]}\n{data["title"]}\nCuenta: {row["uid"]}\nOrigen: {link(row["source"],current["mid"])}\nElementos: {current["elements"]}\n'
+        if data.get('notice'):text+='\n'+data['notice']
+        done=row['position']>0
+        buttons=[]
+        if not done:buttons.append([{'text':'⏳ DESCARGANDO' if row['busy'] else 'DESCARGAR RESULTADO','style':'success','callback_data':f'manual:{"w" if row["busy"] else "d"}:{row["token"]}:0'}])
+        else:text+='\n✅ Resultado procesado.'
+        buttons.append([{'text':'MENÚ PRINCIPAL','style':'primary','callback_data':f'manual:b:{row["uid"]}'}])
+        buttons.append([{'text':'CERRAR','style':'danger','callback_data':f'manual:c:{row["token"]}:{row["position"]}'}])
+        return text,buttons
     if data.get('mode')=='anchor':
         from .manual_anchor import presentation as anchored
         return anchored(row,data)
@@ -101,11 +112,17 @@ def presentation(row,data):
     if row['source']<0:
         from .group_admin import header,buttons
         text=header(data.get('account_rights'))+'\n'+text
-        if data.get('mode')!='anchor':keyboard=keyboard[:-2]+buttons(row)+keyboard[-2:]
+        if data.get('mode')!='anchor' and not data.get('global_result'):keyboard=keyboard[:-2]+buttons(row)+keyboard[-2:]
     return text,keyboard
 
 
 async def _render(s,row,new=False):
+    from .creator_access import require_account,require_id
+    if not authorized(row['actor']):return
+    await require_account(s,row['uid'],row['actor'])
+    from .creator_access import require_source
+    await require_source(s,row['uid'],row['source'],actor=row['actor'])
+    require_id(row['source'],row['actor'])
     data=s.repo.decode(row['payload']);text,buttons=presentation(row,data)
     if row['closed']:return
     if row['message_id'] and not new:
@@ -147,6 +164,8 @@ async def collect(s,actor,uid,source,data=None):
 
 
 async def open_board(s,actor,uid,source,refresh=False,query=None,mode=""):
+    from .creator_access import validate_target
+    await validate_target(s,actor,uid,source)
     if not authorized(actor):return
     if not s.almacen or source==s.almacen:raise ValueError('Elige un origen diferente a ALMACEN.')
     row=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND uid=$2 AND source=$3',s.bot_id,uid,source)
@@ -223,9 +242,15 @@ async def open_command(s,actor,arg):
 
 
 async def menu(s,actor,uid):
+    from .creator_search import pending_key
+    await s.repo.set_setting(pending_key(s,actor),'')
+    from .creator_access import require_account
+    await require_account(s,uid,actor)
     from .group_admin import clear
     await clear(s,actor)
     if not authorized(actor):return
+    from .creator_access import require_account
+    await require_account(s,uid,actor)
     account=await s.repo.account(uid)
     if not account or not account['session']:raise ValueError('Esa cuenta no está conectada.')
     await s.repo.set_setting(context_key(s,actor),'')
@@ -238,6 +263,7 @@ async def menu(s,actor,uid):
              {'text':'𝐂𝐀𝐍𝐀𝐋𝐄𝐒','style':'primary','callback_data':f'manual:h:{uid}'}],
             [{'text':'𝐂𝐇𝐀𝐓𝐒 𝐏𝐑𝐈𝐕𝐀𝐃𝐎𝐒','style':'primary','callback_data':f'manual:p:{uid}'}],
             [{'text':'𝐌𝐄𝐍𝐒𝐀𝐉𝐄𝐒 𝐆𝐔𝐀𝐑𝐃𝐀𝐃𝐎𝐒','callback_data':f'manual:v:{uid}'}],
+            [{'text':'𝐁𝐔𝐒𝐂𝐀𝐑','style':'primary','callback_data':f'global:q:{uid}'}],
             [{'text':'Ú𝐋𝐓𝐈𝐌𝐀 𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀','style':'success','callback_data':f'manual:l:{uid}'}]]}})
 
 
@@ -252,7 +278,8 @@ async def destinations(s,actor,uid,channels):
     cached=await s.repo.setting(key)
     data=json.loads(cached) if cached else {}
     if not account or not account['session']:raise ValueError('Esa cuenta no está conectada.')
-    if data.get('roles_version')!=1 or data.get('expires',0)<=time.time() or data.get('generation')!=account['generation'] or not data.get('snapshot'):
+    from .creator_access import policy_tag
+    if data.get('privacy')!=await policy_tag(s,actor) or data.get('roles_version')!=1 or data.get('expires',0)<=time.time() or data.get('generation')!=account['generation'] or not data.get('snapshot'):
         await cooldown(s,uid)
         # Same loader, suppressing its old textual command listing only.
         class Snapshot:
@@ -294,6 +321,10 @@ async def enqueue(s,actor,token,position,message_id,batch=1,number=None,notice_i
     row=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2',s.bot_id,token)
     if not row or row['actor']!=actor or row['message_id']!=message_id or row['closed']:raise ValueError('Esta botonera ya no está activa. Abre /menu telegram_id.')
     if not s.almacen or row['source']==s.almacen:raise ValueError('El origen no puede ser ALMACEN.')
+    from .creator_access import require_account
+    await require_account(s,row['uid'],actor)
+    from .creator_access import validate_target
+    await validate_target(s,actor,row['uid'],row['source'])
     await cooldown(s,row['uid'])
     account=await s.repo.account(row['uid'])
     if not account or not account['session'] or account['generation']!=s.repo.decode(row['payload'])['generation']:raise ValueError('La sesión cambió. Abre de nuevo /enlace.')

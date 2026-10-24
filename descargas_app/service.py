@@ -131,8 +131,7 @@ class Service:
             connected=bool(await self.get_session(uid))
             connect_label='👤𝐂𝐑𝐄𝐀𝐑 𝐂𝐔𝐄𝐍𝐓𝐀' if text=="𝘾𝙧𝙚𝙖 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙥𝙧𝙞𝙢𝙚𝙧𝙤 𝙖𝙣𝙩𝙚𝙨 𝙙𝙚 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨." else '📥𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝐀𝐇𝐎𝐑𝐀'
             buttons=[[{'text':'👤 MI CUENTA' if connected else connect_label,'web_app':{'url':self.url},'style':'primary' if connected else 'success'}]]
-            if connected:
-                buttons.append([{'text':'🔒 DESCONECTAR MI CUENTA','callback_data':'disconnect','style':'danger'}])
+            buttons.append([{'text':'🛡 PROTECCIÓN A CREADORES','web_app':{'url':self.url+'?mode=creator'},'style':'primary'}])
             payload['reply_markup']={'inline_keyboard':buttons}
         await self.api('sendMessage',payload)
 

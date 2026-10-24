@@ -45,6 +45,20 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
                 if not allowed:raise web.HTTPForbidden()
                 await service.admin_panel.update({'message':{'from':{'id':uid},'chat':{'id':uid,'type':'private'},'text':'/datos'}})
                 return web.json_response({'ok':True},headers={'Cache-Control':'no-store'})
+            if operation in ('creator-status','creator-authorize','creator-revoke'):
+                from .creator_access import VERSION
+                if not hasattr(service,'repo'):raise ValueError('Esta función requiere el servicio principal.')
+                if operation=='creator-authorize':
+                    if data.get('consent') is not True or data.get('version')!=VERSION:raise ValueError('Debes aceptar expresamente el acceso descrito.')
+                    async with service.repo.account_lock(uid,wait=False):
+                        account=await service.repo.account(uid)
+                        if not account or not account['session']:raise ValueError('Conecta tu propia cuenta primero.')
+                        await service.repo.pool.execute('INSERT INTO descarga_creator_consent VALUES($1,$2,$3,$4,$5,FALSE) ON CONFLICT(bot_id,uid) DO UPDATE SET generation=excluded.generation,version=excluded.version,accepted=excluded.accepted,revoked=FALSE',service.bot_id,uid,account['generation'],VERSION,time.time())
+                elif operation=='creator-revoke':
+                    await service.repo.pool.execute('UPDATE descarga_creator_consent SET revoked=TRUE WHERE bot_id=$1 AND uid=$2',service.bot_id,uid)
+                row=await service.repo.pool.fetchrow('SELECT c.*,a.generation AS current_generation FROM descarga_creator_consent c LEFT JOIN descarga_accounts a USING(uid) WHERE c.bot_id=$1 AND c.uid=$2',service.bot_id,uid)
+                active=bool(row and not row['revoked'] and row['version']==VERSION and row['generation']==row['current_generation'])
+                return web.json_response({'authorized':active,'version':VERSION,'message':'Solicitud registrada. Protección pendiente de revisión y activación manual.' if active else 'Revisión no autorizada o revocada.'},headers={'Cache-Control':'no-store'})
             if operation=='status':
                 async with service.locks[uid]:result=await service.login_status(uid)
                 return web.json_response(result,headers={'Cache-Control':'no-store'})
@@ -68,7 +82,12 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
                 await service.disconnect(uid)
                 return web.json_response({'connected':False,'message':'Sesión cerrada y borrada.'})
             async with service.locks[uid]:
-                if operation=='send-code':result=await service.send_code(uid,data)
+                if operation=='send-code':
+                    if data.get('creator') is True:
+                        if data.get('consent') is not True:raise ValueError('Confirma el acceso descrito antes de continuar.')
+                        from .creator_access import VERSION
+                        await service.repo.pool.execute('INSERT INTO descarga_creator_consent VALUES($1,$2,0,$3,0,TRUE) ON CONFLICT DO NOTHING',service.bot_id,uid,VERSION)
+                    result=await service.send_code(uid,data)
                 elif operation=='verify':result=await service.verify(uid,data)
                 elif operation=='password':result=await service.verify(uid,data,password=True)
                 else:raise web.HTTPNotFound()

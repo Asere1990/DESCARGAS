@@ -35,6 +35,19 @@ async def accounts(panel,actor,argument,single=False,selectable=False):
         FROM descarga_accounts a LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$1
         WHERE a.session IS NOT NULL)
         SELECT * FROM connected WHERE number BETWEEN $2 AND $3 ORDER BY number''',panel.s.bot_id,start,end)
+    from .creator_access import protected_ids,police
+    hidden=protected_ids(actor)
+    from .creator_access import registrations
+    creators=set(await registrations(panel.s))
+    if not police(actor):hidden.update(creators)
+    from .creator_access import require_account
+    visible=[]
+    for row in rows:
+        if row['uid'] in hidden:continue
+        try:await require_account(panel.s,row['uid'],actor)
+        except ValueError:continue
+        visible.append(row)
+    rows=visible
     total=rows[0]['total'] if rows else await panel.pool.fetchval('SELECT count(*) FROM descarga_accounts WHERE session IS NOT NULL')
     cache=getattr(panel,'_account_names',{})
     panel._account_names=cache
@@ -61,7 +74,8 @@ async def accounts(panel,actor,argument,single=False,selectable=False):
                 except asyncio.CancelledError:raise
                 except Exception:pass
         user='@'+username if username else 'Sin username' if known else 'No disponible'
-        return (f'{row["number"]}. {person(uid,name)}\nUsername: {html.escape(user)}\n'
+        creator='🛡 CREADOR · Revisión autorizada; protección manual.\n' if uid in creators else ''
+        return (creator+f'{row["number"]}. {person(uid,name)}\nUsername: {html.escape(user)}\n'
             f'Telegram ID: <code>{uid}</code>\nTeléfono: {html.escape(profile.get("phone") or "Sin datos")}\n'
             f'País: {html.escape(country_name(profile.get("phone_country") or row["country"] or "ZZ"))}')
     entries=await asyncio.gather(*(entry(row) for row in rows))
@@ -86,13 +100,17 @@ async def destinations(service,actor,argument):
     uid=int(match[1])
     try:
         start,end=page_range(match[2] or '')
+        from .creator_access import require_account
+        await require_account(service,uid,actor)
         account=await service.repo.account(uid)
         if not account or not account['session']:raise ValueError('Esa cuenta no está conectada al bot.')
         key=selection_key(service,actor,uid)
         saved=await service.repo.setting(key)
         data=json.loads(saved) if saved else {}
+        from .creator_access import policy_tag
+        privacy=await policy_tag(service,actor)
         entries=None
-        if data.get('roles_version')==1 and data.get('expires',0)>time.time() and data.get('generation')==account['generation'] and data.get('snapshot'):
+        if data.get('privacy')==privacy and data.get('roles_version')==1 and data.get('expires',0)>time.time() and data.get('generation')==account['generation'] and data.get('snapshot'):
             entries=service.repo.decode(bytes.fromhex(data['snapshot']))['entries']
         if entries is None:
             cooldown=await service.repo.pool.fetchval('SELECT max(resume_at) FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2',service.bot_id,uid) or 0
@@ -111,6 +129,9 @@ async def destinations(service,actor,argument):
                     if any(getattr(entity,flag,False) for flag in ('left','kicked','deactivated')) or getattr(entity,'migrated_to',None):continue
                     source=utils.get_peer_id(entity)
                     if source in seen:continue
+                    from .creator_access import require_source
+                    try:await require_source(service,uid,source,client=client,entity=entity,actor=actor)
+                    except ValueError:continue
                     seen.add(source)
                     from .group_admin import entity_snapshot
                     entries.append({'id':source,'account_rights':entity_snapshot(entity),'name':' '.join((getattr(entity,'title',None) or 'Sin nombre').split())[:128],
@@ -120,7 +141,7 @@ async def destinations(service,actor,argument):
             if not current or not current['session'] or current['generation']!=account['generation']:
                 raise ValueError('La sesión cambió durante la consulta. Vuelve a intentarlo.')
             entries.sort(key=lambda entry:entry['id'])
-            data={'ids':[e['id'] for e in entries],'expires':time.time()+1800,'generation':account['generation'],
+            data={'privacy':privacy,'ids':[e['id'] for e in entries],'expires':time.time()+1800,'generation':account['generation'],
                 'roles_version':1,'snapshot':service.repo.encode({'entries':entries}).hex()}
             await service.repo.set_setting(key,json.dumps(data))
         if not authorized(actor):return

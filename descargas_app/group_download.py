@@ -51,6 +51,9 @@ def media_kind(message):
     return 'other'
 
 
+from .creator_access import scoped,require_account,require_source
+
+@scoped("message")
 async def command(service, message):
     text = message.get('text', '').strip()
     if not re.match(r'^/(?:descargar|stop|pendientes|reintentar)(?:@|\s|$)', text, re.IGNORECASE):
@@ -76,6 +79,14 @@ async def command(service, message):
         await service.tell(actor, 'Uso: /descargar telegram_id group_id [video|fotos|gif]\nPausar: /stop telegram_id group_id\nPendientes: /pendientes telegram_id group_id (también canal_id)')
         return True
     action, uid, source, media_filter = parsed
+    try:await require_account(service,uid,actor)
+    except ValueError as exc:
+        await service.tell(actor,str(exc));return True
+    if action in ('pendientes','stop'):
+        from .creator_access import validate_target
+        try:await validate_target(service,actor,uid,source)
+        except ValueError as exc:
+            await service.tell(actor,str(exc));return True
     pool = service.repo.pool
     if action == 'pendientes':
         await list_pending(service,actor,uid,source)
@@ -161,6 +172,7 @@ async def checked(service, job):
     if getattr(service,'role','worker')=='worker' and await service.repo.setting(f'dedicated_export:{service.bot_id}')=='enabled':return False
     if not authorized(job['actor']):
         raise ValueError('El administrador ya no está autorizado.')
+    await require_account(service,job['uid'],job['actor'])
     row = await service.repo.pool.fetchrow('SELECT * FROM descarga_group_exports WHERE bot_id=$1 AND uid=$2 AND source=$3', job['bot_id'], job['uid'], job['source'])
     if not row or row['state'] != 'running' or row.get('scan',0)!=job.get('scan',0):
         return False
@@ -168,6 +180,11 @@ async def checked(service, job):
     account = await service.repo.account(job['uid'])
     if not account or not account['session'] or account['generation'] != job['generation']:
         raise ValueError('La sesión fue desconectada. Vuelve a conectar la cuenta.')
+    if job.get('manual_token'):
+        board=await service.repo.pool.fetchrow('SELECT payload FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2',service.bot_id,job['manual_token'])
+        if board and service.repo.decode(board['payload']).get('search_consent'):
+            from .creator_access import require_consent
+            await require_consent(service,job['actor'],job['uid'])
     await ensure_allowed(service, job['uid'], job['source'])
     if (await service.repo.policy(service.bot_id, job['uid'], job['source']))['locked']:
         raise ValueError('El usuario o el grupo tiene /lock; no se permite almacenar.')
@@ -188,6 +205,7 @@ async def users_busy(service):
 
 async def archive_items(service, job, client, key, items, name):
     uid, source = job['uid'], job['source']
+    await require_source(service,uid,source,client=client,actor=job.get('actor'))
     from .export_inventory import excluded,stored,remember
     if await excluded(service,items):return 0
     if await stored(service,source,items):return 0
@@ -261,9 +279,12 @@ async def archive_items(service, job, client, key, items, name):
             await remember(service,source,items,ids)
             await service.repo.pool.execute('DELETE FROM descarga_export_uncertain WHERE media_key=$1',identity)
             await apply_archive_caption(service,ids[0],attribution,delivered[0])
+            from .creator_search import evidence
+            await evidence(service,job,items,ids)
             return len(items)
 
 
+@scoped("job")
 async def step(service, job):
     """One history page per lock, releasing the user's session between pages."""
     if not await checked(service, job):
@@ -302,6 +323,7 @@ async def step(service, job):
             else:entity=await service.resolve(client,job['source'])
             if (not saved_source and not isinstance(entity, (types.Channel, types.Chat))) or utils.get_peer_id(entity) != job['source']:
                 raise ValueError('El origen debe ser un grupo o canal accesible por esa cuenta.')
+            await require_source(service,job['uid'],job['source'],client=client,entity=entity,actor=job.get('actor'))
             require_entity(entity, job['uid'])
             service.export_operation='get_account'
             me = await client.get_me()
@@ -341,6 +363,9 @@ async def step(service, job):
                     else:count=0
                 else:count=await archive_items(service,job,client,key,items,name)
                 if count is None:return
+                if count==0 and job.get('manual_token'):
+                    from .creator_search import evidence
+                    await evidence(service,job,full_items)
                 from .export_inventory import resolve_pending
                 for item_id in {mid,*(m.id for m in items)}:
                     await resolve_pending(service,job,item_id)
@@ -533,6 +558,8 @@ class ExportContext:
                 self._source_entities.pop(next(iter(self._source_entities)))
             self._source_entities[key]=entity
         # Membership/content access is still verified by Telegram on every message fetch.
+        from .creator_access import ACTOR
+        if ACTOR.get() is not None:await require_source(self,self.export_uid,utils.get_peer_id(entity),client=client,entity=entity)
         require_entity(entity,self.export_uid)
         return entity
 

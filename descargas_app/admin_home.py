@@ -13,6 +13,8 @@ async def clear(s,actor):await s.repo.set_setting(key(s,actor),'')
 
 
 async def home(panel,actor):
+    from .creator_search import pending_key
+    await panel.s.repo.set_setting(pending_key(panel.s,actor),'')
     if not authorized(actor):return
     from .manual_board import context_key
     from .group_admin import clear as clear_group
