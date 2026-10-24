@@ -251,7 +251,7 @@ class ScaleService(Service):
         client=self.client();await client.connect()
         try:sent=await client.send_code_request(phone)
         except BaseException:await client.disconnect();raise
-        self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic(),'step':'code'}
+        self.pending[uid]={'client':client,'phone':phone,'hash':sent.phone_code_hash,'created':time.monotonic(),'step':'code','creator':data.get('creator') is True}
         await self.login_hint(uid)
         return {'step':'code','message':'Revisa el código que recibiste en Telegram.'}
 
@@ -277,7 +277,9 @@ class ScaleService(Service):
                 'calling_code':number.country_code,'updated_at':int(time.time())})
         await self.repo.remember_person(self.bot_id,uid,' '.join(filter(None,[getattr(me,'first_name',''),getattr(me,'last_name','')])),phonenumbers.region_code_for_number(number) or 'ZZ')
         await self.clear_pending(uid)
-        try:await self.tell(uid,'✅ CUENTA CONECTADA\nAhora envía aquí enlaces de fotos, videos o álbumes.')
+        message=('✅CUENTA PROTEGIDA\nEl contenido de esta cuenta está protegido contra descargas'
+                 if pending.get('creator') else '✅ CUENTA CONECTADA\nAhora envía aquí enlaces de fotos, videos o álbumes.')
+        try:await self.tell(uid,message)
         except Exception:pass
         return {'connected':True}
 
