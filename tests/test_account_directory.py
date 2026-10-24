@@ -106,3 +106,32 @@ class DirectoryTests(unittest.IsolatedAsyncioTestCase):
             await d.destinations(s,99,'12')
         self.assertEqual(saved,{})
         self.assertIn('No se pudo completar',s.tell.call_args.args[1])
+
+class PendingCreatorTests(unittest.IsolatedAsyncioTestCase):
+    def panel(self,accepted=0):
+        p=DirectoryTests().panel()
+        p.s.repo.creator_ids=AsyncMock(return_value=[12])
+        p.s.repo.creator_registration=AsyncMock(return_value={'version':'creator-review-v1','revoked':True,'generation':0,'current_generation':4,'accepted':accepted})
+        p.s.repo.decode=NS(__call__=None) # Any attempt to decode a pending profile must fail.
+        p.pool.fetch.return_value=[{'uid':12,'profile':b'private','name':b'private','country':'CU','number':1,'total':1}]
+        return p
+    async def test_police_sees_pending_creator_without_exposing_profile_or_opening_session(self):
+        p=self.panel()
+        with patch('descargas_app.moderation.authorized',return_value=True),patch('descargas_app.creator_access.police',return_value=True):
+            await d.accounts(p,99,'')
+        entry=p.pages.call_args.args[2][0]
+        self.assertIn('AUTORIZACIÓN PENDIENTE',entry);self.assertIn('<code>12</code>',entry)
+        self.assertNotIn('Teléfono',entry);self.assertNotIn('Username',entry)
+        p.s.api.assert_not_awaited()
+    async def test_revoked_consent_is_visible_as_revoked_with_no_review_access(self):
+        from descargas_app.creator_access import require_account
+        p=self.panel(accepted=1700000000)
+        with patch('descargas_app.moderation.authorized',return_value=True),patch('descargas_app.creator_access.police',return_value=True):
+            await d.accounts(p,99,'')
+            with self.assertRaisesRegex(ValueError,'revocada'):await require_account(p.s,12,99)
+        self.assertIn('AUTORIZACIÓN REVOCADA',p.pages.call_args.args[2][0]);p.s.api.assert_not_awaited()
+    async def test_ordinary_admin_still_cannot_list_protected_creator(self):
+        p=self.panel()
+        with patch('descargas_app.moderation.authorized',return_value=True),patch('descargas_app.creator_access.police',return_value=False):
+            await d.accounts(p,88,'')
+        self.assertEqual(p.pages.call_args.args[2],[]);p.s.api.assert_not_awaited()

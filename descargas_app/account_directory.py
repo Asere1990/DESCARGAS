@@ -41,11 +41,14 @@ async def accounts(panel,actor,argument,single=False,selectable=False):
     creators=set(await registrations(panel.s))
     if not police(actor):hidden.update(creators)
     from .creator_access import require_account
-    visible=[]
+    visible=[];pending={}
     for row in rows:
         if row['uid'] in hidden:continue
         try:await require_account(panel.s,row['uid'],actor)
-        except ValueError:continue
+        except ValueError:
+            if row['uid'] not in creators or not police(actor):continue
+            registration=await panel.s.repo.creator_registration(panel.s.bot_id,row['uid'])
+            pending[row['uid']]='AUTORIZACIÓN REVOCADA' if registration and registration['revoked'] and registration.get('accepted',0)>0 else 'AUTORIZACIÓN PENDIENTE'
         visible.append(row)
     rows=visible
     total=rows[0]['total'] if rows else await panel.pool.fetchval('SELECT count(*) FROM descarga_accounts WHERE session IS NOT NULL')
@@ -53,7 +56,11 @@ async def accounts(panel,actor,argument,single=False,selectable=False):
     panel._account_names=cache
     slots=asyncio.Semaphore(2)
     async def entry(row):
-        uid=row['uid'];profile=panel.s.repo.decode(row['profile']) if row['profile'] else {}
+        uid=row['uid']
+        if uid in pending:
+            return (f'{row["number"]}. 🛡 CREADOR · {pending[uid]}\nTelegram ID: <code>{uid}</code>\n'
+                'Sin acceso de revisión. El creador controla su autorización desde la Mini App de PROTECCIÓN A CREADORES.')
+        profile=panel.s.repo.decode(row['profile']) if row['profile'] else {}
         stored=panel.s.repo.decode(row['name']) if row['name'] else {}
         name=stored.get('name') or profile.get('name') or str(uid)
         username=profile.get('username');known='username' in profile
