@@ -2,8 +2,18 @@ const tg=window.Telegram?.WebApp;
 const $=id=>document.getElementById(id);
 let busy=false, countries=[];
 const creatorMode=new URLSearchParams(location.search).get('mode')==='creator';
-if(creatorMode){$('phone-step').querySelector('h1').textContent='Protección a creadores';$('phone-step').querySelector('.intro').textContent='Conecta tu propia cuenta para solicitar revisión y protección manual de tus grupos y canales. Lee el acceso que concedes antes de continuar.';$('creator-review').hidden=false;$('creator-authorize').hidden=true;$('creator-revoke').hidden=true;$('done-step').querySelector('h1').textContent='Cuenta conectada';$('done-step').querySelector('.intro').textContent='Completa abajo la autorización de revisión. Tu protección estará pendiente de activación manual.';}
-function show(step){if(creatorMode)$('creator-authorize').hidden=step!=='done';['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
+if(creatorMode){
+ $('phone-step').querySelector('h1').textContent='Protección a creadores';
+ $('phone-step').querySelector('.intro').textContent='Conecta tu propia cuenta para solicitar revisión y protección manual de tus grupos y canales. Lee el acceso que concedes antes de continuar.';
+ const done=$('done-step');
+ done.prepend($('creator-review'));
+ for(const selector of ['.success','.eyebrow','h1','.intro'])done.querySelector(selector).hidden=true;
+ $('creator-review').hidden=true;
+ $('creator-authorize').hidden=true;
+ $('creator-revoke').hidden=true;
+}
+
+function show(step){if(creatorMode){$('creator-authorize').hidden=step!=='done';$('creator-review').hidden=step!=='done';if(step==='done')window.scrollTo(0,0);}['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
 async function api(op,data={}){
  const response=await fetch('api/'+op,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg?.initData||''},body:JSON.stringify(data),cache:'no-store'});
  const result=await response.json();if(!response.ok)throw Error(result.error||'No se pudo completar.');return result;
