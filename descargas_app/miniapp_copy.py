@@ -12,6 +12,23 @@ FILE=Path(__file__).with_name('miniapp_texts.json')
 WEB=Path(__file__).with_name('web')
 MODES={'cuenta':'CREAR CUENTA','creadores':'PROTECCIÓN A CREADORES'}
 CATEGORIES={'cabecera':'Cabecera y nombre','titulos':'Títulos y recuadros','botones':'Botones','campos':'Campos y etiquetas','avisos':'Avisos y mensajes','popups':'Popups y confirmaciones','menus':'Menús','desplegables':'Textos desplegables','paises':'Nombres de países','servidor':'Respuestas y errores'}
+# These HTML and JavaScript keys address the same visible creator controls.
+# Keep old keys compatible with saved edits and source-code edits, but expose
+# just the HTML field in the editor and resolve both to the most recent write.
+CREATOR_ALIASES={'html.010':'creator.title','html.011':'creator.intro','html.045':'creator.disconnect_button'}
+
+def resolve_aliases(base,mode,rows=()):
+    if mode!='creadores':return base
+    updated={r['key']:r['updated'] for r in rows}
+    for field,alias in CREATOR_ALIASES.items():
+        if field in base and alias in base:
+            winner=field if updated.get(field,0)>updated.get(alias,0) else alias
+            base[field]=base[alias]=base[winner]
+    return base
+
+def editor_entries(mode):
+    return {k:v for k,v in definitions()[mode].items() if k not in CREATOR_ALIASES.values()}
+
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS descarga_miniapp_copy(
  bot_id BIGINT NOT NULL,mode TEXT NOT NULL,key TEXT NOT NULL,
@@ -69,14 +86,14 @@ async def activate(repo,bot_id):
 
 async def values(repo,bot_id,mode):
     base={key:item['text'] for key,item in definitions()[mode].items()}
-    rows=await repo.pool.fetch('SELECT key,value FROM descarga_miniapp_copy WHERE bot_id=$1 AND mode=$2',bot_id,mode)
+    rows=await repo.pool.fetch('SELECT key,value,updated FROM descarga_miniapp_copy WHERE bot_id=$1 AND mode=$2',bot_id,mode)
     base.update((r['key'],r['value']) for r in rows if r['key'] in base)
-    return base
+    return resolve_aliases(base,mode,rows)
 
 async def effective(service,mode):
     reader=getattr(getattr(service,'repo',None),'miniapp_copy_values',None)
     if reader and service.ready:return await reader(service.bot_id,mode)
-    return {k:item['text'] for k,item in definitions()[mode].items()}
+    return resolve_aliases({k:item['text'] for k,item in definitions()[mode].items()},mode)
 
 async def read_logo(repo,bot_id,mode):
     row=await repo.pool.fetchrow('SELECT data,mime FROM descarga_miniapp_logo WHERE bot_id=$1 AND mode=$2',bot_id,mode)

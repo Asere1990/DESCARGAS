@@ -6,7 +6,7 @@ import re
 import time
 import uuid
 from .creator_access import police
-from .miniapp_copy import MODES,CATEGORIES,definitions,values,save,save_logo
+from .miniapp_copy import MODES,CATEGORIES,definitions,editor_entries,values,save,save_logo
 
 
 def key(s,actor):return f'miniapp-editor:{s.bot_id}:{actor}'
@@ -46,7 +46,7 @@ async def categories(panel,actor,mode):
 
 async def listing(panel,actor,mode,category,page=0):
     if category not in CATEGORIES:raise ValueError('Categoría no válida.')
-    entries=definitions()[mode];keys=[k for k,v in entries.items() if v['category']==category]
+    entries=editor_entries(mode);keys=[k for k,v in entries.items() if v['category']==category]
     count=len(keys);page=max(0,min(page,max(0,(count-1)//30)))
     data=await put(panel.s,actor,{'mode':mode,'category':category,'keys':keys,'stage':'list','page':page})
     current=await values(panel.s.repo,panel.s.bot_id,mode)

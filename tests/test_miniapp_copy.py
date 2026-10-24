@@ -59,6 +59,27 @@ class CopyStorageTests(unittest.IsolatedAsyncioTestCase):
   await c.save(self.repo,7,99,'cuenta','button','Edición posterior',1)
   self.data['cuenta']['button']['text']='Original';self.write()
   self.assertEqual((await c.values(self.repo,7,'cuenta'))['button'],'Edición posterior')
+ async def test_creator_html_edits_and_legacy_js_keys_share_latest_visible_value(self):
+  for field,alias in c.CREATOR_ALIASES.items():
+   self.data['creadores'][field]={'text':'HTML original','label':'Visible','category':'avisos'}
+   self.data['creadores'][alias]={'text':'Creator original','label':'Legacy','category':'avisos'}
+  self.write();await c.activate(self.repo,7)
+  for i,(field,alias) in enumerate(c.CREATOR_ALIASES.items()):
+   initial=await c.values(self.repo,7,'creadores')
+   self.assertEqual(initial[field],'Creator original')
+   await c.save(self.repo,7,99,'creadores',field,'Cambio ya guardado',100+i)
+   result=await c.values(self.repo,7,'creadores')
+   self.assertEqual(result[field],result[alias]);self.assertEqual(result[alias],'Cambio ya guardado')
+   self.data['creadores'][alias]['text']='Cambio posterior en código';self.write();await c.activate(self.repo,7)
+   result=await c.values(self.repo,7,'creadores')
+   self.assertEqual(result[field],'Cambio posterior en código')
+   await c.save(self.repo,7,99,'creadores',field,'Último desde editor',200+i)
+   await c.activate(self.repo,7)
+   result=await c.values(self.repo,7,'creadores')
+   self.assertEqual(result[alias],'Último desde editor')
+   self.assertIn(field,c.editor_entries('creadores'));self.assertNotIn(alias,c.editor_entries('creadores'))
+  rendered=c.render_index('<head></head><p>{{copy:html.011}}</p>',result)
+  self.assertIn('<p>Último desde editor</p>',rendered)
  async def test_replayed_update_cannot_overwrite_a_later_edit(self):
   await c.save(self.repo,7,99,'cuenta','button','Primero',1);await c.save(self.repo,7,99,'cuenta','button','Último',2)
   self.assertFalse(await c.save(self.repo,7,99,'cuenta','button','Repetido',1))
