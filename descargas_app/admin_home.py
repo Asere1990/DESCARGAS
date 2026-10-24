@@ -13,6 +13,8 @@ async def clear(s,actor):await s.repo.set_setting(key(s,actor),'')
 
 
 async def home(panel,actor):
+    from .miniapp_editor import clear as clear_editor
+    await clear_editor(panel.s,actor)
     from .creator_search import pending_key
     await panel.s.repo.set_setting(pending_key(panel.s,actor),'')
     if not authorized(actor):return
@@ -41,7 +43,10 @@ async def home(panel,actor):
     if downloads is not None:text+=f'\n𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒: {downloads}'
     text+='\n\nUsuarios registrados en el DM; cuentas con sesión guardada. Telegram no informa si mantienen el chat abierto ni confirma aquí si revocaron la sesión.'
     if downloads is not None:text+='\nDescargas: archivos entregados al DM, incluidos los de caché.'
-    await panel.send(actor,text,[[{'text':'𝐂𝐔𝐄𝐍𝐓𝐀𝐒','style':'primary','callback_data':'stats:account_menu_list'}]])
+    rows=[[{'text':'𝐂𝐔𝐄𝐍𝐓𝐀𝐒','style':'primary','callback_data':'stats:account_menu_list'}]]
+    from .creator_access import police
+    if police(actor):rows.append([{'text':'✏️ EDITAR MINIAPP','style':'primary','callback_data':'copy:open'}])
+    await panel.send(actor,text,rows)
 
 
 async def begin(panel,actor):

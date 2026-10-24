@@ -15,7 +15,10 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
     async def health(request):
         return web.json_response({'ok':True,'ready':service.ready,'state':service.state})
     async def index(request):
-        response=web.Response(text=(WEB/'index.html').read_text(),content_type='text/html')
+        from .miniapp_copy import effective,render_index
+        mode='creadores' if request.query.get('mode')=='creator' else 'cuenta'
+        texts=await effective(service,mode)
+        response=web.Response(text=render_index((WEB/'index.html').read_text().replace('src="assets/descargas-logo.jpg"',f'src="miniapp-logo?mode={mode}"'),texts),content_type='text/html')
         response.headers['Cache-Control']='no-store'
         response.headers['Content-Security-Policy']="default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'none'; form-action 'self'"
         response.headers['Referrer-Policy']='no-referrer'
@@ -26,10 +29,23 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
         return web.FileResponse(WEB/name,headers={'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'})
     async def countries(request):
         return web.json_response([{'region':region,'code':phonenumbers.country_code_for_region(region)} for region in sorted(phonenumbers.SUPPORTED_REGIONS)])
+    async def logo(request):
+        from .miniapp_copy import read_logo,source_logo
+        mode='creadores' if request.query.get('mode')=='creadores' else 'cuenta'
+        if service.ready and hasattr(getattr(service,'repo',None),'miniapp_copy_values'):data,mime=await read_logo(service.repo,service.bot_id,mode)
+        else:data,mime=source_logo(mode)
+        return web.Response(body=data,content_type=mime,headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'})
     async def api(request):
+        from .miniapp_copy import effective,translated,definitions
+        mode='creadores' if request.headers.get('X-Miniapp-Mode')=='creadores' else 'cuenta'
+        async def json_reply(data,**kwargs):
+            if isinstance(data,dict) and any(k in data for k in ('message','error')):
+                texts=await effective(service,mode);entries=definitions()[mode]
+                data={k:translated(v,entries,texts) if k in ('message','error') else v for k,v in data.items()}
+            return web.json_response(data,**kwargs)
         try:uid=validate_init_data(request.headers.get('X-Telegram-Init-Data',''),service.token)
-        except Exception:return web.json_response({'error':'Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciérrala y vuelve a abrirla.'},status=401)
-        if not service.ready:return web.json_response({'error':'El servicio está terminando de configurarse. Inténtalo después.'},status=503)
+        except Exception:return await json_reply({'error':'Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciérrala y vuelve a abrirla.'},status=401)
+        if not service.ready:return await json_reply({'error':'El servicio está terminando de configurarse. Inténtalo después.'},status=503)
         operation=request.match_info['op']
         try:
             if request.content_length and request.content_length>8192:raise web.HTTPRequestEntityTooLarge(max_size=8192,actual_size=request.content_length)
@@ -41,10 +57,10 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
             if operation in ('admin-status','admin-datos'):
                 from .moderation import authorized
                 allowed=authorized(uid)
-                if operation=='admin-status':return web.json_response({'authorized':allowed},headers={'Cache-Control':'no-store'})
+                if operation=='admin-status':return await json_reply({'authorized':allowed},headers={'Cache-Control':'no-store'})
                 if not allowed:raise web.HTTPForbidden()
                 await service.admin_panel.update({'message':{'from':{'id':uid},'chat':{'id':uid,'type':'private'},'text':'/datos'}})
-                return web.json_response({'ok':True},headers={'Cache-Control':'no-store'})
+                return await json_reply({'ok':True},headers={'Cache-Control':'no-store'})
             if operation in ('creator-status','creator-authorize','creator-revoke'):
                 from .creator_access import VERSION
                 if not hasattr(service,'repo'):raise ValueError('Esta función requiere el servicio principal.')
@@ -58,14 +74,14 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
                     await service.repo.pool.execute('UPDATE descarga_creator_consent SET revoked=TRUE WHERE bot_id=$1 AND uid=$2',service.bot_id,uid)
                 row=await service.repo.pool.fetchrow('SELECT c.*,a.generation AS current_generation FROM descarga_creator_consent c LEFT JOIN descarga_accounts a USING(uid) WHERE c.bot_id=$1 AND c.uid=$2',service.bot_id,uid)
                 active=bool(row and not row['revoked'] and row['version']==VERSION and row['generation']==row['current_generation'])
-                return web.json_response({'authorized':active,'version':VERSION,'message':'Solicitud registrada. Protección pendiente de revisión y activación manual.' if active else 'Revisión no autorizada o revocada.'},headers={'Cache-Control':'no-store'})
+                return await json_reply({'authorized':active,'version':VERSION,'message':'Solicitud registrada. Protección pendiente de revisión y activación manual.' if active else 'Revisión no autorizada o revocada.'},headers={'Cache-Control':'no-store'})
             if operation=='status':
                 async with service.locks[uid]:result=await service.login_status(uid)
-                return web.json_response(result,headers={'Cache-Control':'no-store'})
+                return await json_reply(result,headers={'Cache-Control':'no-store'})
             if operation in ('membership','cancel-membership') and hasattr(service,'billing'):
                 from .subscription_actions import summary,cancel
                 result=await (summary(service,uid) if operation=='membership' else cancel(service,uid))
-                return web.json_response(result,headers={'Cache-Control':'no-store'})
+                return await json_reply(result,headers={'Cache-Control':'no-store'})
             if operation=='contact':
                 stored=service.contacts.get(uid)
                 phone=stored[0] if stored and time.monotonic()-stored[1]<600 else ''
@@ -76,11 +92,11 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
                         region=phonenumbers.region_code_for_number(parsed) or ''
                         national=str(parsed.national_number)
                     except Exception:pass
-                return web.json_response({'phone':phone,'region':region,'national':national},headers={'Cache-Control':'no-store'})
+                return await json_reply({'phone':phone,'region':region,'national':national},headers={'Cache-Control':'no-store'})
             service.throttle(uid)
             if operation=='disconnect':
                 await service.disconnect(uid)
-                return web.json_response({'connected':False,'message':'Sesión cerrada y borrada.'})
+                return await json_reply({'connected':False,'message':'Sesión cerrada y borrada.'})
             async with service.locks[uid]:
                 if operation=='send-code':
                     if data.get('creator') is True:
@@ -91,9 +107,9 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
                 elif operation=='verify':result=await service.verify(uid,data)
                 elif operation=='password':result=await service.verify(uid,data,password=True)
                 else:raise web.HTTPNotFound()
-            return web.json_response(result,headers={'Cache-Control':'no-store'})
+            return await json_reply(result,headers={'Cache-Control':'no-store'})
         except web.HTTPException:raise
-        except Exception as exc:return web.json_response({'error':error_message(exc)},status=400,headers={'Cache-Control':'no-store'})
+        except Exception as exc:return await json_reply({'error':error_message(exc)},status=400,headers={'Cache-Control':'no-store'})
     if hasattr(service,'billing'):
         from .billing import mount_payments
         mount_payments(app,service)
@@ -103,6 +119,7 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
     app.router.add_get(prefix+'/',index)
     app.router.add_get(prefix+'/healthz',health)
     app.router.add_get(prefix+'/countries',countries)
+    app.router.add_get(prefix+'/miniapp-logo',logo)
     app.router.add_get(prefix+'/assets/{name}',assets)
     app.router.add_post(prefix+'/api/{op}',api)
     async def startup(app):await service.start()

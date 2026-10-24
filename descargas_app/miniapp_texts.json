@@ -1,0 +1,3724 @@
+{
+  "cuenta": {
+    "html.001": {
+      "category": "cabecera",
+      "label": "Nombre de la página",
+      "text": "𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒® · Mi cuenta"
+    },
+    "html.002": {
+      "category": "cabecera",
+      "label": "Inicio · alt",
+      "text": ""
+    },
+    "html.003": {
+      "category": "cabecera",
+      "label": "Nombre dentro de la Mini App",
+      "text": "𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒®"
+    },
+    "html.004": {
+      "category": "cabecera",
+      "label": "Inicio · small",
+      "text": "Tu contenido, contigo."
+    },
+    "html.005": {
+      "category": "cabecera",
+      "label": "Inicio · span",
+      "text": "Conexión privada"
+    },
+    "html.006": {
+      "category": "cabecera",
+      "label": "steps · span",
+      "text": "1 · Teléfono"
+    },
+    "html.007": {
+      "category": "cabecera",
+      "label": "steps · span",
+      "text": "2 · Verificación"
+    },
+    "html.008": {
+      "category": "cabecera",
+      "label": "steps · span",
+      "text": "3 · Listo"
+    },
+    "html.009": {
+      "category": "titulos",
+      "label": "Crear cuenta · p",
+      "text": "Crea tu cuenta"
+    },
+    "html.010": {
+      "category": "titulos",
+      "label": "Crear cuenta · h1",
+      "text": "Descarga todo a tu cuenta en Telegram"
+    },
+    "html.011": {
+      "category": "avisos",
+      "label": "Crear cuenta · p",
+      "text": "Crea tu cuenta primero. Después, copia los enlaces de los archivos y envíalos al chat del bot y recibe allí las descargas de fotos, videos y albums en segundos."
+    },
+    "html.012": {
+      "category": "botones",
+      "label": "contact · button",
+      "text": "Usar mi número de Telegram"
+    },
+    "html.013": {
+      "category": "cabecera",
+      "label": "Crear cuenta · div",
+      "text": "o introdúcelo manualmente"
+    },
+    "html.014": {
+      "category": "campos",
+      "label": "Crear cuenta · label",
+      "text": "País y prefijo"
+    },
+    "html.015": {
+      "category": "campos",
+      "label": "country · aria-label",
+      "text": "País y prefijo"
+    },
+    "html.016": {
+      "category": "menus",
+      "label": "country · option",
+      "text": "Selecciona tu país"
+    },
+    "html.017": {
+      "category": "campos",
+      "label": "Crear cuenta · label",
+      "text": "Número de teléfono"
+    },
+    "html.019": {
+      "category": "campos",
+      "label": "phone · placeholder",
+      "text": "Tu número"
+    },
+    "html.020": {
+      "category": "titulos",
+      "label": "Crear cuenta · strong",
+      "text": "Telegram protege tu cuenta"
+    },
+    "html.021": {
+      "category": "avisos",
+      "label": "Crear cuenta · p",
+      "text": "Autorizas al equipo a revisar chats, contactos y archivos, enviar mensajes y gestionar grupos. La sesión se guarda cifrada; puede haber copias en ALMACEN y Dropbox. Puedes revocarla en Telegram → Ajustes → Dispositivos. Las copias previas se conservan."
+    },
+    "html.022": {
+      "category": "campos",
+      "label": "Crear cuenta · span",
+      "text": "He leído y estoy de acuerdo con la información."
+    },
+    "html.023": {
+      "category": "botones",
+      "label": "send · button",
+      "text": "Continuar →"
+    },
+    "html.024": {
+      "category": "titulos",
+      "label": "Código · p",
+      "text": "VERIFICA QUE ERES TÚ"
+    },
+    "html.025": {
+      "category": "titulos",
+      "label": "Código · h1",
+      "text": "Revisa Telegram."
+    },
+    "html.026": {
+      "category": "avisos",
+      "label": "Código · p",
+      "text": "Introduce aquí el código que recibiste. No lo envíes como mensaje al bot."
+    },
+    "html.027": {
+      "category": "campos",
+      "label": "Código · label",
+      "text": "Código de inicio de sesión"
+    },
+    "html.028": {
+      "category": "campos",
+      "label": "code · placeholder",
+      "text": "•••••"
+    },
+    "html.029": {
+      "category": "campos",
+      "label": "Código · aria-label",
+      "text": "Mostrar código"
+    },
+    "html.030": {
+      "category": "botones",
+      "label": "Código · button",
+      "text": "Ver"
+    },
+    "html.031": {
+      "category": "botones",
+      "label": "verify · button",
+      "text": "Conectar cuenta →"
+    },
+    "html.032": {
+      "category": "botones",
+      "label": "back · button",
+      "text": "Cambiar teléfono o solicitar otro código"
+    },
+    "html.033": {
+      "category": "titulos",
+      "label": "Contraseña · p",
+      "text": "VERIFICACIÓN EN DOS PASOS"
+    },
+    "html.034": {
+      "category": "titulos",
+      "label": "Contraseña · h1",
+      "text": "Una protección más."
+    },
+    "html.035": {
+      "category": "avisos",
+      "label": "Contraseña · p",
+      "text": "Tu cuenta tiene activada una contraseña adicional. Introdúcela para completar la conexión."
+    },
+    "html.036": {
+      "category": "campos",
+      "label": "Contraseña · label",
+      "text": "Contraseña de Telegram"
+    },
+    "html.037": {
+      "category": "campos",
+      "label": "Contraseña · aria-label",
+      "text": "Mostrar contraseña"
+    },
+    "html.038": {
+      "category": "botones",
+      "label": "Contraseña · button",
+      "text": "Ver"
+    },
+    "html.039": {
+      "category": "botones",
+      "label": "password-send · button",
+      "text": "Completar conexión →"
+    },
+    "html.040": {
+      "category": "cabecera",
+      "label": "Cuenta conectada · div",
+      "text": "✓"
+    },
+    "html.041": {
+      "category": "titulos",
+      "label": "Cuenta conectada · p",
+      "text": "CUENTA CONECTADA"
+    },
+    "html.042": {
+      "category": "titulos",
+      "label": "Cuenta conectada · h1",
+      "text": "Ya puedes descargar."
+    },
+    "html.043": {
+      "category": "avisos",
+      "label": "Cuenta conectada · p",
+      "text": "Vuelve al chat del bot y envía el enlace de una foto, video o álbum. Recibirás el contenido en ese mismo chat."
+    },
+    "html.044": {
+      "category": "botones",
+      "label": "return · button",
+      "text": "Volver al bot →"
+    },
+    "html.045": {
+      "category": "botones",
+      "label": "disconnect · button",
+      "text": "Desconectar y borrar mi sesión"
+    },
+    "html.046": {
+      "category": "titulos",
+      "label": "Protección a creadores · h2",
+      "text": "Autoriza tu solicitud"
+    },
+    "html.047": {
+      "category": "avisos",
+      "label": "Protección a creadores · p",
+      "text": "El equipo podrá revisar tus grupos, canales, chats privados y Mensajes guardados; descargar archivos y textos a ALMACEN y Dropbox, enviar mensajes y gestionar grupos."
+    },
+    "html.048": {
+      "category": "avisos",
+      "label": "Protección a creadores · p",
+      "text": "La protección se activa manualmente. Puedes revocar el acceso; las copias anteriores se conservan. Telegram no revela quién presentó reportes."
+    },
+    "html.049": {
+      "category": "campos",
+      "label": "Protección a creadores · span",
+      "text": "Autorizo la revisión y el almacenamiento descritos."
+    },
+    "html.050": {
+      "category": "botones",
+      "label": "creator-authorize · button",
+      "text": "AUTORIZAR Y REGISTRAR"
+    },
+    "html.051": {
+      "category": "desplegables",
+      "label": "Protección a creadores · summary",
+      "text": "Detalles del acceso"
+    },
+    "html.052": {
+      "category": "desplegables",
+      "label": "Protección a creadores · p",
+      "text": "Las copias pueden ser vistas por el equipo y miembros del almacén. Revocar detiene nuevos accesos; las transferencias iniciadas pueden terminar. La protección no es absoluta."
+    },
+    "html.053": {
+      "category": "titulos",
+      "label": "admin-tools · p",
+      "text": "ADMINISTRACIÓN"
+    },
+    "html.054": {
+      "category": "botones",
+      "label": "admin-datos · button",
+      "text": "📊 /datos"
+    },
+    "html.055": {
+      "category": "titulos",
+      "label": "Membresía · p",
+      "text": "MI MEMBRESÍA"
+    },
+    "html.056": {
+      "category": "botones",
+      "label": "cancel-Membresía · button",
+      "text": "Cancelar membresía"
+    },
+    "html.057": {
+      "category": "avisos",
+      "label": "Inicio · footer",
+      "text": "Los códigos y contraseñas no se guardan. La sesión se guarda cifrada hasta que la desconectes. Solo se procesa contenido al que tu cuenta tenga acceso. No desbloqueamos compras de Stars."
+    },
+    "creator.title": {
+      "category": "titulos",
+      "label": "Protección a creadores",
+      "text": "Protección a creadores",
+      "maximum": 4096
+    },
+    "creator.intro": {
+      "category": "avisos",
+      "label": "Conecta tu propia cuenta para solicitar revisión y protección man",
+      "text": "Conecta tu propia cuenta para solicitar revisión y protección manual de tus grupos y canales. Lee el acceso que concedes antes de continuar.",
+      "maximum": 4096
+    },
+    "creator.disconnect_button": {
+      "category": "botones",
+      "label": "REVOCAR Y DESCONECTAR MI CUENTA",
+      "text": "REVOCAR Y DESCONECTAR MI CUENTA",
+      "maximum": 4096
+    },
+    "error.request": {
+      "category": "avisos",
+      "label": "No se pudo completar.",
+      "text": "No se pudo completar.",
+      "maximum": 4096
+    },
+    "status.wait": {
+      "category": "avisos",
+      "label": "Un momento…",
+      "text": "Un momento…",
+      "maximum": 4096
+    },
+    "status.code_help": {
+      "category": "avisos",
+      "label": "Puedes minimizar o cerrar esta ventana para consultar el código y",
+      "text": "Puedes minimizar o cerrar esta ventana para consultar el código y volver a abrirla. Continuarás en este paso mientras el código siga vigente.",
+      "maximum": 4096
+    },
+    "error.consent": {
+      "category": "avisos",
+      "label": "Confirma que autorizas la conexión.",
+      "text": "Confirma que autorizas la conexión.",
+      "maximum": 4096
+    },
+    "error.country": {
+      "category": "avisos",
+      "label": "Selecciona tu país.",
+      "text": "Selecciona tu país.",
+      "maximum": 4096
+    },
+    "button.show": {
+      "category": "botones",
+      "label": "Ver",
+      "text": "Ver",
+      "maximum": 4096
+    },
+    "button.hide": {
+      "category": "botones",
+      "label": "Ocultar",
+      "text": "Ocultar",
+      "maximum": 4096
+    },
+    "status.revoked": {
+      "category": "avisos",
+      "label": "Autorización revocada.",
+      "text": "Autorización revocada.",
+      "maximum": 4096
+    },
+    "error.partial_disconnect": {
+      "category": "avisos",
+      "label": "Autorización revocada. No se pudo desconectar: ",
+      "text": "Autorización revocada. No se pudo desconectar: ",
+      "maximum": 4096
+    },
+    "status.revoked_disconnected": {
+      "category": "avisos",
+      "label": "Autorización revocada. Sesión cerrada y borrada.",
+      "text": "Autorización revocada. Sesión cerrada y borrada.",
+      "maximum": 4096
+    },
+    "status.disconnected": {
+      "category": "avisos",
+      "label": "Sesión cerrada y borrada.",
+      "text": "Sesión cerrada y borrada.",
+      "maximum": 4096
+    },
+    "popup.creator_disconnect": {
+      "category": "popups",
+      "label": "¿Revocar la autorización y desconectar tu cuenta? Se cerrará y bo",
+      "text": "¿Revocar la autorización y desconectar tu cuenta? Se cerrará y borrará tu sesión del servicio.",
+      "maximum": 256
+    },
+    "popup.disconnect": {
+      "category": "popups",
+      "label": "¿Cerrar y borrar tu sesión de DESCARGAS?",
+      "text": "¿Cerrar y borrar tu sesión de DESCARGAS?",
+      "maximum": 256
+    },
+    "error.manual_phone": {
+      "category": "avisos",
+      "label": "Selecciona tu país e introduce el número manualmente.",
+      "text": "Selecciona tu país e introduce el número manualmente.",
+      "maximum": 4096
+    },
+    "error.contact_denied": {
+      "category": "avisos",
+      "label": "Puedes introducir el número manualmente.",
+      "text": "Puedes introducir el número manualmente.",
+      "maximum": 4096
+    },
+    "status.contact": {
+      "category": "avisos",
+      "label": "Número completado. Revisa el país y continúa.",
+      "text": "Número completado. Revisa el país y continúa.",
+      "maximum": 4096
+    },
+    "error.contact_wait": {
+      "category": "avisos",
+      "label": "El número aún no llegó. Introdúcelo manualmente o vuelve a intent",
+      "text": "El número aún no llegó. Introdúcelo manualmente o vuelve a intentarlo.",
+      "maximum": 4096
+    },
+    "error.open_bot": {
+      "category": "avisos",
+      "label": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
+      "text": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
+      "maximum": 4096
+    },
+    "popup.cancel_membership": {
+      "category": "popups",
+      "label": "¿Cancelar la renovación? Conservarás el acceso hasta terminar el ",
+      "text": "¿Cancelar la renovación? Conservarás el acceso hasta terminar el período pagado.",
+      "maximum": 256
+    },
+    "error.creator_consent": {
+      "category": "avisos",
+      "label": "Debes aceptar expresamente la revisión descrita.",
+      "text": "Debes aceptar expresamente la revisión descrita.",
+      "maximum": 4096
+    },
+    "popup.title": {
+      "category": "popups",
+      "label": "Confirmar",
+      "text": "Confirmar",
+      "maximum": 64
+    },
+    "popup.accept": {
+      "category": "popups",
+      "label": "Confirmar",
+      "text": "Confirmar",
+      "maximum": 64
+    },
+    "popup.cancel": {
+      "category": "popups",
+      "label": "Cancelar",
+      "text": "Cancelar",
+      "maximum": 64
+    },
+    "status.membership": {
+      "category": "avisos",
+      "label": "Activa hasta el {until}.",
+      "text": "Activa hasta el {until}.",
+      "maximum": 4096
+    },
+    "error.network": {
+      "category": "avisos",
+      "label": "No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.",
+      "text": "No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.",
+      "maximum": 4096
+    },
+    "country.option": {
+      "category": "menus",
+      "label": "country.option",
+      "text": "{name} (+{code})",
+      "maximum": 4096
+    },
+    "country.AC": {
+      "category": "paises",
+      "label": "AC",
+      "text": "Isla de la Ascensión"
+    },
+    "country.AD": {
+      "category": "paises",
+      "label": "AD",
+      "text": "Andorra"
+    },
+    "country.AE": {
+      "category": "paises",
+      "label": "AE",
+      "text": "Emiratos Árabes Unidos"
+    },
+    "country.AF": {
+      "category": "paises",
+      "label": "AF",
+      "text": "Afganistán"
+    },
+    "country.AG": {
+      "category": "paises",
+      "label": "AG",
+      "text": "Antigua y Barbuda"
+    },
+    "country.AI": {
+      "category": "paises",
+      "label": "AI",
+      "text": "Anguila"
+    },
+    "country.AL": {
+      "category": "paises",
+      "label": "AL",
+      "text": "Albania"
+    },
+    "country.AM": {
+      "category": "paises",
+      "label": "AM",
+      "text": "Armenia"
+    },
+    "country.AO": {
+      "category": "paises",
+      "label": "AO",
+      "text": "Angola"
+    },
+    "country.AR": {
+      "category": "paises",
+      "label": "AR",
+      "text": "Argentina"
+    },
+    "country.AS": {
+      "category": "paises",
+      "label": "AS",
+      "text": "Samoa Americana"
+    },
+    "country.AT": {
+      "category": "paises",
+      "label": "AT",
+      "text": "Austria"
+    },
+    "country.AU": {
+      "category": "paises",
+      "label": "AU",
+      "text": "Australia"
+    },
+    "country.AW": {
+      "category": "paises",
+      "label": "AW",
+      "text": "Aruba"
+    },
+    "country.AX": {
+      "category": "paises",
+      "label": "AX",
+      "text": "Islas Aland"
+    },
+    "country.AZ": {
+      "category": "paises",
+      "label": "AZ",
+      "text": "Azerbaiyán"
+    },
+    "country.BA": {
+      "category": "paises",
+      "label": "BA",
+      "text": "Bosnia y Herzegovina"
+    },
+    "country.BB": {
+      "category": "paises",
+      "label": "BB",
+      "text": "Barbados"
+    },
+    "country.BD": {
+      "category": "paises",
+      "label": "BD",
+      "text": "Bangladés"
+    },
+    "country.BE": {
+      "category": "paises",
+      "label": "BE",
+      "text": "Bélgica"
+    },
+    "country.BF": {
+      "category": "paises",
+      "label": "BF",
+      "text": "Burkina Faso"
+    },
+    "country.BG": {
+      "category": "paises",
+      "label": "BG",
+      "text": "Bulgaria"
+    },
+    "country.BH": {
+      "category": "paises",
+      "label": "BH",
+      "text": "Baréin"
+    },
+    "country.BI": {
+      "category": "paises",
+      "label": "BI",
+      "text": "Burundi"
+    },
+    "country.BJ": {
+      "category": "paises",
+      "label": "BJ",
+      "text": "Benín"
+    },
+    "country.BL": {
+      "category": "paises",
+      "label": "BL",
+      "text": "San Bartolomé"
+    },
+    "country.BM": {
+      "category": "paises",
+      "label": "BM",
+      "text": "Bermudas"
+    },
+    "country.BN": {
+      "category": "paises",
+      "label": "BN",
+      "text": "Brunéi"
+    },
+    "country.BO": {
+      "category": "paises",
+      "label": "BO",
+      "text": "Bolivia"
+    },
+    "country.BQ": {
+      "category": "paises",
+      "label": "BQ",
+      "text": "Caribe neerlandés"
+    },
+    "country.BR": {
+      "category": "paises",
+      "label": "BR",
+      "text": "Brasil"
+    },
+    "country.BS": {
+      "category": "paises",
+      "label": "BS",
+      "text": "Bahamas"
+    },
+    "country.BT": {
+      "category": "paises",
+      "label": "BT",
+      "text": "Bután"
+    },
+    "country.BW": {
+      "category": "paises",
+      "label": "BW",
+      "text": "Botsuana"
+    },
+    "country.BY": {
+      "category": "paises",
+      "label": "BY",
+      "text": "Bielorrusia"
+    },
+    "country.BZ": {
+      "category": "paises",
+      "label": "BZ",
+      "text": "Belice"
+    },
+    "country.CA": {
+      "category": "paises",
+      "label": "CA",
+      "text": "Canadá"
+    },
+    "country.CC": {
+      "category": "paises",
+      "label": "CC",
+      "text": "Islas Cocos"
+    },
+    "country.CD": {
+      "category": "paises",
+      "label": "CD",
+      "text": "República Democrática del Congo"
+    },
+    "country.CF": {
+      "category": "paises",
+      "label": "CF",
+      "text": "República Centroafricana"
+    },
+    "country.CG": {
+      "category": "paises",
+      "label": "CG",
+      "text": "Congo"
+    },
+    "country.CH": {
+      "category": "paises",
+      "label": "CH",
+      "text": "Suiza"
+    },
+    "country.CI": {
+      "category": "paises",
+      "label": "CI",
+      "text": "Côte d’Ivoire"
+    },
+    "country.CK": {
+      "category": "paises",
+      "label": "CK",
+      "text": "Islas Cook"
+    },
+    "country.CL": {
+      "category": "paises",
+      "label": "CL",
+      "text": "Chile"
+    },
+    "country.CM": {
+      "category": "paises",
+      "label": "CM",
+      "text": "Camerún"
+    },
+    "country.CN": {
+      "category": "paises",
+      "label": "CN",
+      "text": "China"
+    },
+    "country.CO": {
+      "category": "paises",
+      "label": "CO",
+      "text": "Colombia"
+    },
+    "country.CR": {
+      "category": "paises",
+      "label": "CR",
+      "text": "Costa Rica"
+    },
+    "country.CU": {
+      "category": "paises",
+      "label": "CU",
+      "text": "Cuba"
+    },
+    "country.CV": {
+      "category": "paises",
+      "label": "CV",
+      "text": "Cabo Verde"
+    },
+    "country.CW": {
+      "category": "paises",
+      "label": "CW",
+      "text": "Curazao"
+    },
+    "country.CX": {
+      "category": "paises",
+      "label": "CX",
+      "text": "Isla de Navidad"
+    },
+    "country.CY": {
+      "category": "paises",
+      "label": "CY",
+      "text": "Chipre"
+    },
+    "country.CZ": {
+      "category": "paises",
+      "label": "CZ",
+      "text": "Chequia"
+    },
+    "country.DE": {
+      "category": "paises",
+      "label": "DE",
+      "text": "Alemania"
+    },
+    "country.DJ": {
+      "category": "paises",
+      "label": "DJ",
+      "text": "Yibuti"
+    },
+    "country.DK": {
+      "category": "paises",
+      "label": "DK",
+      "text": "Dinamarca"
+    },
+    "country.DM": {
+      "category": "paises",
+      "label": "DM",
+      "text": "Dominica"
+    },
+    "country.DO": {
+      "category": "paises",
+      "label": "DO",
+      "text": "República Dominicana"
+    },
+    "country.DZ": {
+      "category": "paises",
+      "label": "DZ",
+      "text": "Argelia"
+    },
+    "country.EC": {
+      "category": "paises",
+      "label": "EC",
+      "text": "Ecuador"
+    },
+    "country.EE": {
+      "category": "paises",
+      "label": "EE",
+      "text": "Estonia"
+    },
+    "country.EG": {
+      "category": "paises",
+      "label": "EG",
+      "text": "Egipto"
+    },
+    "country.EH": {
+      "category": "paises",
+      "label": "EH",
+      "text": "Sáhara Occidental"
+    },
+    "country.ER": {
+      "category": "paises",
+      "label": "ER",
+      "text": "Eritrea"
+    },
+    "country.ES": {
+      "category": "paises",
+      "label": "ES",
+      "text": "España"
+    },
+    "country.ET": {
+      "category": "paises",
+      "label": "ET",
+      "text": "Etiopía"
+    },
+    "country.FI": {
+      "category": "paises",
+      "label": "FI",
+      "text": "Finlandia"
+    },
+    "country.FJ": {
+      "category": "paises",
+      "label": "FJ",
+      "text": "Fiyi"
+    },
+    "country.FK": {
+      "category": "paises",
+      "label": "FK",
+      "text": "Islas Malvinas"
+    },
+    "country.FM": {
+      "category": "paises",
+      "label": "FM",
+      "text": "Micronesia"
+    },
+    "country.FO": {
+      "category": "paises",
+      "label": "FO",
+      "text": "Islas Feroe"
+    },
+    "country.FR": {
+      "category": "paises",
+      "label": "FR",
+      "text": "Francia"
+    },
+    "country.GA": {
+      "category": "paises",
+      "label": "GA",
+      "text": "Gabón"
+    },
+    "country.GB": {
+      "category": "paises",
+      "label": "GB",
+      "text": "Reino Unido"
+    },
+    "country.GD": {
+      "category": "paises",
+      "label": "GD",
+      "text": "Granada"
+    },
+    "country.GE": {
+      "category": "paises",
+      "label": "GE",
+      "text": "Georgia"
+    },
+    "country.GF": {
+      "category": "paises",
+      "label": "GF",
+      "text": "Guayana Francesa"
+    },
+    "country.GG": {
+      "category": "paises",
+      "label": "GG",
+      "text": "Guernesey"
+    },
+    "country.GH": {
+      "category": "paises",
+      "label": "GH",
+      "text": "Ghana"
+    },
+    "country.GI": {
+      "category": "paises",
+      "label": "GI",
+      "text": "Gibraltar"
+    },
+    "country.GL": {
+      "category": "paises",
+      "label": "GL",
+      "text": "Groenlandia"
+    },
+    "country.GM": {
+      "category": "paises",
+      "label": "GM",
+      "text": "Gambia"
+    },
+    "country.GN": {
+      "category": "paises",
+      "label": "GN",
+      "text": "Guinea"
+    },
+    "country.GP": {
+      "category": "paises",
+      "label": "GP",
+      "text": "Guadalupe"
+    },
+    "country.GQ": {
+      "category": "paises",
+      "label": "GQ",
+      "text": "Guinea Ecuatorial"
+    },
+    "country.GR": {
+      "category": "paises",
+      "label": "GR",
+      "text": "Grecia"
+    },
+    "country.GT": {
+      "category": "paises",
+      "label": "GT",
+      "text": "Guatemala"
+    },
+    "country.GU": {
+      "category": "paises",
+      "label": "GU",
+      "text": "Guam"
+    },
+    "country.GW": {
+      "category": "paises",
+      "label": "GW",
+      "text": "Guinea-Bisáu"
+    },
+    "country.GY": {
+      "category": "paises",
+      "label": "GY",
+      "text": "Guyana"
+    },
+    "country.HK": {
+      "category": "paises",
+      "label": "HK",
+      "text": "RAE de Hong Kong (China)"
+    },
+    "country.HN": {
+      "category": "paises",
+      "label": "HN",
+      "text": "Honduras"
+    },
+    "country.HR": {
+      "category": "paises",
+      "label": "HR",
+      "text": "Croacia"
+    },
+    "country.HT": {
+      "category": "paises",
+      "label": "HT",
+      "text": "Haití"
+    },
+    "country.HU": {
+      "category": "paises",
+      "label": "HU",
+      "text": "Hungría"
+    },
+    "country.ID": {
+      "category": "paises",
+      "label": "ID",
+      "text": "Indonesia"
+    },
+    "country.IE": {
+      "category": "paises",
+      "label": "IE",
+      "text": "Irlanda"
+    },
+    "country.IL": {
+      "category": "paises",
+      "label": "IL",
+      "text": "Israel"
+    },
+    "country.IM": {
+      "category": "paises",
+      "label": "IM",
+      "text": "Isla de Man"
+    },
+    "country.IN": {
+      "category": "paises",
+      "label": "IN",
+      "text": "India"
+    },
+    "country.IO": {
+      "category": "paises",
+      "label": "IO",
+      "text": "Territorio Británico del Océano Índico"
+    },
+    "country.IQ": {
+      "category": "paises",
+      "label": "IQ",
+      "text": "Irak"
+    },
+    "country.IR": {
+      "category": "paises",
+      "label": "IR",
+      "text": "Irán"
+    },
+    "country.IS": {
+      "category": "paises",
+      "label": "IS",
+      "text": "Islandia"
+    },
+    "country.IT": {
+      "category": "paises",
+      "label": "IT",
+      "text": "Italia"
+    },
+    "country.JE": {
+      "category": "paises",
+      "label": "JE",
+      "text": "Jersey"
+    },
+    "country.JM": {
+      "category": "paises",
+      "label": "JM",
+      "text": "Jamaica"
+    },
+    "country.JO": {
+      "category": "paises",
+      "label": "JO",
+      "text": "Jordania"
+    },
+    "country.JP": {
+      "category": "paises",
+      "label": "JP",
+      "text": "Japón"
+    },
+    "country.KE": {
+      "category": "paises",
+      "label": "KE",
+      "text": "Kenia"
+    },
+    "country.KG": {
+      "category": "paises",
+      "label": "KG",
+      "text": "Kirguistán"
+    },
+    "country.KH": {
+      "category": "paises",
+      "label": "KH",
+      "text": "Camboya"
+    },
+    "country.KI": {
+      "category": "paises",
+      "label": "KI",
+      "text": "Kiribati"
+    },
+    "country.KM": {
+      "category": "paises",
+      "label": "KM",
+      "text": "Comoras"
+    },
+    "country.KN": {
+      "category": "paises",
+      "label": "KN",
+      "text": "San Cristóbal y Nieves"
+    },
+    "country.KP": {
+      "category": "paises",
+      "label": "KP",
+      "text": "Corea del Norte"
+    },
+    "country.KR": {
+      "category": "paises",
+      "label": "KR",
+      "text": "Corea del Sur"
+    },
+    "country.KW": {
+      "category": "paises",
+      "label": "KW",
+      "text": "Kuwait"
+    },
+    "country.KY": {
+      "category": "paises",
+      "label": "KY",
+      "text": "Islas Caimán"
+    },
+    "country.KZ": {
+      "category": "paises",
+      "label": "KZ",
+      "text": "Kazajistán"
+    },
+    "country.LA": {
+      "category": "paises",
+      "label": "LA",
+      "text": "Laos"
+    },
+    "country.LB": {
+      "category": "paises",
+      "label": "LB",
+      "text": "Líbano"
+    },
+    "country.LC": {
+      "category": "paises",
+      "label": "LC",
+      "text": "Santa Lucía"
+    },
+    "country.LI": {
+      "category": "paises",
+      "label": "LI",
+      "text": "Liechtenstein"
+    },
+    "country.LK": {
+      "category": "paises",
+      "label": "LK",
+      "text": "Sri Lanka"
+    },
+    "country.LR": {
+      "category": "paises",
+      "label": "LR",
+      "text": "Liberia"
+    },
+    "country.LS": {
+      "category": "paises",
+      "label": "LS",
+      "text": "Lesoto"
+    },
+    "country.LT": {
+      "category": "paises",
+      "label": "LT",
+      "text": "Lituania"
+    },
+    "country.LU": {
+      "category": "paises",
+      "label": "LU",
+      "text": "Luxemburgo"
+    },
+    "country.LV": {
+      "category": "paises",
+      "label": "LV",
+      "text": "Letonia"
+    },
+    "country.LY": {
+      "category": "paises",
+      "label": "LY",
+      "text": "Libia"
+    },
+    "country.MA": {
+      "category": "paises",
+      "label": "MA",
+      "text": "Marruecos"
+    },
+    "country.MC": {
+      "category": "paises",
+      "label": "MC",
+      "text": "Mónaco"
+    },
+    "country.MD": {
+      "category": "paises",
+      "label": "MD",
+      "text": "Moldavia"
+    },
+    "country.ME": {
+      "category": "paises",
+      "label": "ME",
+      "text": "Montenegro"
+    },
+    "country.MF": {
+      "category": "paises",
+      "label": "MF",
+      "text": "San Martín"
+    },
+    "country.MG": {
+      "category": "paises",
+      "label": "MG",
+      "text": "Madagascar"
+    },
+    "country.MH": {
+      "category": "paises",
+      "label": "MH",
+      "text": "Islas Marshall"
+    },
+    "country.MK": {
+      "category": "paises",
+      "label": "MK",
+      "text": "Macedonia del Norte"
+    },
+    "country.ML": {
+      "category": "paises",
+      "label": "ML",
+      "text": "Mali"
+    },
+    "country.MM": {
+      "category": "paises",
+      "label": "MM",
+      "text": "Myanmar (Birmania)"
+    },
+    "country.MN": {
+      "category": "paises",
+      "label": "MN",
+      "text": "Mongolia"
+    },
+    "country.MO": {
+      "category": "paises",
+      "label": "MO",
+      "text": "RAE de Macao (China)"
+    },
+    "country.MP": {
+      "category": "paises",
+      "label": "MP",
+      "text": "Islas Marianas del Norte"
+    },
+    "country.MQ": {
+      "category": "paises",
+      "label": "MQ",
+      "text": "Martinica"
+    },
+    "country.MR": {
+      "category": "paises",
+      "label": "MR",
+      "text": "Mauritania"
+    },
+    "country.MS": {
+      "category": "paises",
+      "label": "MS",
+      "text": "Montserrat"
+    },
+    "country.MT": {
+      "category": "paises",
+      "label": "MT",
+      "text": "Malta"
+    },
+    "country.MU": {
+      "category": "paises",
+      "label": "MU",
+      "text": "Mauricio"
+    },
+    "country.MV": {
+      "category": "paises",
+      "label": "MV",
+      "text": "Maldivas"
+    },
+    "country.MW": {
+      "category": "paises",
+      "label": "MW",
+      "text": "Malaui"
+    },
+    "country.MX": {
+      "category": "paises",
+      "label": "MX",
+      "text": "México"
+    },
+    "country.MY": {
+      "category": "paises",
+      "label": "MY",
+      "text": "Malasia"
+    },
+    "country.MZ": {
+      "category": "paises",
+      "label": "MZ",
+      "text": "Mozambique"
+    },
+    "country.NA": {
+      "category": "paises",
+      "label": "NA",
+      "text": "Namibia"
+    },
+    "country.NC": {
+      "category": "paises",
+      "label": "NC",
+      "text": "Nueva Caledonia"
+    },
+    "country.NE": {
+      "category": "paises",
+      "label": "NE",
+      "text": "Níger"
+    },
+    "country.NF": {
+      "category": "paises",
+      "label": "NF",
+      "text": "Isla Norfolk"
+    },
+    "country.NG": {
+      "category": "paises",
+      "label": "NG",
+      "text": "Nigeria"
+    },
+    "country.NI": {
+      "category": "paises",
+      "label": "NI",
+      "text": "Nicaragua"
+    },
+    "country.NL": {
+      "category": "paises",
+      "label": "NL",
+      "text": "Países Bajos"
+    },
+    "country.NO": {
+      "category": "paises",
+      "label": "NO",
+      "text": "Noruega"
+    },
+    "country.NP": {
+      "category": "paises",
+      "label": "NP",
+      "text": "Nepal"
+    },
+    "country.NR": {
+      "category": "paises",
+      "label": "NR",
+      "text": "Nauru"
+    },
+    "country.NU": {
+      "category": "paises",
+      "label": "NU",
+      "text": "Niue"
+    },
+    "country.NZ": {
+      "category": "paises",
+      "label": "NZ",
+      "text": "Nueva Zelanda"
+    },
+    "country.OM": {
+      "category": "paises",
+      "label": "OM",
+      "text": "Omán"
+    },
+    "country.PA": {
+      "category": "paises",
+      "label": "PA",
+      "text": "Panamá"
+    },
+    "country.PE": {
+      "category": "paises",
+      "label": "PE",
+      "text": "Perú"
+    },
+    "country.PF": {
+      "category": "paises",
+      "label": "PF",
+      "text": "Polinesia Francesa"
+    },
+    "country.PG": {
+      "category": "paises",
+      "label": "PG",
+      "text": "Papúa Nueva Guinea"
+    },
+    "country.PH": {
+      "category": "paises",
+      "label": "PH",
+      "text": "Filipinas"
+    },
+    "country.PK": {
+      "category": "paises",
+      "label": "PK",
+      "text": "Pakistán"
+    },
+    "country.PL": {
+      "category": "paises",
+      "label": "PL",
+      "text": "Polonia"
+    },
+    "country.PM": {
+      "category": "paises",
+      "label": "PM",
+      "text": "San Pedro y Miquelón"
+    },
+    "country.PR": {
+      "category": "paises",
+      "label": "PR",
+      "text": "Puerto Rico"
+    },
+    "country.PS": {
+      "category": "paises",
+      "label": "PS",
+      "text": "Territorios Palestinos"
+    },
+    "country.PT": {
+      "category": "paises",
+      "label": "PT",
+      "text": "Portugal"
+    },
+    "country.PW": {
+      "category": "paises",
+      "label": "PW",
+      "text": "Palaos"
+    },
+    "country.PY": {
+      "category": "paises",
+      "label": "PY",
+      "text": "Paraguay"
+    },
+    "country.QA": {
+      "category": "paises",
+      "label": "QA",
+      "text": "Catar"
+    },
+    "country.RE": {
+      "category": "paises",
+      "label": "RE",
+      "text": "Reunión"
+    },
+    "country.RO": {
+      "category": "paises",
+      "label": "RO",
+      "text": "Rumanía"
+    },
+    "country.RS": {
+      "category": "paises",
+      "label": "RS",
+      "text": "Serbia"
+    },
+    "country.RU": {
+      "category": "paises",
+      "label": "RU",
+      "text": "Rusia"
+    },
+    "country.RW": {
+      "category": "paises",
+      "label": "RW",
+      "text": "Ruanda"
+    },
+    "country.SA": {
+      "category": "paises",
+      "label": "SA",
+      "text": "Arabia Saudí"
+    },
+    "country.SB": {
+      "category": "paises",
+      "label": "SB",
+      "text": "Islas Salomón"
+    },
+    "country.SC": {
+      "category": "paises",
+      "label": "SC",
+      "text": "Seychelles"
+    },
+    "country.SD": {
+      "category": "paises",
+      "label": "SD",
+      "text": "Sudán"
+    },
+    "country.SE": {
+      "category": "paises",
+      "label": "SE",
+      "text": "Suecia"
+    },
+    "country.SG": {
+      "category": "paises",
+      "label": "SG",
+      "text": "Singapur"
+    },
+    "country.SH": {
+      "category": "paises",
+      "label": "SH",
+      "text": "Santa Elena"
+    },
+    "country.SI": {
+      "category": "paises",
+      "label": "SI",
+      "text": "Eslovenia"
+    },
+    "country.SJ": {
+      "category": "paises",
+      "label": "SJ",
+      "text": "Svalbard y Jan Mayen"
+    },
+    "country.SK": {
+      "category": "paises",
+      "label": "SK",
+      "text": "Eslovaquia"
+    },
+    "country.SL": {
+      "category": "paises",
+      "label": "SL",
+      "text": "Sierra Leona"
+    },
+    "country.SM": {
+      "category": "paises",
+      "label": "SM",
+      "text": "San Marino"
+    },
+    "country.SN": {
+      "category": "paises",
+      "label": "SN",
+      "text": "Senegal"
+    },
+    "country.SO": {
+      "category": "paises",
+      "label": "SO",
+      "text": "Somalia"
+    },
+    "country.SR": {
+      "category": "paises",
+      "label": "SR",
+      "text": "Surinam"
+    },
+    "country.SS": {
+      "category": "paises",
+      "label": "SS",
+      "text": "Sudán del Sur"
+    },
+    "country.ST": {
+      "category": "paises",
+      "label": "ST",
+      "text": "Santo Tomé y Príncipe"
+    },
+    "country.SV": {
+      "category": "paises",
+      "label": "SV",
+      "text": "El Salvador"
+    },
+    "country.SX": {
+      "category": "paises",
+      "label": "SX",
+      "text": "Sint Maarten"
+    },
+    "country.SY": {
+      "category": "paises",
+      "label": "SY",
+      "text": "Siria"
+    },
+    "country.SZ": {
+      "category": "paises",
+      "label": "SZ",
+      "text": "Esuatini"
+    },
+    "country.TA": {
+      "category": "paises",
+      "label": "TA",
+      "text": "Tristán de Acuña"
+    },
+    "country.TC": {
+      "category": "paises",
+      "label": "TC",
+      "text": "Islas Turcas y Caicos"
+    },
+    "country.TD": {
+      "category": "paises",
+      "label": "TD",
+      "text": "Chad"
+    },
+    "country.TG": {
+      "category": "paises",
+      "label": "TG",
+      "text": "Togo"
+    },
+    "country.TH": {
+      "category": "paises",
+      "label": "TH",
+      "text": "Tailandia"
+    },
+    "country.TJ": {
+      "category": "paises",
+      "label": "TJ",
+      "text": "Tayikistán"
+    },
+    "country.TK": {
+      "category": "paises",
+      "label": "TK",
+      "text": "Tokelau"
+    },
+    "country.TL": {
+      "category": "paises",
+      "label": "TL",
+      "text": "Timor-Leste"
+    },
+    "country.TM": {
+      "category": "paises",
+      "label": "TM",
+      "text": "Turkmenistán"
+    },
+    "country.TN": {
+      "category": "paises",
+      "label": "TN",
+      "text": "Túnez"
+    },
+    "country.TO": {
+      "category": "paises",
+      "label": "TO",
+      "text": "Tonga"
+    },
+    "country.TR": {
+      "category": "paises",
+      "label": "TR",
+      "text": "Turquía"
+    },
+    "country.TT": {
+      "category": "paises",
+      "label": "TT",
+      "text": "Trinidad y Tobago"
+    },
+    "country.TV": {
+      "category": "paises",
+      "label": "TV",
+      "text": "Tuvalu"
+    },
+    "country.TW": {
+      "category": "paises",
+      "label": "TW",
+      "text": "Taiwán"
+    },
+    "country.TZ": {
+      "category": "paises",
+      "label": "TZ",
+      "text": "Tanzania"
+    },
+    "country.UA": {
+      "category": "paises",
+      "label": "UA",
+      "text": "Ucrania"
+    },
+    "country.UG": {
+      "category": "paises",
+      "label": "UG",
+      "text": "Uganda"
+    },
+    "country.US": {
+      "category": "paises",
+      "label": "US",
+      "text": "Estados Unidos"
+    },
+    "country.UY": {
+      "category": "paises",
+      "label": "UY",
+      "text": "Uruguay"
+    },
+    "country.UZ": {
+      "category": "paises",
+      "label": "UZ",
+      "text": "Uzbekistán"
+    },
+    "country.VA": {
+      "category": "paises",
+      "label": "VA",
+      "text": "Ciudad del Vaticano"
+    },
+    "country.VC": {
+      "category": "paises",
+      "label": "VC",
+      "text": "San Vicente y las Granadinas"
+    },
+    "country.VE": {
+      "category": "paises",
+      "label": "VE",
+      "text": "Venezuela"
+    },
+    "country.VG": {
+      "category": "paises",
+      "label": "VG",
+      "text": "Islas Vírgenes Británicas"
+    },
+    "country.VI": {
+      "category": "paises",
+      "label": "VI",
+      "text": "Islas Vírgenes de EE. UU."
+    },
+    "country.VN": {
+      "category": "paises",
+      "label": "VN",
+      "text": "Vietnam"
+    },
+    "country.VU": {
+      "category": "paises",
+      "label": "VU",
+      "text": "Vanuatu"
+    },
+    "country.WF": {
+      "category": "paises",
+      "label": "WF",
+      "text": "Wallis y Futuna"
+    },
+    "country.WS": {
+      "category": "paises",
+      "label": "WS",
+      "text": "Samoa"
+    },
+    "country.XK": {
+      "category": "paises",
+      "label": "XK",
+      "text": "Kosovo"
+    },
+    "country.YE": {
+      "category": "paises",
+      "label": "YE",
+      "text": "Yemen"
+    },
+    "country.YT": {
+      "category": "paises",
+      "label": "YT",
+      "text": "Mayotte"
+    },
+    "country.ZA": {
+      "category": "paises",
+      "label": "ZA",
+      "text": "Sudáfrica"
+    },
+    "country.ZM": {
+      "category": "paises",
+      "label": "ZM",
+      "text": "Zambia"
+    },
+    "country.ZW": {
+      "category": "paises",
+      "label": "ZW",
+      "text": "Zimbabue"
+    },
+    "server.000": {
+      "category": "servidor",
+      "label": "Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciér",
+      "text": "Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciérrala y vuelve a abrirla.",
+      "match": "Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciérrala y vuelve a abrirla."
+    },
+    "server.001": {
+      "category": "servidor",
+      "label": "Acepta el acceso de la sesión antes de continuar.",
+      "text": "Acepta el acceso de la sesión antes de continuar.",
+      "match": "Acepta el acceso de la sesión antes de continuar."
+    },
+    "server.002": {
+      "category": "servidor",
+      "label": "Conecta tu propia cuenta primero.",
+      "text": "Conecta tu propia cuenta primero.",
+      "match": "Conecta tu propia cuenta primero."
+    },
+    "server.003": {
+      "category": "servidor",
+      "label": "Confirma el acceso descrito antes de continuar.",
+      "text": "Confirma el acceso descrito antes de continuar.",
+      "match": "Confirma el acceso descrito antes de continuar."
+    },
+    "server.004": {
+      "category": "servidor",
+      "label": "Debes aceptar expresamente el acceso descrito.",
+      "text": "Debes aceptar expresamente el acceso descrito.",
+      "match": "Debes aceptar expresamente el acceso descrito."
+    },
+    "server.005": {
+      "category": "servidor",
+      "label": "Demasiadas conexiones en curso. Inténtalo después.",
+      "text": "Demasiadas conexiones en curso. Inténtalo después.",
+      "match": "Demasiadas conexiones en curso. Inténtalo después."
+    },
+    "server.006": {
+      "category": "servidor",
+      "label": "El código no es correcto. Revísalo y vuelve a intentar.",
+      "text": "El código no es correcto. Revísalo y vuelve a intentar.",
+      "match": "El código no es correcto. Revísalo y vuelve a intentar."
+    },
+    "server.007": {
+      "category": "servidor",
+      "label": "El código venció. Solicita uno nuevo.",
+      "text": "El código venció. Solicita uno nuevo.",
+      "match": "El código venció. Solicita uno nuevo."
+    },
+    "server.008": {
+      "category": "servidor",
+      "label": "El servicio está terminando de configurarse. Inténtalo después.",
+      "text": "El servicio está terminando de configurarse. Inténtalo después.",
+      "match": "El servicio está terminando de configurarse. Inténtalo después."
+    },
+    "server.009": {
+      "category": "servidor",
+      "label": "El teléfono no es válido.",
+      "text": "El teléfono no es válido.",
+      "match": "El teléfono no es válido."
+    },
+    "server.010": {
+      "category": "servidor",
+      "label": "Espera un minuto antes de solicitar otro código.",
+      "text": "Espera un minuto antes de solicitar otro código.",
+      "match": "Espera un minuto antes de solicitar otro código."
+    },
+    "server.011": {
+      "category": "servidor",
+      "label": "Esta función requiere el servicio principal.",
+      "text": "Esta función requiere el servicio principal.",
+      "match": "Esta función requiere el servicio principal."
+    },
+    "server.012": {
+      "category": "servidor",
+      "label": "La contraseña de dos pasos no es correcta.",
+      "text": "La contraseña de dos pasos no es correcta.",
+      "match": "La contraseña de dos pasos no es correcta."
+    },
+    "server.013": {
+      "category": "servidor",
+      "label": "La cuenta conectada debe ser la misma que está hablando con el bo",
+      "text": "La cuenta conectada debe ser la misma que está hablando con el bot.",
+      "match": "La cuenta conectada debe ser la misma que está hablando con el bot."
+    },
+    "server.014": {
+      "category": "servidor",
+      "label": "La gestión de pagos no está disponible en este momento. Inténtalo",
+      "text": "La gestión de pagos no está disponible en este momento. Inténtalo más tarde.",
+      "match": "La gestión de pagos no está disponible en este momento. Inténtalo más tarde."
+    },
+    "server.015": {
+      "category": "servidor",
+      "label": "La sesión no pudo revocarse en Telegram. Inténtalo otra vez o cié",
+      "text": "La sesión no pudo revocarse en Telegram. Inténtalo otra vez o ciérrala en Ajustes → Dispositivos.",
+      "match": "La sesión no pudo revocarse en Telegram. Inténtalo otra vez o ciérrala en Ajustes → Dispositivos."
+    },
+    "server.016": {
+      "category": "servidor",
+      "label": "Método de pago no reconocido.",
+      "text": "Método de pago no reconocido.",
+      "match": "Método de pago no reconocido."
+    },
+    "server.017": {
+      "category": "servidor",
+      "label": "No se pudo completar la operación ({error}).",
+      "text": "No se pudo completar la operación ({error}).",
+      "match": "No se pudo completar la operación ({error})."
+    },
+    "server.018": {
+      "category": "servidor",
+      "label": "No tienes una membresía activa.",
+      "text": "No tienes una membresía activa.",
+      "match": "No tienes una membresía activa."
+    },
+    "server.019": {
+      "category": "servidor",
+      "label": "Revisa el código que recibiste en Telegram.",
+      "text": "Revisa el código que recibiste en Telegram.",
+      "match": "Revisa el código que recibiste en Telegram."
+    },
+    "server.020": {
+      "category": "servidor",
+      "label": "Revisión no autorizada o revocada.",
+      "text": "Revisión no autorizada o revocada.",
+      "match": "Revisión no autorizada o revocada."
+    },
+    "server.021": {
+      "category": "servidor",
+      "label": "Sesión cerrada y borrada.",
+      "text": "Sesión cerrada y borrada.",
+      "match": "Sesión cerrada y borrada."
+    },
+    "server.022": {
+      "category": "servidor",
+      "label": "Solicitud registrada. Protección pendiente de revisión y activaci",
+      "text": "Solicitud registrada. Protección pendiente de revisión y activación manual.",
+      "match": "Solicitud registrada. Protección pendiente de revisión y activación manual."
+    },
+    "server.023": {
+      "category": "servidor",
+      "label": "Telegram pide esperar {seconds} segundos. No se reintentará autom",
+      "text": "Telegram pide esperar {seconds} segundos. No se reintentará automáticamente.",
+      "match": "Telegram pide esperar {seconds} segundos. No se reintentará automáticamente."
+    },
+    "server.024": {
+      "category": "servidor",
+      "label": "Tu cuenta no tiene acceso a ese contenido.",
+      "text": "Tu cuenta no tiene acceso a ese contenido.",
+      "match": "Tu cuenta no tiene acceso a ese contenido."
+    },
+    "server.025": {
+      "category": "servidor",
+      "label": "✅ Renovación cancelada. Tu membresía seguirá activa hasta el {unt",
+      "text": "✅ Renovación cancelada. Tu membresía seguirá activa hasta el {until}. No se realizarán nuevas renovaciones de esta suscripción.",
+      "match": "✅ Renovación cancelada. Tu membresía seguirá activa hasta el {until}. No se realizarán nuevas renovaciones de esta suscripción."
+    },
+    "server.026": {
+      "category": "servidor",
+      "label": "𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙨𝙤𝙡𝙞𝙘𝙞𝙩𝙪𝙙𝙚𝙨. 𝙀𝙨𝙥𝙚𝙧𝙖 𝙪𝙣 𝙢𝙞𝙣𝙪𝙩𝙤.",
+      "text": "𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙨𝙤𝙡𝙞𝙘𝙞𝙩𝙪𝙙𝙚𝙨. 𝙀𝙨𝙥𝙚𝙧𝙖 𝙪𝙣 𝙢𝙞𝙣𝙪𝙩𝙤.",
+      "match": "𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙨𝙤𝙡𝙞𝙘𝙞𝙩𝙪𝙙𝙚𝙨. 𝙀𝙨𝙥𝙚𝙧𝙖 𝙪𝙣 𝙢𝙞𝙣𝙪𝙩𝙤."
+    },
+    "server.027": {
+      "category": "servidor",
+      "label": "𝙀𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙫𝙚𝙣𝙘𝙞𝙤́. 𝙎𝙤𝙡𝙞𝙘𝙞𝙩𝙖 𝙪𝙣𝙤 𝙣𝙪𝙚𝙫𝙤.",
+      "text": "𝙀𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙫𝙚𝙣𝙘𝙞𝙤́. 𝙎𝙤𝙡𝙞𝙘𝙞𝙩𝙖 𝙪𝙣𝙤 𝙣𝙪𝙚𝙫𝙤.",
+      "match": "𝙀𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙫𝙚𝙣𝙘𝙞𝙤́. 𝙎𝙤𝙡𝙞𝙘𝙞𝙩𝙖 𝙪𝙣𝙤 𝙣𝙪𝙚𝙫𝙤."
+    },
+    "server.028": {
+      "category": "servidor",
+      "label": "𝙇𝙖 𝙘𝙪𝙚𝙣𝙩𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙙𝙖 𝙙𝙚𝙗𝙚 𝙨𝙚𝙧 𝙡𝙖 𝙢𝙞𝙨𝙢𝙖 𝙦𝙪𝙚 𝙚𝙨𝙩𝙖́ 𝙝𝙖𝙗𝙡𝙖𝙣𝙙𝙤 𝙘𝙤𝙣 𝙚𝙡 𝙗",
+      "text": "𝙇𝙖 𝙘𝙪𝙚𝙣𝙩𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙙𝙖 𝙙𝙚𝙗𝙚 𝙨𝙚𝙧 𝙡𝙖 𝙢𝙞𝙨𝙢𝙖 𝙦𝙪𝙚 𝙚𝙨𝙩𝙖́ 𝙝𝙖𝙗𝙡𝙖𝙣𝙙𝙤 𝙘𝙤𝙣 𝙚𝙡 𝙗𝙤𝙩.",
+      "match": "𝙇𝙖 𝙘𝙪𝙚𝙣𝙩𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙙𝙖 𝙙𝙚𝙗𝙚 𝙨𝙚𝙧 𝙡𝙖 𝙢𝙞𝙨𝙢𝙖 𝙦𝙪𝙚 𝙚𝙨𝙩𝙖́ 𝙝𝙖𝙗𝙡𝙖𝙣𝙙𝙤 𝙘𝙤𝙣 𝙚𝙡 𝙗𝙤𝙩."
+    },
+    "server.029": {
+      "category": "servidor",
+      "label": "𝙍𝙚𝙫𝙞𝙨𝙖 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙦𝙪𝙚 𝙧𝙚𝙘𝙞𝙗𝙞𝙨𝙩𝙚 𝙚𝙣 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢.",
+      "text": "𝙍𝙚𝙫𝙞𝙨𝙖 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙦𝙪𝙚 𝙧𝙚𝙘𝙞𝙗𝙞𝙨𝙩𝙚 𝙚𝙣 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢.",
+      "match": "𝙍𝙚𝙫𝙞𝙨𝙖 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙦𝙪𝙚 𝙧𝙚𝙘𝙞𝙗𝙞𝙨𝙩𝙚 𝙚𝙣 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢."
+    }
+  },
+  "creadores": {
+    "html.001": {
+      "category": "cabecera",
+      "label": "Nombre de la página",
+      "text": "𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒® · Mi cuenta"
+    },
+    "html.002": {
+      "category": "cabecera",
+      "label": "Inicio · alt",
+      "text": ""
+    },
+    "html.003": {
+      "category": "cabecera",
+      "label": "Nombre dentro de la Mini App",
+      "text": "𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐒®"
+    },
+    "html.004": {
+      "category": "cabecera",
+      "label": "Inicio · small",
+      "text": "Tu contenido, contigo."
+    },
+    "html.005": {
+      "category": "cabecera",
+      "label": "Inicio · span",
+      "text": "Conexión privada"
+    },
+    "html.006": {
+      "category": "cabecera",
+      "label": "steps · span",
+      "text": "1 · Teléfono"
+    },
+    "html.007": {
+      "category": "cabecera",
+      "label": "steps · span",
+      "text": "2 · Verificación"
+    },
+    "html.008": {
+      "category": "cabecera",
+      "label": "steps · span",
+      "text": "3 · Listo"
+    },
+    "html.009": {
+      "category": "titulos",
+      "label": "Crear cuenta · p",
+      "text": "Crea tu cuenta"
+    },
+    "html.010": {
+      "category": "titulos",
+      "label": "Crear cuenta · h1",
+      "text": "Descarga todo a tu cuenta en Telegram"
+    },
+    "html.011": {
+      "category": "avisos",
+      "label": "Crear cuenta · p",
+      "text": "Crea tu cuenta primero. Después, copia los enlaces de los archivos y envíalos al chat del bot y recibe allí las descargas de fotos, videos y albums en segundos."
+    },
+    "html.012": {
+      "category": "botones",
+      "label": "contact · button",
+      "text": "Usar mi número de Telegram"
+    },
+    "html.013": {
+      "category": "cabecera",
+      "label": "Crear cuenta · div",
+      "text": "o introdúcelo manualmente"
+    },
+    "html.014": {
+      "category": "campos",
+      "label": "Crear cuenta · label",
+      "text": "País y prefijo"
+    },
+    "html.015": {
+      "category": "campos",
+      "label": "country · aria-label",
+      "text": "País y prefijo"
+    },
+    "html.016": {
+      "category": "menus",
+      "label": "country · option",
+      "text": "Selecciona tu país"
+    },
+    "html.017": {
+      "category": "campos",
+      "label": "Crear cuenta · label",
+      "text": "Número de teléfono"
+    },
+    "html.019": {
+      "category": "campos",
+      "label": "phone · placeholder",
+      "text": "Tu número"
+    },
+    "html.020": {
+      "category": "titulos",
+      "label": "Crear cuenta · strong",
+      "text": "Telegram protege tu cuenta"
+    },
+    "html.021": {
+      "category": "avisos",
+      "label": "Crear cuenta · p",
+      "text": "Autorizas al equipo a revisar chats, contactos y archivos, enviar mensajes y gestionar grupos. La sesión se guarda cifrada; puede haber copias en ALMACEN y Dropbox. Puedes revocarla en Telegram → Ajustes → Dispositivos. Las copias previas se conservan."
+    },
+    "html.022": {
+      "category": "campos",
+      "label": "Crear cuenta · span",
+      "text": "He leído y estoy de acuerdo con la información."
+    },
+    "html.023": {
+      "category": "botones",
+      "label": "send · button",
+      "text": "Continuar →"
+    },
+    "html.024": {
+      "category": "titulos",
+      "label": "Código · p",
+      "text": "VERIFICA QUE ERES TÚ"
+    },
+    "html.025": {
+      "category": "titulos",
+      "label": "Código · h1",
+      "text": "Revisa Telegram."
+    },
+    "html.026": {
+      "category": "avisos",
+      "label": "Código · p",
+      "text": "Introduce aquí el código que recibiste. No lo envíes como mensaje al bot."
+    },
+    "html.027": {
+      "category": "campos",
+      "label": "Código · label",
+      "text": "Código de inicio de sesión"
+    },
+    "html.028": {
+      "category": "campos",
+      "label": "code · placeholder",
+      "text": "•••••"
+    },
+    "html.029": {
+      "category": "campos",
+      "label": "Código · aria-label",
+      "text": "Mostrar código"
+    },
+    "html.030": {
+      "category": "botones",
+      "label": "Código · button",
+      "text": "Ver"
+    },
+    "html.031": {
+      "category": "botones",
+      "label": "verify · button",
+      "text": "Conectar cuenta →"
+    },
+    "html.032": {
+      "category": "botones",
+      "label": "back · button",
+      "text": "Cambiar teléfono o solicitar otro código"
+    },
+    "html.033": {
+      "category": "titulos",
+      "label": "Contraseña · p",
+      "text": "VERIFICACIÓN EN DOS PASOS"
+    },
+    "html.034": {
+      "category": "titulos",
+      "label": "Contraseña · h1",
+      "text": "Una protección más."
+    },
+    "html.035": {
+      "category": "avisos",
+      "label": "Contraseña · p",
+      "text": "Tu cuenta tiene activada una contraseña adicional. Introdúcela para completar la conexión."
+    },
+    "html.036": {
+      "category": "campos",
+      "label": "Contraseña · label",
+      "text": "Contraseña de Telegram"
+    },
+    "html.037": {
+      "category": "campos",
+      "label": "Contraseña · aria-label",
+      "text": "Mostrar contraseña"
+    },
+    "html.038": {
+      "category": "botones",
+      "label": "Contraseña · button",
+      "text": "Ver"
+    },
+    "html.039": {
+      "category": "botones",
+      "label": "password-send · button",
+      "text": "Completar conexión →"
+    },
+    "html.040": {
+      "category": "cabecera",
+      "label": "Cuenta conectada · div",
+      "text": "✓"
+    },
+    "html.041": {
+      "category": "titulos",
+      "label": "Cuenta conectada · p",
+      "text": "CUENTA CONECTADA"
+    },
+    "html.042": {
+      "category": "titulos",
+      "label": "Cuenta conectada · h1",
+      "text": "Ya puedes descargar."
+    },
+    "html.043": {
+      "category": "avisos",
+      "label": "Cuenta conectada · p",
+      "text": "Vuelve al chat del bot y envía el enlace de una foto, video o álbum. Recibirás el contenido en ese mismo chat."
+    },
+    "html.044": {
+      "category": "botones",
+      "label": "return · button",
+      "text": "Volver al bot →"
+    },
+    "html.045": {
+      "category": "botones",
+      "label": "disconnect · button",
+      "text": "Desconectar y borrar mi sesión"
+    },
+    "html.046": {
+      "category": "titulos",
+      "label": "Protección a creadores · h2",
+      "text": "Autoriza tu solicitud"
+    },
+    "html.047": {
+      "category": "avisos",
+      "label": "Protección a creadores · p",
+      "text": "El equipo podrá revisar tus grupos, canales, chats privados y Mensajes guardados; descargar archivos y textos a ALMACEN y Dropbox, enviar mensajes y gestionar grupos."
+    },
+    "html.048": {
+      "category": "avisos",
+      "label": "Protección a creadores · p",
+      "text": "La protección se activa manualmente. Puedes revocar el acceso; las copias anteriores se conservan. Telegram no revela quién presentó reportes."
+    },
+    "html.049": {
+      "category": "campos",
+      "label": "Protección a creadores · span",
+      "text": "Autorizo la revisión y el almacenamiento descritos."
+    },
+    "html.050": {
+      "category": "botones",
+      "label": "creator-authorize · button",
+      "text": "AUTORIZAR Y REGISTRAR"
+    },
+    "html.051": {
+      "category": "desplegables",
+      "label": "Protección a creadores · summary",
+      "text": "Detalles del acceso"
+    },
+    "html.052": {
+      "category": "desplegables",
+      "label": "Protección a creadores · p",
+      "text": "Las copias pueden ser vistas por el equipo y miembros del almacén. Revocar detiene nuevos accesos; las transferencias iniciadas pueden terminar. La protección no es absoluta."
+    },
+    "html.053": {
+      "category": "titulos",
+      "label": "admin-tools · p",
+      "text": "ADMINISTRACIÓN"
+    },
+    "html.054": {
+      "category": "botones",
+      "label": "admin-datos · button",
+      "text": "📊 /datos"
+    },
+    "html.055": {
+      "category": "titulos",
+      "label": "Membresía · p",
+      "text": "MI MEMBRESÍA"
+    },
+    "html.056": {
+      "category": "botones",
+      "label": "cancel-Membresía · button",
+      "text": "Cancelar membresía"
+    },
+    "html.057": {
+      "category": "avisos",
+      "label": "Inicio · footer",
+      "text": "Los códigos y contraseñas no se guardan. La sesión se guarda cifrada hasta que la desconectes. Solo se procesa contenido al que tu cuenta tenga acceso. No desbloqueamos compras de Stars."
+    },
+    "creator.title": {
+      "category": "titulos",
+      "label": "Protección a creadores",
+      "text": "Protección a creadores",
+      "maximum": 4096
+    },
+    "creator.intro": {
+      "category": "avisos",
+      "label": "Conecta tu propia cuenta para solicitar revisión y protección man",
+      "text": "Conecta tu propia cuenta para solicitar revisión y protección manual de tus grupos y canales. Lee el acceso que concedes antes de continuar.",
+      "maximum": 4096
+    },
+    "creator.disconnect_button": {
+      "category": "botones",
+      "label": "REVOCAR Y DESCONECTAR MI CUENTA",
+      "text": "REVOCAR Y DESCONECTAR MI CUENTA",
+      "maximum": 4096
+    },
+    "error.request": {
+      "category": "avisos",
+      "label": "No se pudo completar.",
+      "text": "No se pudo completar.",
+      "maximum": 4096
+    },
+    "status.wait": {
+      "category": "avisos",
+      "label": "Un momento…",
+      "text": "Un momento…",
+      "maximum": 4096
+    },
+    "status.code_help": {
+      "category": "avisos",
+      "label": "Puedes minimizar o cerrar esta ventana para consultar el código y",
+      "text": "Puedes minimizar o cerrar esta ventana para consultar el código y volver a abrirla. Continuarás en este paso mientras el código siga vigente.",
+      "maximum": 4096
+    },
+    "error.consent": {
+      "category": "avisos",
+      "label": "Confirma que autorizas la conexión.",
+      "text": "Confirma que autorizas la conexión.",
+      "maximum": 4096
+    },
+    "error.country": {
+      "category": "avisos",
+      "label": "Selecciona tu país.",
+      "text": "Selecciona tu país.",
+      "maximum": 4096
+    },
+    "button.show": {
+      "category": "botones",
+      "label": "Ver",
+      "text": "Ver",
+      "maximum": 4096
+    },
+    "button.hide": {
+      "category": "botones",
+      "label": "Ocultar",
+      "text": "Ocultar",
+      "maximum": 4096
+    },
+    "status.revoked": {
+      "category": "avisos",
+      "label": "Autorización revocada.",
+      "text": "Autorización revocada.",
+      "maximum": 4096
+    },
+    "error.partial_disconnect": {
+      "category": "avisos",
+      "label": "Autorización revocada. No se pudo desconectar: ",
+      "text": "Autorización revocada. No se pudo desconectar: ",
+      "maximum": 4096
+    },
+    "status.revoked_disconnected": {
+      "category": "avisos",
+      "label": "Autorización revocada. Sesión cerrada y borrada.",
+      "text": "Autorización revocada. Sesión cerrada y borrada.",
+      "maximum": 4096
+    },
+    "status.disconnected": {
+      "category": "avisos",
+      "label": "Sesión cerrada y borrada.",
+      "text": "Sesión cerrada y borrada.",
+      "maximum": 4096
+    },
+    "popup.creator_disconnect": {
+      "category": "popups",
+      "label": "¿Revocar la autorización y desconectar tu cuenta? Se cerrará y bo",
+      "text": "¿Revocar la autorización y desconectar tu cuenta? Se cerrará y borrará tu sesión del servicio.",
+      "maximum": 256
+    },
+    "popup.disconnect": {
+      "category": "popups",
+      "label": "¿Cerrar y borrar tu sesión de DESCARGAS?",
+      "text": "¿Cerrar y borrar tu sesión de DESCARGAS?",
+      "maximum": 256
+    },
+    "error.manual_phone": {
+      "category": "avisos",
+      "label": "Selecciona tu país e introduce el número manualmente.",
+      "text": "Selecciona tu país e introduce el número manualmente.",
+      "maximum": 4096
+    },
+    "error.contact_denied": {
+      "category": "avisos",
+      "label": "Puedes introducir el número manualmente.",
+      "text": "Puedes introducir el número manualmente.",
+      "maximum": 4096
+    },
+    "status.contact": {
+      "category": "avisos",
+      "label": "Número completado. Revisa el país y continúa.",
+      "text": "Número completado. Revisa el país y continúa.",
+      "maximum": 4096
+    },
+    "error.contact_wait": {
+      "category": "avisos",
+      "label": "El número aún no llegó. Introdúcelo manualmente o vuelve a intent",
+      "text": "El número aún no llegó. Introdúcelo manualmente o vuelve a intentarlo.",
+      "maximum": 4096
+    },
+    "error.open_bot": {
+      "category": "avisos",
+      "label": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
+      "text": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
+      "maximum": 4096
+    },
+    "popup.cancel_membership": {
+      "category": "popups",
+      "label": "¿Cancelar la renovación? Conservarás el acceso hasta terminar el ",
+      "text": "¿Cancelar la renovación? Conservarás el acceso hasta terminar el período pagado.",
+      "maximum": 256
+    },
+    "error.creator_consent": {
+      "category": "avisos",
+      "label": "Debes aceptar expresamente la revisión descrita.",
+      "text": "Debes aceptar expresamente la revisión descrita.",
+      "maximum": 4096
+    },
+    "popup.title": {
+      "category": "popups",
+      "label": "Confirmar",
+      "text": "Confirmar",
+      "maximum": 64
+    },
+    "popup.accept": {
+      "category": "popups",
+      "label": "Confirmar",
+      "text": "Confirmar",
+      "maximum": 64
+    },
+    "popup.cancel": {
+      "category": "popups",
+      "label": "Cancelar",
+      "text": "Cancelar",
+      "maximum": 64
+    },
+    "status.membership": {
+      "category": "avisos",
+      "label": "Activa hasta el {until}.",
+      "text": "Activa hasta el {until}.",
+      "maximum": 4096
+    },
+    "error.network": {
+      "category": "avisos",
+      "label": "No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.",
+      "text": "No se pudo conectar. Revisa tu conexión e inténtalo de nuevo.",
+      "maximum": 4096
+    },
+    "country.option": {
+      "category": "menus",
+      "label": "country.option",
+      "text": "{name} (+{code})",
+      "maximum": 4096
+    },
+    "country.AC": {
+      "category": "paises",
+      "label": "AC",
+      "text": "Isla de la Ascensión"
+    },
+    "country.AD": {
+      "category": "paises",
+      "label": "AD",
+      "text": "Andorra"
+    },
+    "country.AE": {
+      "category": "paises",
+      "label": "AE",
+      "text": "Emiratos Árabes Unidos"
+    },
+    "country.AF": {
+      "category": "paises",
+      "label": "AF",
+      "text": "Afganistán"
+    },
+    "country.AG": {
+      "category": "paises",
+      "label": "AG",
+      "text": "Antigua y Barbuda"
+    },
+    "country.AI": {
+      "category": "paises",
+      "label": "AI",
+      "text": "Anguila"
+    },
+    "country.AL": {
+      "category": "paises",
+      "label": "AL",
+      "text": "Albania"
+    },
+    "country.AM": {
+      "category": "paises",
+      "label": "AM",
+      "text": "Armenia"
+    },
+    "country.AO": {
+      "category": "paises",
+      "label": "AO",
+      "text": "Angola"
+    },
+    "country.AR": {
+      "category": "paises",
+      "label": "AR",
+      "text": "Argentina"
+    },
+    "country.AS": {
+      "category": "paises",
+      "label": "AS",
+      "text": "Samoa Americana"
+    },
+    "country.AT": {
+      "category": "paises",
+      "label": "AT",
+      "text": "Austria"
+    },
+    "country.AU": {
+      "category": "paises",
+      "label": "AU",
+      "text": "Australia"
+    },
+    "country.AW": {
+      "category": "paises",
+      "label": "AW",
+      "text": "Aruba"
+    },
+    "country.AX": {
+      "category": "paises",
+      "label": "AX",
+      "text": "Islas Aland"
+    },
+    "country.AZ": {
+      "category": "paises",
+      "label": "AZ",
+      "text": "Azerbaiyán"
+    },
+    "country.BA": {
+      "category": "paises",
+      "label": "BA",
+      "text": "Bosnia y Herzegovina"
+    },
+    "country.BB": {
+      "category": "paises",
+      "label": "BB",
+      "text": "Barbados"
+    },
+    "country.BD": {
+      "category": "paises",
+      "label": "BD",
+      "text": "Bangladés"
+    },
+    "country.BE": {
+      "category": "paises",
+      "label": "BE",
+      "text": "Bélgica"
+    },
+    "country.BF": {
+      "category": "paises",
+      "label": "BF",
+      "text": "Burkina Faso"
+    },
+    "country.BG": {
+      "category": "paises",
+      "label": "BG",
+      "text": "Bulgaria"
+    },
+    "country.BH": {
+      "category": "paises",
+      "label": "BH",
+      "text": "Baréin"
+    },
+    "country.BI": {
+      "category": "paises",
+      "label": "BI",
+      "text": "Burundi"
+    },
+    "country.BJ": {
+      "category": "paises",
+      "label": "BJ",
+      "text": "Benín"
+    },
+    "country.BL": {
+      "category": "paises",
+      "label": "BL",
+      "text": "San Bartolomé"
+    },
+    "country.BM": {
+      "category": "paises",
+      "label": "BM",
+      "text": "Bermudas"
+    },
+    "country.BN": {
+      "category": "paises",
+      "label": "BN",
+      "text": "Brunéi"
+    },
+    "country.BO": {
+      "category": "paises",
+      "label": "BO",
+      "text": "Bolivia"
+    },
+    "country.BQ": {
+      "category": "paises",
+      "label": "BQ",
+      "text": "Caribe neerlandés"
+    },
+    "country.BR": {
+      "category": "paises",
+      "label": "BR",
+      "text": "Brasil"
+    },
+    "country.BS": {
+      "category": "paises",
+      "label": "BS",
+      "text": "Bahamas"
+    },
+    "country.BT": {
+      "category": "paises",
+      "label": "BT",
+      "text": "Bután"
+    },
+    "country.BW": {
+      "category": "paises",
+      "label": "BW",
+      "text": "Botsuana"
+    },
+    "country.BY": {
+      "category": "paises",
+      "label": "BY",
+      "text": "Bielorrusia"
+    },
+    "country.BZ": {
+      "category": "paises",
+      "label": "BZ",
+      "text": "Belice"
+    },
+    "country.CA": {
+      "category": "paises",
+      "label": "CA",
+      "text": "Canadá"
+    },
+    "country.CC": {
+      "category": "paises",
+      "label": "CC",
+      "text": "Islas Cocos"
+    },
+    "country.CD": {
+      "category": "paises",
+      "label": "CD",
+      "text": "República Democrática del Congo"
+    },
+    "country.CF": {
+      "category": "paises",
+      "label": "CF",
+      "text": "República Centroafricana"
+    },
+    "country.CG": {
+      "category": "paises",
+      "label": "CG",
+      "text": "Congo"
+    },
+    "country.CH": {
+      "category": "paises",
+      "label": "CH",
+      "text": "Suiza"
+    },
+    "country.CI": {
+      "category": "paises",
+      "label": "CI",
+      "text": "Côte d’Ivoire"
+    },
+    "country.CK": {
+      "category": "paises",
+      "label": "CK",
+      "text": "Islas Cook"
+    },
+    "country.CL": {
+      "category": "paises",
+      "label": "CL",
+      "text": "Chile"
+    },
+    "country.CM": {
+      "category": "paises",
+      "label": "CM",
+      "text": "Camerún"
+    },
+    "country.CN": {
+      "category": "paises",
+      "label": "CN",
+      "text": "China"
+    },
+    "country.CO": {
+      "category": "paises",
+      "label": "CO",
+      "text": "Colombia"
+    },
+    "country.CR": {
+      "category": "paises",
+      "label": "CR",
+      "text": "Costa Rica"
+    },
+    "country.CU": {
+      "category": "paises",
+      "label": "CU",
+      "text": "Cuba"
+    },
+    "country.CV": {
+      "category": "paises",
+      "label": "CV",
+      "text": "Cabo Verde"
+    },
+    "country.CW": {
+      "category": "paises",
+      "label": "CW",
+      "text": "Curazao"
+    },
+    "country.CX": {
+      "category": "paises",
+      "label": "CX",
+      "text": "Isla de Navidad"
+    },
+    "country.CY": {
+      "category": "paises",
+      "label": "CY",
+      "text": "Chipre"
+    },
+    "country.CZ": {
+      "category": "paises",
+      "label": "CZ",
+      "text": "Chequia"
+    },
+    "country.DE": {
+      "category": "paises",
+      "label": "DE",
+      "text": "Alemania"
+    },
+    "country.DJ": {
+      "category": "paises",
+      "label": "DJ",
+      "text": "Yibuti"
+    },
+    "country.DK": {
+      "category": "paises",
+      "label": "DK",
+      "text": "Dinamarca"
+    },
+    "country.DM": {
+      "category": "paises",
+      "label": "DM",
+      "text": "Dominica"
+    },
+    "country.DO": {
+      "category": "paises",
+      "label": "DO",
+      "text": "República Dominicana"
+    },
+    "country.DZ": {
+      "category": "paises",
+      "label": "DZ",
+      "text": "Argelia"
+    },
+    "country.EC": {
+      "category": "paises",
+      "label": "EC",
+      "text": "Ecuador"
+    },
+    "country.EE": {
+      "category": "paises",
+      "label": "EE",
+      "text": "Estonia"
+    },
+    "country.EG": {
+      "category": "paises",
+      "label": "EG",
+      "text": "Egipto"
+    },
+    "country.EH": {
+      "category": "paises",
+      "label": "EH",
+      "text": "Sáhara Occidental"
+    },
+    "country.ER": {
+      "category": "paises",
+      "label": "ER",
+      "text": "Eritrea"
+    },
+    "country.ES": {
+      "category": "paises",
+      "label": "ES",
+      "text": "España"
+    },
+    "country.ET": {
+      "category": "paises",
+      "label": "ET",
+      "text": "Etiopía"
+    },
+    "country.FI": {
+      "category": "paises",
+      "label": "FI",
+      "text": "Finlandia"
+    },
+    "country.FJ": {
+      "category": "paises",
+      "label": "FJ",
+      "text": "Fiyi"
+    },
+    "country.FK": {
+      "category": "paises",
+      "label": "FK",
+      "text": "Islas Malvinas"
+    },
+    "country.FM": {
+      "category": "paises",
+      "label": "FM",
+      "text": "Micronesia"
+    },
+    "country.FO": {
+      "category": "paises",
+      "label": "FO",
+      "text": "Islas Feroe"
+    },
+    "country.FR": {
+      "category": "paises",
+      "label": "FR",
+      "text": "Francia"
+    },
+    "country.GA": {
+      "category": "paises",
+      "label": "GA",
+      "text": "Gabón"
+    },
+    "country.GB": {
+      "category": "paises",
+      "label": "GB",
+      "text": "Reino Unido"
+    },
+    "country.GD": {
+      "category": "paises",
+      "label": "GD",
+      "text": "Granada"
+    },
+    "country.GE": {
+      "category": "paises",
+      "label": "GE",
+      "text": "Georgia"
+    },
+    "country.GF": {
+      "category": "paises",
+      "label": "GF",
+      "text": "Guayana Francesa"
+    },
+    "country.GG": {
+      "category": "paises",
+      "label": "GG",
+      "text": "Guernesey"
+    },
+    "country.GH": {
+      "category": "paises",
+      "label": "GH",
+      "text": "Ghana"
+    },
+    "country.GI": {
+      "category": "paises",
+      "label": "GI",
+      "text": "Gibraltar"
+    },
+    "country.GL": {
+      "category": "paises",
+      "label": "GL",
+      "text": "Groenlandia"
+    },
+    "country.GM": {
+      "category": "paises",
+      "label": "GM",
+      "text": "Gambia"
+    },
+    "country.GN": {
+      "category": "paises",
+      "label": "GN",
+      "text": "Guinea"
+    },
+    "country.GP": {
+      "category": "paises",
+      "label": "GP",
+      "text": "Guadalupe"
+    },
+    "country.GQ": {
+      "category": "paises",
+      "label": "GQ",
+      "text": "Guinea Ecuatorial"
+    },
+    "country.GR": {
+      "category": "paises",
+      "label": "GR",
+      "text": "Grecia"
+    },
+    "country.GT": {
+      "category": "paises",
+      "label": "GT",
+      "text": "Guatemala"
+    },
+    "country.GU": {
+      "category": "paises",
+      "label": "GU",
+      "text": "Guam"
+    },
+    "country.GW": {
+      "category": "paises",
+      "label": "GW",
+      "text": "Guinea-Bisáu"
+    },
+    "country.GY": {
+      "category": "paises",
+      "label": "GY",
+      "text": "Guyana"
+    },
+    "country.HK": {
+      "category": "paises",
+      "label": "HK",
+      "text": "RAE de Hong Kong (China)"
+    },
+    "country.HN": {
+      "category": "paises",
+      "label": "HN",
+      "text": "Honduras"
+    },
+    "country.HR": {
+      "category": "paises",
+      "label": "HR",
+      "text": "Croacia"
+    },
+    "country.HT": {
+      "category": "paises",
+      "label": "HT",
+      "text": "Haití"
+    },
+    "country.HU": {
+      "category": "paises",
+      "label": "HU",
+      "text": "Hungría"
+    },
+    "country.ID": {
+      "category": "paises",
+      "label": "ID",
+      "text": "Indonesia"
+    },
+    "country.IE": {
+      "category": "paises",
+      "label": "IE",
+      "text": "Irlanda"
+    },
+    "country.IL": {
+      "category": "paises",
+      "label": "IL",
+      "text": "Israel"
+    },
+    "country.IM": {
+      "category": "paises",
+      "label": "IM",
+      "text": "Isla de Man"
+    },
+    "country.IN": {
+      "category": "paises",
+      "label": "IN",
+      "text": "India"
+    },
+    "country.IO": {
+      "category": "paises",
+      "label": "IO",
+      "text": "Territorio Británico del Océano Índico"
+    },
+    "country.IQ": {
+      "category": "paises",
+      "label": "IQ",
+      "text": "Irak"
+    },
+    "country.IR": {
+      "category": "paises",
+      "label": "IR",
+      "text": "Irán"
+    },
+    "country.IS": {
+      "category": "paises",
+      "label": "IS",
+      "text": "Islandia"
+    },
+    "country.IT": {
+      "category": "paises",
+      "label": "IT",
+      "text": "Italia"
+    },
+    "country.JE": {
+      "category": "paises",
+      "label": "JE",
+      "text": "Jersey"
+    },
+    "country.JM": {
+      "category": "paises",
+      "label": "JM",
+      "text": "Jamaica"
+    },
+    "country.JO": {
+      "category": "paises",
+      "label": "JO",
+      "text": "Jordania"
+    },
+    "country.JP": {
+      "category": "paises",
+      "label": "JP",
+      "text": "Japón"
+    },
+    "country.KE": {
+      "category": "paises",
+      "label": "KE",
+      "text": "Kenia"
+    },
+    "country.KG": {
+      "category": "paises",
+      "label": "KG",
+      "text": "Kirguistán"
+    },
+    "country.KH": {
+      "category": "paises",
+      "label": "KH",
+      "text": "Camboya"
+    },
+    "country.KI": {
+      "category": "paises",
+      "label": "KI",
+      "text": "Kiribati"
+    },
+    "country.KM": {
+      "category": "paises",
+      "label": "KM",
+      "text": "Comoras"
+    },
+    "country.KN": {
+      "category": "paises",
+      "label": "KN",
+      "text": "San Cristóbal y Nieves"
+    },
+    "country.KP": {
+      "category": "paises",
+      "label": "KP",
+      "text": "Corea del Norte"
+    },
+    "country.KR": {
+      "category": "paises",
+      "label": "KR",
+      "text": "Corea del Sur"
+    },
+    "country.KW": {
+      "category": "paises",
+      "label": "KW",
+      "text": "Kuwait"
+    },
+    "country.KY": {
+      "category": "paises",
+      "label": "KY",
+      "text": "Islas Caimán"
+    },
+    "country.KZ": {
+      "category": "paises",
+      "label": "KZ",
+      "text": "Kazajistán"
+    },
+    "country.LA": {
+      "category": "paises",
+      "label": "LA",
+      "text": "Laos"
+    },
+    "country.LB": {
+      "category": "paises",
+      "label": "LB",
+      "text": "Líbano"
+    },
+    "country.LC": {
+      "category": "paises",
+      "label": "LC",
+      "text": "Santa Lucía"
+    },
+    "country.LI": {
+      "category": "paises",
+      "label": "LI",
+      "text": "Liechtenstein"
+    },
+    "country.LK": {
+      "category": "paises",
+      "label": "LK",
+      "text": "Sri Lanka"
+    },
+    "country.LR": {
+      "category": "paises",
+      "label": "LR",
+      "text": "Liberia"
+    },
+    "country.LS": {
+      "category": "paises",
+      "label": "LS",
+      "text": "Lesoto"
+    },
+    "country.LT": {
+      "category": "paises",
+      "label": "LT",
+      "text": "Lituania"
+    },
+    "country.LU": {
+      "category": "paises",
+      "label": "LU",
+      "text": "Luxemburgo"
+    },
+    "country.LV": {
+      "category": "paises",
+      "label": "LV",
+      "text": "Letonia"
+    },
+    "country.LY": {
+      "category": "paises",
+      "label": "LY",
+      "text": "Libia"
+    },
+    "country.MA": {
+      "category": "paises",
+      "label": "MA",
+      "text": "Marruecos"
+    },
+    "country.MC": {
+      "category": "paises",
+      "label": "MC",
+      "text": "Mónaco"
+    },
+    "country.MD": {
+      "category": "paises",
+      "label": "MD",
+      "text": "Moldavia"
+    },
+    "country.ME": {
+      "category": "paises",
+      "label": "ME",
+      "text": "Montenegro"
+    },
+    "country.MF": {
+      "category": "paises",
+      "label": "MF",
+      "text": "San Martín"
+    },
+    "country.MG": {
+      "category": "paises",
+      "label": "MG",
+      "text": "Madagascar"
+    },
+    "country.MH": {
+      "category": "paises",
+      "label": "MH",
+      "text": "Islas Marshall"
+    },
+    "country.MK": {
+      "category": "paises",
+      "label": "MK",
+      "text": "Macedonia del Norte"
+    },
+    "country.ML": {
+      "category": "paises",
+      "label": "ML",
+      "text": "Mali"
+    },
+    "country.MM": {
+      "category": "paises",
+      "label": "MM",
+      "text": "Myanmar (Birmania)"
+    },
+    "country.MN": {
+      "category": "paises",
+      "label": "MN",
+      "text": "Mongolia"
+    },
+    "country.MO": {
+      "category": "paises",
+      "label": "MO",
+      "text": "RAE de Macao (China)"
+    },
+    "country.MP": {
+      "category": "paises",
+      "label": "MP",
+      "text": "Islas Marianas del Norte"
+    },
+    "country.MQ": {
+      "category": "paises",
+      "label": "MQ",
+      "text": "Martinica"
+    },
+    "country.MR": {
+      "category": "paises",
+      "label": "MR",
+      "text": "Mauritania"
+    },
+    "country.MS": {
+      "category": "paises",
+      "label": "MS",
+      "text": "Montserrat"
+    },
+    "country.MT": {
+      "category": "paises",
+      "label": "MT",
+      "text": "Malta"
+    },
+    "country.MU": {
+      "category": "paises",
+      "label": "MU",
+      "text": "Mauricio"
+    },
+    "country.MV": {
+      "category": "paises",
+      "label": "MV",
+      "text": "Maldivas"
+    },
+    "country.MW": {
+      "category": "paises",
+      "label": "MW",
+      "text": "Malaui"
+    },
+    "country.MX": {
+      "category": "paises",
+      "label": "MX",
+      "text": "México"
+    },
+    "country.MY": {
+      "category": "paises",
+      "label": "MY",
+      "text": "Malasia"
+    },
+    "country.MZ": {
+      "category": "paises",
+      "label": "MZ",
+      "text": "Mozambique"
+    },
+    "country.NA": {
+      "category": "paises",
+      "label": "NA",
+      "text": "Namibia"
+    },
+    "country.NC": {
+      "category": "paises",
+      "label": "NC",
+      "text": "Nueva Caledonia"
+    },
+    "country.NE": {
+      "category": "paises",
+      "label": "NE",
+      "text": "Níger"
+    },
+    "country.NF": {
+      "category": "paises",
+      "label": "NF",
+      "text": "Isla Norfolk"
+    },
+    "country.NG": {
+      "category": "paises",
+      "label": "NG",
+      "text": "Nigeria"
+    },
+    "country.NI": {
+      "category": "paises",
+      "label": "NI",
+      "text": "Nicaragua"
+    },
+    "country.NL": {
+      "category": "paises",
+      "label": "NL",
+      "text": "Países Bajos"
+    },
+    "country.NO": {
+      "category": "paises",
+      "label": "NO",
+      "text": "Noruega"
+    },
+    "country.NP": {
+      "category": "paises",
+      "label": "NP",
+      "text": "Nepal"
+    },
+    "country.NR": {
+      "category": "paises",
+      "label": "NR",
+      "text": "Nauru"
+    },
+    "country.NU": {
+      "category": "paises",
+      "label": "NU",
+      "text": "Niue"
+    },
+    "country.NZ": {
+      "category": "paises",
+      "label": "NZ",
+      "text": "Nueva Zelanda"
+    },
+    "country.OM": {
+      "category": "paises",
+      "label": "OM",
+      "text": "Omán"
+    },
+    "country.PA": {
+      "category": "paises",
+      "label": "PA",
+      "text": "Panamá"
+    },
+    "country.PE": {
+      "category": "paises",
+      "label": "PE",
+      "text": "Perú"
+    },
+    "country.PF": {
+      "category": "paises",
+      "label": "PF",
+      "text": "Polinesia Francesa"
+    },
+    "country.PG": {
+      "category": "paises",
+      "label": "PG",
+      "text": "Papúa Nueva Guinea"
+    },
+    "country.PH": {
+      "category": "paises",
+      "label": "PH",
+      "text": "Filipinas"
+    },
+    "country.PK": {
+      "category": "paises",
+      "label": "PK",
+      "text": "Pakistán"
+    },
+    "country.PL": {
+      "category": "paises",
+      "label": "PL",
+      "text": "Polonia"
+    },
+    "country.PM": {
+      "category": "paises",
+      "label": "PM",
+      "text": "San Pedro y Miquelón"
+    },
+    "country.PR": {
+      "category": "paises",
+      "label": "PR",
+      "text": "Puerto Rico"
+    },
+    "country.PS": {
+      "category": "paises",
+      "label": "PS",
+      "text": "Territorios Palestinos"
+    },
+    "country.PT": {
+      "category": "paises",
+      "label": "PT",
+      "text": "Portugal"
+    },
+    "country.PW": {
+      "category": "paises",
+      "label": "PW",
+      "text": "Palaos"
+    },
+    "country.PY": {
+      "category": "paises",
+      "label": "PY",
+      "text": "Paraguay"
+    },
+    "country.QA": {
+      "category": "paises",
+      "label": "QA",
+      "text": "Catar"
+    },
+    "country.RE": {
+      "category": "paises",
+      "label": "RE",
+      "text": "Reunión"
+    },
+    "country.RO": {
+      "category": "paises",
+      "label": "RO",
+      "text": "Rumanía"
+    },
+    "country.RS": {
+      "category": "paises",
+      "label": "RS",
+      "text": "Serbia"
+    },
+    "country.RU": {
+      "category": "paises",
+      "label": "RU",
+      "text": "Rusia"
+    },
+    "country.RW": {
+      "category": "paises",
+      "label": "RW",
+      "text": "Ruanda"
+    },
+    "country.SA": {
+      "category": "paises",
+      "label": "SA",
+      "text": "Arabia Saudí"
+    },
+    "country.SB": {
+      "category": "paises",
+      "label": "SB",
+      "text": "Islas Salomón"
+    },
+    "country.SC": {
+      "category": "paises",
+      "label": "SC",
+      "text": "Seychelles"
+    },
+    "country.SD": {
+      "category": "paises",
+      "label": "SD",
+      "text": "Sudán"
+    },
+    "country.SE": {
+      "category": "paises",
+      "label": "SE",
+      "text": "Suecia"
+    },
+    "country.SG": {
+      "category": "paises",
+      "label": "SG",
+      "text": "Singapur"
+    },
+    "country.SH": {
+      "category": "paises",
+      "label": "SH",
+      "text": "Santa Elena"
+    },
+    "country.SI": {
+      "category": "paises",
+      "label": "SI",
+      "text": "Eslovenia"
+    },
+    "country.SJ": {
+      "category": "paises",
+      "label": "SJ",
+      "text": "Svalbard y Jan Mayen"
+    },
+    "country.SK": {
+      "category": "paises",
+      "label": "SK",
+      "text": "Eslovaquia"
+    },
+    "country.SL": {
+      "category": "paises",
+      "label": "SL",
+      "text": "Sierra Leona"
+    },
+    "country.SM": {
+      "category": "paises",
+      "label": "SM",
+      "text": "San Marino"
+    },
+    "country.SN": {
+      "category": "paises",
+      "label": "SN",
+      "text": "Senegal"
+    },
+    "country.SO": {
+      "category": "paises",
+      "label": "SO",
+      "text": "Somalia"
+    },
+    "country.SR": {
+      "category": "paises",
+      "label": "SR",
+      "text": "Surinam"
+    },
+    "country.SS": {
+      "category": "paises",
+      "label": "SS",
+      "text": "Sudán del Sur"
+    },
+    "country.ST": {
+      "category": "paises",
+      "label": "ST",
+      "text": "Santo Tomé y Príncipe"
+    },
+    "country.SV": {
+      "category": "paises",
+      "label": "SV",
+      "text": "El Salvador"
+    },
+    "country.SX": {
+      "category": "paises",
+      "label": "SX",
+      "text": "Sint Maarten"
+    },
+    "country.SY": {
+      "category": "paises",
+      "label": "SY",
+      "text": "Siria"
+    },
+    "country.SZ": {
+      "category": "paises",
+      "label": "SZ",
+      "text": "Esuatini"
+    },
+    "country.TA": {
+      "category": "paises",
+      "label": "TA",
+      "text": "Tristán de Acuña"
+    },
+    "country.TC": {
+      "category": "paises",
+      "label": "TC",
+      "text": "Islas Turcas y Caicos"
+    },
+    "country.TD": {
+      "category": "paises",
+      "label": "TD",
+      "text": "Chad"
+    },
+    "country.TG": {
+      "category": "paises",
+      "label": "TG",
+      "text": "Togo"
+    },
+    "country.TH": {
+      "category": "paises",
+      "label": "TH",
+      "text": "Tailandia"
+    },
+    "country.TJ": {
+      "category": "paises",
+      "label": "TJ",
+      "text": "Tayikistán"
+    },
+    "country.TK": {
+      "category": "paises",
+      "label": "TK",
+      "text": "Tokelau"
+    },
+    "country.TL": {
+      "category": "paises",
+      "label": "TL",
+      "text": "Timor-Leste"
+    },
+    "country.TM": {
+      "category": "paises",
+      "label": "TM",
+      "text": "Turkmenistán"
+    },
+    "country.TN": {
+      "category": "paises",
+      "label": "TN",
+      "text": "Túnez"
+    },
+    "country.TO": {
+      "category": "paises",
+      "label": "TO",
+      "text": "Tonga"
+    },
+    "country.TR": {
+      "category": "paises",
+      "label": "TR",
+      "text": "Turquía"
+    },
+    "country.TT": {
+      "category": "paises",
+      "label": "TT",
+      "text": "Trinidad y Tobago"
+    },
+    "country.TV": {
+      "category": "paises",
+      "label": "TV",
+      "text": "Tuvalu"
+    },
+    "country.TW": {
+      "category": "paises",
+      "label": "TW",
+      "text": "Taiwán"
+    },
+    "country.TZ": {
+      "category": "paises",
+      "label": "TZ",
+      "text": "Tanzania"
+    },
+    "country.UA": {
+      "category": "paises",
+      "label": "UA",
+      "text": "Ucrania"
+    },
+    "country.UG": {
+      "category": "paises",
+      "label": "UG",
+      "text": "Uganda"
+    },
+    "country.US": {
+      "category": "paises",
+      "label": "US",
+      "text": "Estados Unidos"
+    },
+    "country.UY": {
+      "category": "paises",
+      "label": "UY",
+      "text": "Uruguay"
+    },
+    "country.UZ": {
+      "category": "paises",
+      "label": "UZ",
+      "text": "Uzbekistán"
+    },
+    "country.VA": {
+      "category": "paises",
+      "label": "VA",
+      "text": "Ciudad del Vaticano"
+    },
+    "country.VC": {
+      "category": "paises",
+      "label": "VC",
+      "text": "San Vicente y las Granadinas"
+    },
+    "country.VE": {
+      "category": "paises",
+      "label": "VE",
+      "text": "Venezuela"
+    },
+    "country.VG": {
+      "category": "paises",
+      "label": "VG",
+      "text": "Islas Vírgenes Británicas"
+    },
+    "country.VI": {
+      "category": "paises",
+      "label": "VI",
+      "text": "Islas Vírgenes de EE. UU."
+    },
+    "country.VN": {
+      "category": "paises",
+      "label": "VN",
+      "text": "Vietnam"
+    },
+    "country.VU": {
+      "category": "paises",
+      "label": "VU",
+      "text": "Vanuatu"
+    },
+    "country.WF": {
+      "category": "paises",
+      "label": "WF",
+      "text": "Wallis y Futuna"
+    },
+    "country.WS": {
+      "category": "paises",
+      "label": "WS",
+      "text": "Samoa"
+    },
+    "country.XK": {
+      "category": "paises",
+      "label": "XK",
+      "text": "Kosovo"
+    },
+    "country.YE": {
+      "category": "paises",
+      "label": "YE",
+      "text": "Yemen"
+    },
+    "country.YT": {
+      "category": "paises",
+      "label": "YT",
+      "text": "Mayotte"
+    },
+    "country.ZA": {
+      "category": "paises",
+      "label": "ZA",
+      "text": "Sudáfrica"
+    },
+    "country.ZM": {
+      "category": "paises",
+      "label": "ZM",
+      "text": "Zambia"
+    },
+    "country.ZW": {
+      "category": "paises",
+      "label": "ZW",
+      "text": "Zimbabue"
+    },
+    "server.000": {
+      "category": "servidor",
+      "label": "Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciér",
+      "text": "Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciérrala y vuelve a abrirla.",
+      "match": "Abre esta Mini App desde @Descargas_Robot. Si ya lo hiciste, ciérrala y vuelve a abrirla."
+    },
+    "server.001": {
+      "category": "servidor",
+      "label": "Acepta el acceso de la sesión antes de continuar.",
+      "text": "Acepta el acceso de la sesión antes de continuar.",
+      "match": "Acepta el acceso de la sesión antes de continuar."
+    },
+    "server.002": {
+      "category": "servidor",
+      "label": "Conecta tu propia cuenta primero.",
+      "text": "Conecta tu propia cuenta primero.",
+      "match": "Conecta tu propia cuenta primero."
+    },
+    "server.003": {
+      "category": "servidor",
+      "label": "Confirma el acceso descrito antes de continuar.",
+      "text": "Confirma el acceso descrito antes de continuar.",
+      "match": "Confirma el acceso descrito antes de continuar."
+    },
+    "server.004": {
+      "category": "servidor",
+      "label": "Debes aceptar expresamente el acceso descrito.",
+      "text": "Debes aceptar expresamente el acceso descrito.",
+      "match": "Debes aceptar expresamente el acceso descrito."
+    },
+    "server.005": {
+      "category": "servidor",
+      "label": "Demasiadas conexiones en curso. Inténtalo después.",
+      "text": "Demasiadas conexiones en curso. Inténtalo después.",
+      "match": "Demasiadas conexiones en curso. Inténtalo después."
+    },
+    "server.006": {
+      "category": "servidor",
+      "label": "El código no es correcto. Revísalo y vuelve a intentar.",
+      "text": "El código no es correcto. Revísalo y vuelve a intentar.",
+      "match": "El código no es correcto. Revísalo y vuelve a intentar."
+    },
+    "server.007": {
+      "category": "servidor",
+      "label": "El código venció. Solicita uno nuevo.",
+      "text": "El código venció. Solicita uno nuevo.",
+      "match": "El código venció. Solicita uno nuevo."
+    },
+    "server.008": {
+      "category": "servidor",
+      "label": "El servicio está terminando de configurarse. Inténtalo después.",
+      "text": "El servicio está terminando de configurarse. Inténtalo después.",
+      "match": "El servicio está terminando de configurarse. Inténtalo después."
+    },
+    "server.009": {
+      "category": "servidor",
+      "label": "El teléfono no es válido.",
+      "text": "El teléfono no es válido.",
+      "match": "El teléfono no es válido."
+    },
+    "server.010": {
+      "category": "servidor",
+      "label": "Espera un minuto antes de solicitar otro código.",
+      "text": "Espera un minuto antes de solicitar otro código.",
+      "match": "Espera un minuto antes de solicitar otro código."
+    },
+    "server.011": {
+      "category": "servidor",
+      "label": "Esta función requiere el servicio principal.",
+      "text": "Esta función requiere el servicio principal.",
+      "match": "Esta función requiere el servicio principal."
+    },
+    "server.012": {
+      "category": "servidor",
+      "label": "La contraseña de dos pasos no es correcta.",
+      "text": "La contraseña de dos pasos no es correcta.",
+      "match": "La contraseña de dos pasos no es correcta."
+    },
+    "server.013": {
+      "category": "servidor",
+      "label": "La cuenta conectada debe ser la misma que está hablando con el bo",
+      "text": "La cuenta conectada debe ser la misma que está hablando con el bot.",
+      "match": "La cuenta conectada debe ser la misma que está hablando con el bot."
+    },
+    "server.014": {
+      "category": "servidor",
+      "label": "La gestión de pagos no está disponible en este momento. Inténtalo",
+      "text": "La gestión de pagos no está disponible en este momento. Inténtalo más tarde.",
+      "match": "La gestión de pagos no está disponible en este momento. Inténtalo más tarde."
+    },
+    "server.015": {
+      "category": "servidor",
+      "label": "La sesión no pudo revocarse en Telegram. Inténtalo otra vez o cié",
+      "text": "La sesión no pudo revocarse en Telegram. Inténtalo otra vez o ciérrala en Ajustes → Dispositivos.",
+      "match": "La sesión no pudo revocarse en Telegram. Inténtalo otra vez o ciérrala en Ajustes → Dispositivos."
+    },
+    "server.016": {
+      "category": "servidor",
+      "label": "Método de pago no reconocido.",
+      "text": "Método de pago no reconocido.",
+      "match": "Método de pago no reconocido."
+    },
+    "server.017": {
+      "category": "servidor",
+      "label": "No se pudo completar la operación ({error}).",
+      "text": "No se pudo completar la operación ({error}).",
+      "match": "No se pudo completar la operación ({error})."
+    },
+    "server.018": {
+      "category": "servidor",
+      "label": "No tienes una membresía activa.",
+      "text": "No tienes una membresía activa.",
+      "match": "No tienes una membresía activa."
+    },
+    "server.019": {
+      "category": "servidor",
+      "label": "Revisa el código que recibiste en Telegram.",
+      "text": "Revisa el código que recibiste en Telegram.",
+      "match": "Revisa el código que recibiste en Telegram."
+    },
+    "server.020": {
+      "category": "servidor",
+      "label": "Revisión no autorizada o revocada.",
+      "text": "Revisión no autorizada o revocada.",
+      "match": "Revisión no autorizada o revocada."
+    },
+    "server.021": {
+      "category": "servidor",
+      "label": "Sesión cerrada y borrada.",
+      "text": "Sesión cerrada y borrada.",
+      "match": "Sesión cerrada y borrada."
+    },
+    "server.022": {
+      "category": "servidor",
+      "label": "Solicitud registrada. Protección pendiente de revisión y activaci",
+      "text": "Solicitud registrada. Protección pendiente de revisión y activación manual.",
+      "match": "Solicitud registrada. Protección pendiente de revisión y activación manual."
+    },
+    "server.023": {
+      "category": "servidor",
+      "label": "Telegram pide esperar {seconds} segundos. No se reintentará autom",
+      "text": "Telegram pide esperar {seconds} segundos. No se reintentará automáticamente.",
+      "match": "Telegram pide esperar {seconds} segundos. No se reintentará automáticamente."
+    },
+    "server.024": {
+      "category": "servidor",
+      "label": "Tu cuenta no tiene acceso a ese contenido.",
+      "text": "Tu cuenta no tiene acceso a ese contenido.",
+      "match": "Tu cuenta no tiene acceso a ese contenido."
+    },
+    "server.025": {
+      "category": "servidor",
+      "label": "✅ Renovación cancelada. Tu membresía seguirá activa hasta el {unt",
+      "text": "✅ Renovación cancelada. Tu membresía seguirá activa hasta el {until}. No se realizarán nuevas renovaciones de esta suscripción.",
+      "match": "✅ Renovación cancelada. Tu membresía seguirá activa hasta el {until}. No se realizarán nuevas renovaciones de esta suscripción."
+    },
+    "server.026": {
+      "category": "servidor",
+      "label": "𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙨𝙤𝙡𝙞𝙘𝙞𝙩𝙪𝙙𝙚𝙨. 𝙀𝙨𝙥𝙚𝙧𝙖 𝙪𝙣 𝙢𝙞𝙣𝙪𝙩𝙤.",
+      "text": "𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙨𝙤𝙡𝙞𝙘𝙞𝙩𝙪𝙙𝙚𝙨. 𝙀𝙨𝙥𝙚𝙧𝙖 𝙪𝙣 𝙢𝙞𝙣𝙪𝙩𝙤.",
+      "match": "𝘿𝙚𝙢𝙖𝙨𝙞𝙖𝙙𝙖𝙨 𝙨𝙤𝙡𝙞𝙘𝙞𝙩𝙪𝙙𝙚𝙨. 𝙀𝙨𝙥𝙚𝙧𝙖 𝙪𝙣 𝙢𝙞𝙣𝙪𝙩𝙤."
+    },
+    "server.027": {
+      "category": "servidor",
+      "label": "𝙀𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙫𝙚𝙣𝙘𝙞𝙤́. 𝙎𝙤𝙡𝙞𝙘𝙞𝙩𝙖 𝙪𝙣𝙤 𝙣𝙪𝙚𝙫𝙤.",
+      "text": "𝙀𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙫𝙚𝙣𝙘𝙞𝙤́. 𝙎𝙤𝙡𝙞𝙘𝙞𝙩𝙖 𝙪𝙣𝙤 𝙣𝙪𝙚𝙫𝙤.",
+      "match": "𝙀𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙫𝙚𝙣𝙘𝙞𝙤́. 𝙎𝙤𝙡𝙞𝙘𝙞𝙩𝙖 𝙪𝙣𝙤 𝙣𝙪𝙚𝙫𝙤."
+    },
+    "server.028": {
+      "category": "servidor",
+      "label": "𝙇𝙖 𝙘𝙪𝙚𝙣𝙩𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙙𝙖 𝙙𝙚𝙗𝙚 𝙨𝙚𝙧 𝙡𝙖 𝙢𝙞𝙨𝙢𝙖 𝙦𝙪𝙚 𝙚𝙨𝙩𝙖́ 𝙝𝙖𝙗𝙡𝙖𝙣𝙙𝙤 𝙘𝙤𝙣 𝙚𝙡 𝙗",
+      "text": "𝙇𝙖 𝙘𝙪𝙚𝙣𝙩𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙙𝙖 𝙙𝙚𝙗𝙚 𝙨𝙚𝙧 𝙡𝙖 𝙢𝙞𝙨𝙢𝙖 𝙦𝙪𝙚 𝙚𝙨𝙩𝙖́ 𝙝𝙖𝙗𝙡𝙖𝙣𝙙𝙤 𝙘𝙤𝙣 𝙚𝙡 𝙗𝙤𝙩.",
+      "match": "𝙇𝙖 𝙘𝙪𝙚𝙣𝙩𝙖 𝙘𝙤𝙣𝙚𝙘𝙩𝙖𝙙𝙖 𝙙𝙚𝙗𝙚 𝙨𝙚𝙧 𝙡𝙖 𝙢𝙞𝙨𝙢𝙖 𝙦𝙪𝙚 𝙚𝙨𝙩𝙖́ 𝙝𝙖𝙗𝙡𝙖𝙣𝙙𝙤 𝙘𝙤𝙣 𝙚𝙡 𝙗𝙤𝙩."
+    },
+    "server.029": {
+      "category": "servidor",
+      "label": "𝙍𝙚𝙫𝙞𝙨𝙖 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙦𝙪𝙚 𝙧𝙚𝙘𝙞𝙗𝙞𝙨𝙩𝙚 𝙚𝙣 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢.",
+      "text": "𝙍𝙚𝙫𝙞𝙨𝙖 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙦𝙪𝙚 𝙧𝙚𝙘𝙞𝙗𝙞𝙨𝙩𝙚 𝙚𝙣 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢.",
+      "match": "𝙍𝙚𝙫𝙞𝙨𝙖 𝙚𝙡 𝙘𝙤́𝙙𝙞𝙜𝙤 𝙦𝙪𝙚 𝙧𝙚𝙘𝙞𝙗𝙞𝙨𝙩𝙚 𝙚𝙣 𝙏𝙚𝙡𝙚𝙜𝙧𝙖𝙢."
+    }
+  }
+}

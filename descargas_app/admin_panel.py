@@ -85,11 +85,15 @@ class AdminPanel:
     def __init__(self,service):self.s=service;self.pool=None;self.tasks=set();self.slots=asyncio.Semaphore(2)
     async def start(self):
         self.pool=await asyncpg.create_pool(self.s.repo.url,min_size=0,max_size=2,command_timeout=8,server_settings={'statement_timeout':'5000'})
+        activate=getattr(self.s.repo,'miniapp_copy_activate',None)
+        if activate:await activate(self.s.bot_id)
     async def close(self):
         for task in self.tasks:task.cancel()
         await asyncio.gather(*self.tasks,return_exceptions=True)
         if self.pool:await self.pool.close()
     async def update(self,update):
+        from .miniapp_editor import handle as edit_miniapp
+        if await edit_miniapp(self,update):return True
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})
         text=message.get('text','').strip() if not query else query.get('data','')
         match=re.fullmatch(r'/(datos|search|usuarios?|grupos?|canales|cuentas?|comandos?|telefonos?|chat|enlace|menu|add)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?',text,re.S)

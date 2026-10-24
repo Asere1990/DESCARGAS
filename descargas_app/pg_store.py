@@ -49,6 +49,8 @@ from .account_chat import SCHEMA as ACCOUNT_CHAT_SCHEMA
 from .export_inventory import SCHEMA as EXPORT_INVENTORY_SCHEMA
 from .manual_board import SCHEMA as MANUAL_BOARD_SCHEMA
 from .creator_access import SCHEMA as CREATOR_SCHEMA
+from .miniapp_copy import SCHEMA as MINIAPP_COPY_SCHEMA
+SCHEMA+=MINIAPP_COPY_SCHEMA
 SCHEMA+=CREATOR_SCHEMA
 SCHEMA+=BILLING_SCHEMA+ADMIN_SCHEMA+GROUP_EXPORT_SCHEMA+ACCOUNT_CHAT_SCHEMA+EXPORT_INVENTORY_SCHEMA+MANUAL_BOARD_SCHEMA
 
@@ -88,6 +90,12 @@ class Repository(BillingRepository,AdminRepository):
     async def archive_origin(self,bot_id,almacen,message_id):
         return await self.pool.fetchrow('SELECT uid,source FROM descarga_origins WHERE bot_id=$1 AND almacen=$2 AND message_id=$3',bot_id,almacen,message_id)
 
+    async def miniapp_copy_activate(self,bot_id):
+        from .miniapp_copy import activate
+        await activate(self,bot_id)
+    async def miniapp_copy_values(self,bot_id,mode):
+        from .miniapp_copy import values
+        return await values(self,bot_id,mode)
     async def creator_registration(self,bot_id,uid):
         return await self.pool.fetchrow('SELECT c.*,a.generation AS current_generation FROM descarga_creator_consent c LEFT JOIN descarga_accounts a USING(uid) WHERE c.bot_id=$1 AND c.uid=$2',bot_id,uid)
     async def creator_ids(self,bot_id):
