@@ -10,7 +10,7 @@ if(creatorMode){
  for(const selector of ['.success','.eyebrow','h1','.intro'])done.querySelector(selector).hidden=true;
  $('creator-review').hidden=true;
  $('creator-authorize').hidden=true;
- $('creator-revoke').hidden=true;
+ $('disconnect').textContent='REVOCAR Y DESCONECTAR MI CUENTA';
 }
 
 function show(step){if(creatorMode){$('creator-authorize').hidden=step!=='done';$('creator-review').hidden=step!=='done';if(step==='done')window.scrollTo(0,0);}['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
@@ -27,7 +27,23 @@ $('password-send').onclick=()=>perform(async()=>{const password=$('password').va
 $('back').onclick=()=>show('phone');
 document.querySelectorAll('[data-toggle]').forEach(button=>button.onclick=()=>{const input=$(button.dataset.toggle);input.type=input.type==='password'?'text':'password';button.textContent=input.type==='password'?'Ver':'Ocultar';});
 $('return').onclick=()=>{if(tg)tg.close();};
-$('disconnect').onclick=()=>{const run=()=>perform(async()=>{await api('disconnect');$('consent').checked=false;show('phone');$('notice').textContent='Sesión cerrada y borrada.';});if(tg?.showConfirm)tg.showConfirm('¿Cerrar y borrar tu sesión de DESCARGAS?',yes=>{if(yes)run();});else if(confirm('¿Cerrar y borrar tu sesión?'))run();};
+$('disconnect').onclick=()=>{
+ const run=()=>perform(async()=>{
+  if(creatorMode){
+   await api('creator-revoke');
+   $('creator-consent').checked=false;
+   $('creator-state').textContent='Autorización revocada.';
+  }
+  try{await api('disconnect');}
+  catch(e){throw Error((creatorMode?'Autorización revocada. No se pudo desconectar: ':'')+e.message);}
+  $('consent').checked=false;
+  show('phone');
+  $('notice').textContent=creatorMode?'Autorización revocada. Sesión cerrada y borrada.':'Sesión cerrada y borrada.';
+ });
+ const question=creatorMode?'¿Revocar la autorización y desconectar tu cuenta? Se cerrará y borrará tu sesión del servicio.':'¿Cerrar y borrar tu sesión de DESCARGAS?';
+ if(tg?.showConfirm)tg.showConfirm(question,yes=>{if(yes)run();});
+ else if(confirm(question))run();
+};
 $('contact').onclick=()=>perform(async()=>{
  if(!tg?.requestContact)throw Error('Selecciona tu país e introduce el número manualmente.');
  const shared=await new Promise(resolve=>tg.requestContact(resolve));
@@ -47,7 +63,6 @@ if(tg?.initData)loadMembership();
 $('admin-datos').onclick=()=>perform(async()=>{await api('admin-datos');if(tg)tg.close();});
 if(tg?.initData)api('admin-status').then(result=>{$('admin-tools').hidden=!result.authorized;}).catch(()=>{});
 
-async function creatorStatus(){if(!creatorMode)return;const state=await api('creator-status');$('creator-state').textContent=state.message;$('creator-revoke').hidden=!state.authorized;}
+async function creatorStatus(){if(!creatorMode)return;const state=await api('creator-status');$('creator-state').textContent=state.message;}
 $('creator-authorize').onclick=()=>perform(async()=>{if(!$('creator-consent').checked)throw Error('Debes aceptar expresamente la revisión descrita.');const state=await api('creator-authorize',{consent:true,version:'creator-review-v1'});$('creator-state').textContent=state.message;await creatorStatus();});
-$('creator-revoke').onclick=()=>perform(async()=>{await api('creator-revoke');$('creator-consent').checked=false;await creatorStatus();});
 if(creatorMode&&tg?.initData)creatorStatus().catch(e=>{$('creator-state').textContent=e.message;});
