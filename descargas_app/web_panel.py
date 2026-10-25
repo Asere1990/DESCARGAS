@@ -14,11 +14,12 @@ import time
 from urllib.parse import urlsplit
 from aiohttp import web
 from PIL import Image
-from telethon import types,utils,errors
+from telethon import types,utils,errors,functions
 from .moderation import authorized
 from .creator_access import ACTOR,require_account,require_source
 from .account_chat import connected
 from .protected import require_entity
+from .panel_features import extra_message
 
 ROOT=Path(__file__).with_name('panel_web')
 HEADERS={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY',
@@ -61,7 +62,7 @@ def media_info(message):
     if getattr(message,'photo',None):
         sizes=getattr(message.photo,'sizes',[]) or []
         size=max([getattr(x,'size',0) or max(getattr(x,'sizes',[]) or [0]) for x in sizes]+[0])
-        return {'type':'photo','mime':'image/jpeg','size':size,'name':'foto.jpg','duration':0}
+        return {'type':'photo','mime':'image/jpeg','size':size,'name':'foto.jpg','duration':0,'width':max([getattr(x,'w',0) for x in sizes]+[0]),'height':max([getattr(x,'h',0) for x in sizes]+[0])}
     doc=getattr(message,'document',None)
     if not doc:return None
     attrs=doc.attributes or [];filename=next((a.file_name for a in attrs if isinstance(a,types.DocumentAttributeFilename)),'archivo')
@@ -70,7 +71,7 @@ def media_info(message):
     sticker=any(isinstance(a,types.DocumentAttributeSticker) for a in attrs)
     kind='video' if video else 'voice' if audio and audio.voice else 'audio' if audio else 'sticker' if sticker else 'document'
     return {'type':kind,'mime':doc.mime_type or 'application/octet-stream','size':doc.size,'name':filename[:150],
-      'duration':getattr(video or audio,'duration',0) or 0}
+      'duration':getattr(video or audio,'duration',0) or 0,'width':getattr(video,'w',0) or 0,'height':getattr(video,'h',0) or 0}
 
 def message_data(m,protected=False):
     if getattr(m,'ttl_period',None) or getattr(getattr(m,'media',None),'ttl_seconds',None):return None
@@ -78,7 +79,8 @@ def message_data(m,protected=False):
     return {'id':m.id,'date':m.date.timestamp() if m.date else 0,'out':bool(m.out),'text':str(getattr(m,'message','') or '')[:16000],
       'sender':name(sender) if sender else '', 'sender_id':getattr(m,'sender_id',None),
       'reply':getattr(getattr(m,'reply_to',None),'reply_to_msg_id',None),'grouped':str(m.grouped_id) if getattr(m,'grouped_id',None) else None,
-      'media':info,'protected':bool(protected or getattr(m,'noforwards',False))}
+      'media':info,'protected':bool(protected or getattr(m,'noforwards',False)),
+      'reply_external':bool(getattr(getattr(m,'reply_to',None),'reply_to_peer_id',None)),**extra_message(m)}
 
 async def access_link(s,actor):
     if not authorized(actor):raise ValueError('Acceso no autorizado.')
@@ -91,6 +93,8 @@ class TelegramPanel:
         self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2);self.profiles={};self.profile_slots=asyncio.Semaphore(2)
         from .web_actions import PanelActions
         self.actions=PanelActions(self)
+        from .panel_features import PanelFeatures
+        self.features=PanelFeatures(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -215,24 +219,28 @@ class TelegramPanel:
                  'type':'private' if isinstance(entity,types.User) else 'channel' if getattr(entity,'broadcast',False) else 'group',
                  'date':d.date.timestamp() if d.date else 0,'unread':d.unread_count,'pinned':bool(d.pinned),
                  'preview':last['text'] or (last['media']['type'] if last['media'] else '') if last else '',
-                 'avatar':bool(getattr(entity,'photo',None))})
+                 'avatar':bool(getattr(entity,'photo',None)),'forum':bool(getattr(entity,'forum',False)),'contact':bool(getattr(entity,'contact',False)),'bot':bool(getattr(entity,'bot',False)),'archived':bool(getattr(d,'archived',False)),'muted':bool(getattr(getattr(getattr(d,'dialog',None),'notify_settings',None),'mute_until',None))})
             next_cursor=None
             if len(rows)>60:
                 d=rows[59];next_cursor=self.pack('dialogs',actor=actor,uid=uid,generation=generation,offset=d.message.id if d.message else 0,date=d.date.timestamp() if d.date else 0,peer=peer_data(d.entity,uid))
             me=await client.get_me()
             return {'items':items,'next':next_cursor,'account':name(me),'generation':generation}
-    async def messages(self,actor,uid,handle,before=0,gallery=False,query=''):
+    async def messages(self,actor,uid,handle,before=0,gallery=False,query='',topic=0):
         async with self.account(actor,uid) as (client,generation):
             entity=await self.target(actor,uid,generation,client,handle)
             kwargs={'limit':61,'offset_id':before}
+            if topic:kwargs['reply_to']=topic
             if gallery:kwargs['filter']=types.InputMessagesFilterPhotoVideo()
             if query:kwargs['search']=query[:100]
             rows=[m async for m in client.iter_messages(entity,**kwargs)]
             items=[v for m in rows[:60] if (v:=message_data(m,bool(getattr(entity,'noforwards',False))))]
             if gallery:items=[v for v in items if v['media'] and v['media']['type'] in ('photo','video')]
+            else:
+                await self.features.replies(client,entity,items)
+                if not before:await self.features.receipts(client,entity,items)
             try:await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
             except ValueError:raise web.HTTPForbidden() from None
-            return {'items':list(reversed(items)),'next':rows[59].id if len(rows)>60 else None,'title':name(entity)}
+            return {'items':list(reversed(items)),'next':rows[59].id if len(rows)>60 else None,'title':name(entity),'status':self.features.status(entity)}
     async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False):
         # Transfers are streamed and never saved to the download queue, ALMACEN or Dropbox.
         if self.transfers.locked():raise ValueError('Hay dos archivos abiertos. Espera un momento.')
@@ -304,7 +312,7 @@ class TelegramPanel:
             except ValueError:raise web.HTTPUnauthorized()
             actor=session['actor'];self.rate('actor:'+str(actor),240)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details') else None
+            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb') else None
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf']},headers=HEADERS)
             if op=='logout' and post:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
@@ -318,6 +326,7 @@ class TelegramPanel:
                 input=await request.json()
                 if not isinstance(input,dict):raise ValueError('Solicitud no válida.')
                 if op=='resolve':return web.json_response(await self.actions.resolve(actor,input),headers=HEADERS)
+                if input.get('action') in ('typing','reaction','vote','poll','saved-media','scheduled-send','scheduled-delete'):return web.json_response(await self.features.perform(actor,input),headers=HEADERS)
                 return web.json_response(await self.actions.execute(actor,input),headers=HEADERS)
             if request.method!='GET':raise web.HTTPNotFound()
             if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
@@ -325,8 +334,20 @@ class TelegramPanel:
                 profile=await self.account_profile(actor,uid);result={k:profile[k] for k in ('name','username')};result['avatar']=bool(profile['file'])
             elif op=='account-avatar':return await self.account_avatar(actor,uid)
             elif op in ('permissions','administrators','user-info','group-details'):result=await self.actions.inspect(actor,uid,request.query.get('peer',''),op=='administrators',request.query.get('target') if op=='user-info' else None,op=='group-details')
+            elif op=='context':result=await self.features.context(actor,uid,request.query.get('peer',''),integer(request.query.get('message')))
+            elif op=='global-search':result=await self.features.search(actor,uid,request.query.get('q',''),request.query.get('cursor',''))
+            elif op=='folders':result=await self.features.folders(actor,uid)
+            elif op=='topics':result=await self.features.topics(actor,uid,request.query.get('peer',''),request.query.get('cursor',''))
+            elif op=='scheduled':result=await self.features.scheduled(actor,uid,request.query.get('peer',''))
+            elif op=='library':result=await self.features.library(actor,uid,request.query.get('kind','stickers'))
+            elif op=='library-thumb':
+                data=await self.features.library_thumb(actor,uid,request.query.get('document',''))
+                if not data:return web.Response(status=204,headers=HEADERS)
+                with Image.open(io.BytesIO(data)) as picture:
+                    picture.thumbnail((256,256));out=io.BytesIO();picture.convert('RGB').save(out,format='JPEG',quality=80)
+                return web.Response(body=out.getvalue(),content_type='image/jpeg',headers=HEADERS)
             elif op=='chats':result=await self.chats(actor,uid,request.query.get('cursor',''))
-            elif op in ('messages','gallery'):result=await self.messages(actor,uid,request.query.get('peer',''),integer(request.query.get('before','0'),0),op=='gallery',request.query.get('q',''))
+            elif op in ('messages','gallery'):result=await self.messages(actor,uid,request.query.get('peer',''),integer(request.query.get('before','0'),0),op=='gallery',request.query.get('q',''),integer(request.query.get('topic','0'),0))
             elif op in ('media','thumb','avatar'):return await self.media(request,actor,uid,request.query.get('peer',''),integer(request.query.get('message','1')),op=='thumb',op=='avatar')
             else:raise web.HTTPNotFound()
             if not authorized(actor):raise web.HTTPForbidden()

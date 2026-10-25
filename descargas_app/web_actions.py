@@ -6,6 +6,7 @@ import re
 import tempfile
 import shutil
 import time
+from datetime import datetime,timezone
 from telethon import types,functions,errors,utils
 from aiohttp import web
 from .moderation import authorized
@@ -94,6 +95,16 @@ class PanelActions:
             if file and action!='upload':raise ValueError('Tipo de envío no válido.')
             text=input.get('text','')
             if not isinstance(text,str):raise ValueError('Texto no válido.')
+            schedule=None
+            if input.get('schedule'):
+                if action not in ('send','upload'):raise ValueError('Esta operación no admite programación.')
+                try:schedule=datetime.fromisoformat(input['schedule'].replace('Z','+00:00'))
+                except (ValueError,TypeError):raise ValueError('Fecha de envío no válida.') from None
+                if schedule.tzinfo is None or schedule<=datetime.now(timezone.utc):raise ValueError('Escoge una fecha futura.')
+            send_extra={'schedule':schedule} if schedule else {}
+            if input.get('format')=='markdown':
+                from telethon.extensions import markdown
+                text,entities=markdown.parse(text);send_extra['formatting_entities']=entities
             reply=None
             if input.get('reply') is not None:reply=(await self.known_message(client,entity,input['reply'])).id
             message=None;target=None;participant=None;destination=None
@@ -152,10 +163,10 @@ class PanelActions:
             try:
                 result={'ok':True,'action':action}
                 if action=='send':
-                    sent=await client.send_message(entity,text,parse_mode=None,reply_to=reply,link_preview=info['send'].get('previews',False));result['message']=sent.id
+                    sent=await client.send_message(entity,text,parse_mode=None,reply_to=reply,link_preview=info['send'].get('previews',False),**send_extra);result['message']=sent.id
                 elif action=='upload':
                     if not file:raise ValueError('Adjunta el archivo.')
-                    sent=await client.send_file(entity,file['stream'],caption=text,parse_mode=None,reply_to=reply,force_document=file['kind']=='document',voice_note=file['kind']=='voice',supports_streaming=file['kind']=='video',mime_type=file['mime']);result['message']=sent.id
+                    sent=await client.send_file(entity,file['stream'],caption=text,parse_mode=None,reply_to=reply,force_document=file['kind']=='document',voice_note=file['kind']=='voice',supports_streaming=file['kind']=='video',mime_type=file['mime'],**send_extra);result['message']=sent.id
                 elif action=='forward':
                     sent=await client.forward_messages(destination,message.id,from_peer=entity);result['message']=sent.id
                 elif action=='edit':await client.edit_message(entity,message.id,text,parse_mode=None,link_preview=info['send'].get('previews',False))
