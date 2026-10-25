@@ -34,6 +34,24 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
     async def send(self,**changes):
         data={'account':'22','peer':self.peer,'messages':'9,10,9','csrf':self.csrf};data.update(changes)
         return await self.http.post('/panel/api/batch-download',data=data,headers={'Origin':'http://test'})
+    async def test_native_zip_form_origin_policy_and_security_checks(self):
+        await self.prepare()
+        page=await self.http.get('/panel')
+        # no-referrer makes native form POST navigations send Origin: null.
+        # same-origin retains Origin for ZIP POSTs without leaking referrers
+        # to other sites. The strict server Origin check remains unchanged.
+        self.assertEqual(page.headers['Referrer-Policy'],'same-origin')
+        body={'account':'22','peer':self.peer,'messages':'9,10','csrf':self.csrf}
+        for origin in ['null','https://other.example']:
+            response=await self.http.post('/panel/api/batch-download',data=body,headers={'Origin':origin})
+            self.assertEqual(response.status,403);self.assertEqual(self.started,[])
+        response=await self.send(csrf='wrong')
+        self.assertEqual(response.status,403);self.assertEqual(self.started,[])
+        response=await self.send()
+        self.assertEqual(response.status,200)
+        with zipfile.ZipFile(io.BytesIO(await response.read())) as archive:
+            self.assertEqual(len(archive.namelist()),2)
+
     async def test_streamed_zip_contains_exact_selected_media_once_and_closes_transfers(self):
         await self.prepare();r=await self.send();self.assertEqual(r.status,200)
         self.assertIn('attachment',r.headers['Content-Disposition'])
