@@ -54,6 +54,14 @@ class OverviewTests(fixtures.PanelTests):
         self.repo.account.side_effect=[{'session':b'a','generation':3},{'session':b'b','generation':3}]
         result=await self.panel.overview.check(111,22)
         self.assertEqual(result['state'],'unknown');self.assertFalse(self.settings)
+    async def test_reviewer_list_filters_nonactive_accounts_before_returning_identity(self):
+        self.pool.fetch.return_value=[{'uid':uid,'profile':json.dumps({'name':'Private '+str(uid)}),'generation':3,'session_tag':'tag'} for uid in [22,23,24]]
+        self.panel.overview.cached=AsyncMock(side_effect=[{'state':'active','checked':1},{'state':'revoked','checked':1},{'state':'invalid','checked':1}])
+        with patch('descargas_app.web_panel.reviewer',return_value=True):
+            data=await self.panel.accounts(111)
+        self.assertEqual([a['id'] for a in data['items']],['22'])
+        self.assertTrue(data['reviewer']);self.assertNotIn('Private 23',json.dumps(data));self.assertNotIn('total',data)
+
     async def test_overview_metadata_does_not_open_account_connections(self):
         self.pool.fetch.return_value=[{'uid':22,'profile':json.dumps({'name':'Prueba','phone':'5351234567','username':'demo'}),'generation':3,'session_tag':'tag','country':'CU'}]
         data=await self.panel.accounts(111);item=data['items'][0]

@@ -2,7 +2,7 @@ import io
 import unittest
 import zipfile
 from types import SimpleNamespace as N
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock,patch
 from telethon import types
 from tests import test_web_panel as fixtures
 
@@ -48,6 +48,12 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
         with zipfile.ZipFile(io.BytesIO(await r.read())) as archive:
             self.assertEqual(len(archive.namelist()),2)
         self.assertEqual(self.started,[9,10]);self.guard.assert_awaited()
+    async def test_reviewer_limit_is_enforced_on_server_before_any_download(self):
+        await self.prepare()
+        with patch('descargas_app.creator_access.reviewer',return_value=True):
+            r=await self.send(messages=','.join(str(i) for i in range(1,12)))
+        self.assertEqual(r.status,409);self.assertEqual(self.started,[])
+        self.assertIn('10',await r.text())
     async def test_batch_requires_csrf_origin_and_current_source_access(self):
         await self.prepare();r=await self.send(csrf='wrong');self.assertEqual(r.status,403)
         self.guard.side_effect=ValueError('Acceso retirado')

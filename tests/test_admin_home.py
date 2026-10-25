@@ -20,6 +20,16 @@ class HomeTests(unittest.IsolatedAsyncioTestCase):
         self.auth=patch('descargas_app.admin_home.authorized',return_value=True);self.auth.start();self.addCleanup(self.auth.stop)
         self.panel_auth=patch('descargas_app.admin_panel.authorized',return_value=True);self.panel_auth.start();self.addCleanup(self.panel_auth.stop)
 
+    async def test_reviewer_home_has_personal_phrase_and_web_button_only(self):
+        self.s.api.return_value={'first_name':'Ana'}
+        with patch('descargas_app.creator_access.reviewer',return_value=True),patch('descargas_app.web_panel.access_link',AsyncMock(return_value='https://test/panel#token')):
+            await h.home(self.p,88)
+        self.assertEqual(self.p.send.call_args.args[1],'Ana tienes todos los permisos del sistema.')
+        rows=self.p.send.call_args.args[2]
+        self.assertEqual(len(rows),1);self.assertEqual(rows[0][0]['text'],'👨🏻‍💻𝐂𝐔𝐄𝐍𝐓𝐀𝐒')
+        self.assertEqual(rows[0][0]['style'],'success');self.assertIn('url',rows[0][0])
+        self.p.pool.fetchrow.assert_not_awaited();self.p.pool.fetchval.assert_not_awaited()
+
     async def test_home_shows_stored_counts_button_and_clears_group_inputs(self):
         await self.s.repo.set_setting('manual-search:7:99','old')
         await self.s.repo.set_setting('group-admin:7:99','old')

@@ -31,6 +31,8 @@ def ids(name):
     return result
 
 def police(actor):return actor in ids('admins.txt')
+def reviewer(actor):return actor not in ids('admins.txt') and actor in ids('permisos.txt')
+
 def protected_ids(actor=None):return set() if police(ACTOR.get() if actor is None else actor) else ids('cuentas.txt') | ids('admins.txt')
 def require_id(uid,actor=None):
     actor=ACTOR.get() if actor is None else actor

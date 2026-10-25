@@ -25,6 +25,14 @@ async def home(panel,actor):
         await panel.s.repo.set_setting(f'{field}:{panel.s.bot_id}:{actor}','')
     await panel.s.repo.set_setting(context_key(panel.s,actor),'')
     await panel.s.repo.set_setting(key(panel.s,actor),json.dumps({'home':True,'expires':time.time()+1800}))
+    from .creator_access import reviewer
+    if reviewer(actor):
+        import html
+        profile=await panel.s.api('getChat',{'chat_id':actor})
+        first=profile.get('first_name') or 'Usuario'
+        from .web_panel import access_link
+        rows=[[{'text':'👨🏻‍💻𝐂𝐔𝐄𝐍𝐓𝐀𝐒','style':'success','url':await access_link(panel.s,actor)}]]
+        return await panel.send(actor,html.escape(first)+' tienes todos los permisos del sistema.',rows)
     users=accounts='No disponible';downloads=None
     try:
         async with asyncio.timeout(1):

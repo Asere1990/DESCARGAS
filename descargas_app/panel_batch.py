@@ -26,7 +26,9 @@ async def download(panel,request,actor,data):
     from .web_panel import integer,media_info,authorized,require_account,require_source,HEADERS
     uid=integer(data.get('account'));handle=data.get('peer','')
     raw=data.get('messages','').split(',')
-    if not raw or len(raw)>500:raise ValueError('Selecciona entre 1 y 500 fotos o videos por lote.')
+    from .creator_access import reviewer
+    limit=10 if reviewer(actor) else 500
+    if not raw or len(raw)>limit:raise ValueError(f'Selecciona entre 1 y {limit} fotos o videos por lote.')
     ids=list(dict.fromkeys(integer(value) for value in raw))
     async with panel.account(actor,uid,timeout=3600) as (client,generation):
         entity=await panel.target(actor,uid,generation,client,handle)
