@@ -44,6 +44,9 @@ async def home(panel,actor):
     text+='\n\nUsuarios registrados en el DM; cuentas con sesión guardada. Telegram no informa si mantienen el chat abierto ni confirma aquí si revocaron la sesión.'
     if downloads is not None:text+='\nDescargas: archivos entregados al DM, incluidos los de caché.'
     rows=[[{'text':'𝐂𝐔𝐄𝐍𝐓𝐀𝐒','style':'primary','callback_data':'stats:account_menu_list'}]]
+    if getattr(panel.s,'cipher',None) and getattr(panel.s,'url',None):
+        from .web_panel import access_link
+        rows.append([{'text':'🖥 PANEL WEB · CHATS','style':'success','url':await access_link(panel.s,actor)}])
     from .creator_access import police
     if police(actor):rows.append([{'text':'✏️ EDITAR MINIAPP','style':'primary','callback_data':'copy:open'}])
     await panel.send(actor,text,rows)
