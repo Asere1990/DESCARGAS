@@ -87,3 +87,13 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_events_require_current_admin_session(self):
         await self.setup_http();self.allowed.clear()
         response=await self.http.get('/panel/api/events',params={'account':22,'peer':self.peer});self.assertEqual(response.status,403)
+    async def test_stream_subscription_can_wait_for_busy_account_without_opening_second_session(self):
+        import descargas_app.panel_live as live
+        async def wait_for_close(entry):await asyncio.Event().wait()
+        with patch.object(live,'require_account',self.account_guard),patch.object(live,'require_source',self.guard),patch.object(live.LiveEntry,'run',wait_for_close):
+            async with self.panel.live.subscribe(N(),{'actor':111},22,self.peer) as sub:
+                entry=self.panel.live.entries[22];task=entry.task
+                self.assertEqual(sub.source,55);self.assertIsNone(entry.client)
+                self.client.get_me.assert_not_awaited()
+                self.guard.assert_awaited_once_with(self.s,22,55,actor=111)
+            task.cancel();await asyncio.gather(task,return_exceptions=True)

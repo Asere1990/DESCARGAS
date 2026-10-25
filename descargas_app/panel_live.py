@@ -47,7 +47,7 @@ class LiveEntry:
     def publish(self,data,source=None):
         for sub in tuple(self.subscribers):
             if source is not None and sub.source is not None and source!=sub.source:continue
-            if data['kind']=='delete' and source is None and isinstance(sub.entity,types.Channel):continue
+            if data['kind']=='delete' and source is None and isinstance(sub.entity,(types.Channel,types.InputPeerChannel)):continue
             if data['kind'] in ('state','resync','revoked','reconnect'):value=data
             elif data['kind']=='status':
                 if sub.source!=source:continue
@@ -144,7 +144,9 @@ class Subscription:
         row=await self.hub.p.s.repo.account(self.uid)
         if not row or not row['session'] or row['generation']!=self.generation:raise web.HTTPForbidden()
         if self.source is not None:
-            await require_source(self.hub.p.s,self.uid,self.source,entity=self.entity,client=self.hub.entries.get(self.uid).client if self.uid in self.hub.entries else None,actor=self.actor)
+            entry=self.hub.entries.get(self.uid)
+            client=entry.client if entry and entry.ready and entry.client and entry.client.is_connected() else None
+            await require_source(self.hub.p.s,self.uid,self.source,entity=self.entity,client=client,actor=self.actor)
 
 
 class LiveHub:
@@ -182,10 +184,17 @@ class LiveHub:
         else:yield None
     @asynccontextmanager
     async def subscribe(self,request,session,uid,handle):
-        source=None;entity=None
-        async with self.p.account(session['actor'],uid) as (client,generation):
-            if handle:
-                entity=await self.p.target(session['actor'],uid,generation,client,handle);source=utils.get_peer_id(entity)
+        from .web_panel import integer,source_id,input_peer
+        actor=session['actor'];source=None;entity=None
+        await require_account(self.p.s,uid,actor)
+        row=await self.p.s.repo.account(uid)
+        if not row or not row['session']:raise ValueError('La cuenta no está conectada.')
+        generation=row['generation']
+        if handle:
+            data=self.p.unpack(handle,'peer')
+            if data.get('uid')!=uid or data.get('actor')!=actor or data.get('generation')!=generation:raise ValueError('Recarga la lista de chats de esta cuenta.')
+            source=source_id(data);entity=input_peer(data)
+            await require_source(self.p.s,uid,source,actor=actor)
         entry=self.entries.get(uid)
         if entry and entry.generation!=generation:
             entry.stopping=True;entry.wake.set();await entry.task;entry=None
