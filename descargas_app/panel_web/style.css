@@ -15,3 +15,8 @@
 #live-state{font-size:10px;color:#53886b;white-space:nowrap}.premium-emoji{display:inline-block;width:1.35em;height:1.35em;vertical-align:-.25em;line-height:1.35em;text-align:center;overflow:hidden;flex-shrink:0}.premium-emoji>img,.premium-emoji>svg{width:100%!important;height:100%!important;display:block}.reactions .premium-emoji{font-size:17px}.panel-tools:has(#live-state){flex-wrap:wrap}.panel-tools #live-state{width:100%}
 
 #conversation-live-state{color:#53886b;font-size:10px}
+
+/* Keep native touch scrolling inside the panel on mobile Safari. */
+.thread,.accounts,.chat-list{-webkit-overflow-scrolling:touch}.thread{touch-action:pan-y pinch-zoom;flex:1 1 0%;min-height:0;overflow-y:auto;overflow-x:hidden}
+
+.thread.gallery{display:block}.gallery-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;align-content:start}@media(max-width:700px){.gallery-grid{gap:3px}}
