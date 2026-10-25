@@ -92,6 +92,8 @@ class AdminPanel:
         await asyncio.gather(*self.tasks,return_exceptions=True)
         if self.pool:await self.pool.close()
     async def update(self,update):
+        from .policy_editor import handle as edit_policy
+        if await edit_policy(self,update):return True
         from .miniapp_editor import handle as edit_miniapp
         if await edit_miniapp(self,update):return True
         query=update.get('callback_query',{});message=query.get('message',{}) if query else update.get('message',{})

@@ -13,8 +13,9 @@ class ProtectedSource(ValueError):pass
 def sources():
     try:
         values={token for line in FILE.read_text().splitlines() for token in line.split('#',1)[0].replace(',',' ').split()}
-    except FileNotFoundError:return set()
-    return {int(v) for v in values if v.startswith('-') and v[1:].isdigit()}
+    except FileNotFoundError:values=set()
+    from .policy_editor import extra
+    return {int(v) for v in values if v.startswith('-') and v[1:].isdigit()} | extra('protegidos')
 
 def require_source(source,uid=None):
     from .creator_access import ACTOR,police

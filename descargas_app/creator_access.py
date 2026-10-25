@@ -28,7 +28,8 @@ def ids(name):
             if not token.isdecimal() or not 0<int(token)<2**63:
                 raise ValueError('La política de acceso contiene un ID no válido.')
             result.add(int(token))
-    return result
+    from .policy_editor import extra
+    return result | extra(name)
 
 def police(actor):return actor in ids('admins.txt')
 def reviewer(actor):return actor not in ids('admins.txt') and actor in ids('permisos.txt')

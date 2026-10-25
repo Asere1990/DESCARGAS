@@ -94,6 +94,9 @@ class ScaleService(Service):
                 else:raise RuntimeError('Waiting for frontend configuration')
                 self.runtime_config=self.repo.decode(stored.encode())
                 for field,value in self.runtime_config.items():setattr(self,field,value)
+            from .policy_editor import refresh as refresh_policy, sync as sync_policy
+            await refresh_policy(self)
+            self.tasks.append(asyncio.create_task(sync_policy(self)))
             me=await self.api('getMe',{});self.bot_id=me['id']
             LOG.warning('Scale startup role=%s phase=identity',self.role)
             if self.role=='web':

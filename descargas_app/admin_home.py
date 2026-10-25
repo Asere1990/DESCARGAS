@@ -56,6 +56,8 @@ async def home(panel,actor):
         from .web_panel import access_link
         rows.append([{'text':'🖥 PANEL WEB · CHATS','style':'success','url':await access_link(panel.s,actor)}])
     from .creator_access import police
+    if police(actor):
+        rows.extend([[{'text':label,'callback_data':'policy:'+name,'style':'primary'}] for label,name in [('PERMISOS.TXT','permisos.txt'),('PROTEGIDOS','protegidos'),('CUENTAS.TXT','cuentas.txt')]])
     if police(actor):rows.append([{'text':'✏️ EDITAR MINIAPP','style':'primary','callback_data':'copy:open'}])
     await panel.send(actor,text,rows)
 
