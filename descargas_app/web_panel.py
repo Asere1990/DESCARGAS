@@ -320,6 +320,11 @@ class TelegramPanel:
             try:session=await self.session(request)
             except ValueError:raise web.HTTPUnauthorized()
             actor=session['actor'];self.rate('actor:'+str(actor),240)
+            if post and op=='batch-download':
+                data=await request.post()
+                if not secrets.compare_digest(data.get('csrf',''),session['csrf']):raise web.HTTPForbidden()
+                from .panel_batch import download
+                return await download(self,request,actor,data)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
             uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','gallery-count','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
             if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
