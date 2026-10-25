@@ -78,7 +78,7 @@ def message_data(m,protected=False):
     return {'id':m.id,'date':m.date.timestamp() if m.date else 0,'out':bool(m.out),'text':str(getattr(m,'message','') or '')[:16000],
       'sender':name(sender) if sender else '', 'sender_id':getattr(m,'sender_id',None),
       'reply':getattr(getattr(m,'reply_to',None),'reply_to_msg_id',None),'grouped':str(m.grouped_id) if getattr(m,'grouped_id',None) else None,
-      'media':info if not protected and not getattr(m,'noforwards',False) else None,'protected':bool(protected or getattr(m,'noforwards',False))}
+      'media':info,'protected':bool(protected or getattr(m,'noforwards',False))}
 
 async def access_link(s,actor):
     if not authorized(actor):raise ValueError('Acceso no autorizado.')
@@ -243,7 +243,9 @@ class TelegramPanel:
                 if not authorized(actor):raise web.HTTPForbidden()
                 return web.Response(body=data,content_type='image/jpeg',headers=HEADERS)
             m=await client.get_messages(entity,ids=mid)
-            if not m or getattr(entity,'noforwards',False) or getattr(m,'noforwards',False):raise ValueError('Archivo protegido o no disponible.')
+            if not m:raise ValueError('Archivo no disponible.')
+            protected=bool(getattr(entity,'noforwards',False) or getattr(m,'noforwards',False))
+            if protected and request.query.get('download')=='1':raise web.HTTPForbidden(reason='Solo visualización.')
             info=media_info(m)
             if not info:raise ValueError('Archivo no disponible o temporal.')
             if thumb:
@@ -262,6 +264,7 @@ class TelegramPanel:
                 start=int(match[1]);end=min(size-1,int(match[2]) if match[2] else size-1);status=206
                 if start>end or start>=size:raise web.HTTPRequestRangeNotSatisfiable()
             safe=bool(re.fullmatch(r'(?:image/(?:jpeg|png|webp|gif)|video/(?:mp4|webm)|audio/(?:ogg|mpeg|mp4|aac|wav|webm))',info['mime']))
+            if protected and not safe:raise web.HTTPForbidden(reason='Este archivo protegido no admite visualización en el panel.')
             headers={**HEADERS,'Content-Type':info['mime'] if safe else 'application/octet-stream','Accept-Ranges':'bytes',
              'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])+'"'}
             if size:headers['Content-Length']=str(end-start+1)

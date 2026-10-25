@@ -96,10 +96,10 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         m=message(9);m.ttl_period=30;self.assertIsNone(p.message_data(m))
         m=message(9,N(ttl_seconds=10));self.assertIsNone(p.media_info(m))
         self.client.get_messages.return_value=message(9);self.client.get_messages.return_value.noforwards=True
-        await self.setup_http();r=await self.http.get('/panel/api/media',params={'account':'22','peer':self.peer,'message':'9'});self.assertEqual(r.status,409);self.client.download_media.assert_not_awaited()
+        await self.setup_http();r=await self.http.get('/panel/api/media',params={'account':'22','peer':self.peer,'message':'9','download':'1'});self.assertEqual(r.status,403);self.client.download_media.assert_not_awaited()
     async def test_byte_ranges_stream_only_requested_bytes_and_close_telegram_iterator(self):
         payload=b'0123456789abcdefghijklmnop'
-        m=message(9,N(ttl_seconds=None));m.document=N(size=len(payload),mime_type='video/mp4',attributes=[types.DocumentAttributeVideo(duration=2,w=16,h=16)],thumbs=[]);self.client.get_messages.return_value=m
+        m=message(9,N(ttl_seconds=None));m.noforwards=True;m.document=N(size=len(payload),mime_type='video/mp4',attributes=[types.DocumentAttributeVideo(duration=2,w=16,h=16)],thumbs=[]);self.client.get_messages.return_value=m
         class Download:
             def __init__(self):self.closed=False
             def __aiter__(self):return self
@@ -165,3 +165,29 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         profile=await self.panel.account_profile(111,22)
         self.assertEqual(profile['name'],'Nombre conocido');self.assertIsNone(profile['file'])
         response=await self.panel.account_avatar(111,22);self.assertEqual(response.status,204)
+
+    async def test_protected_group_photos_are_visible_in_chat_and_gallery(self):
+        self.entity.noforwards=True
+        m=message(9,N(ttl_seconds=None),text='Foto visible')
+        m.photo=N(sizes=[N(size=32)])
+        self.msgs=[m]
+        for gallery in [False,True]:
+            result=await self.panel.messages(111,22,self.peer,gallery=gallery)
+            self.assertEqual(len(result['items']),1)
+            self.assertEqual(result['items'][0]['media']['type'],'photo')
+            self.assertTrue(result['items'][0]['protected'])
+            self.assertEqual(result['items'][0]['text'],'Foto visible')
+        self.client.get_messages.return_value=m
+        await self.setup_http()
+        r=await self.http.get('/panel/api/thumb',params={'account':'22','peer':self.peer,'message':'9'})
+        self.assertEqual(r.status,200);self.assertEqual(await r.read(),b'JPEG')
+        self.assertEqual(r.headers['Cache-Control'],'no-store')
+        self.client.download_media.assert_awaited_once_with(m,file=bytes,thumb='m')
+        r=await self.http.get('/panel/api/media',params={'account':'22','peer':self.peer,'message':'9','download':'1'})
+        self.assertEqual(r.status,403)
+    async def test_standalone_protected_message_preserves_media_for_viewing(self):
+        m=message(8,N(ttl_seconds=None));m.noforwards=True
+        m.document=N(size=100,mime_type='video/mp4',attributes=[types.DocumentAttributeVideo(duration=2,w=16,h=16)])
+        result=p.message_data(m)
+        self.assertTrue(result['protected']);self.assertEqual(result['media']['type'],'video')
+        self.assertFalse(p.message_data(message(7))['protected'])
