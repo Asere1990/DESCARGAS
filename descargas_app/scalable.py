@@ -125,6 +125,9 @@ class ScaleService(Service):
                     await self.repo.set_setting(f'dedicated_export:{self.bot_id}','enabled')
                     self.download_tasks=[asyncio.create_task(group_export_loop(self))]
                     self.tasks.extend(self.download_tasks)
+                if self.role=='worker':
+                    from .panel_delivery import run as panel_delivery_loop
+                    self.tasks.append(asyncio.create_task(panel_delivery_loop(self)))
                 self.tasks.append(asyncio.create_task(self.watch_config()))
             elif self.role=='web':
                 from .admin_panel import AdminPanel

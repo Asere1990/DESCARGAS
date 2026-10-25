@@ -356,6 +356,11 @@ class TelegramPanel:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
             if op=='revoke' and post:
                 await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
+            if post and op=='deliver-selection':
+                from .panel_delivery import enqueue
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Solicitud no válida.')
+                return web.json_response(await enqueue(self,actor,data),headers=HEADERS)
             if post and op in ('action','upload','resolve'):
                 if op=='upload':
                     input,file=await self.actions.read_upload(request)

@@ -169,6 +169,9 @@ async def list_pending(service, actor, uid, source):
 
 
 async def checked(service, job):
+    if job.get("panel_delivery"):
+        from .panel_delivery import check
+        return await check(service,job)
     if getattr(service,'role','worker')=='worker' and await service.repo.setting(f'dedicated_export:{service.bot_id}')=='enabled':return False
     if not authorized(job['actor']):
         raise ValueError('El administrador ya no está autorizado.')
@@ -249,7 +252,7 @@ async def archive_items(service, job, client, key, items, name):
             if await known():return 0
             if await users_busy(service) or not await checked(service,job):return None
             await service.repo.pace('bot-send',0.06*len(items))
-            claimed=await service.repo.pool.fetchval("UPDATE descarga_group_exports SET sending=TRUE WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4 AND state='running' RETURNING 1",service.bot_id,uid,source,job.get('scan',0))
+            claimed=True if job.get("panel_delivery") else await service.repo.pool.fetchval("UPDATE descarga_group_exports SET sending=TRUE WHERE bot_id=$1 AND uid=$2 AND source=$3 AND scan=$4 AND state='running' RETURNING 1",service.bot_id,uid,source,job.get('scan',0))
             if not claimed:return None
             from .export_inventory import files
             await service.repo.pool.executemany('INSERT INTO descarga_export_uncertain VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING',[(service.bot_id,service.almacen,source,kind,fid,identity) for kind,fid in files(items)])
