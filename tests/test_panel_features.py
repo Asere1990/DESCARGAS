@@ -37,6 +37,26 @@ class FeatureTests(unittest.IsolatedAsyncioTestCase):
         result=await self.panel.features.chat_counts(111,22,self.peer)
         self.assertIsNone(result['online']);self.assertEqual(result['members'],400)
 
+    async def test_member_lists_classify_owner_and_admin_and_keep_cursor_scoped(self):
+        self.group()
+        self.client.rpc.return_value=N(count=3,participants=[types.ChannelParticipantCreator(10,types.ChatAdminRights()),types.ChannelParticipantAdmin(11,1,False,None,types.ChatAdminRights())],users=[types.User(10,first_name='Dueño'),types.User(11,first_name='Admin')])
+        result=await self.panel.features.member_list(111,22,self.peer,'admins')
+        self.assertEqual([r['role'] for r in result['items']],['Propietario','Administrador'])
+        self.assertTrue(result['available']);self.assertIsNotNone(result['next'])
+        request=self.client.rpc.await_args.args[0];self.assertIsInstance(request,functions.channels.GetParticipantsRequest)
+        self.assertEqual(request.limit,50)
+        with self.assertRaises(ValueError):await self.panel.features.member_list(111,22,self.peer,'members',result['next'])
+    async def test_hidden_member_list_reports_unavailable_instead_of_blocking_chat(self):
+        from telethon import errors
+        self.group();self.client.rpc.side_effect=errors.ChatAdminRequiredError(None)
+        result=await self.panel.features.member_list(111,22,self.peer)
+        self.assertFalse(result['available']);self.assertEqual(result['items'],[]);self.guard.assert_awaited()
+    async def test_owner_view_excludes_regular_members_and_other_admins(self):
+        self.group()
+        self.client.rpc.return_value=N(count=1,participants=[types.ChannelParticipantCreator(10,types.ChatAdminRights())],users=[types.User(10,first_name='Dueño')])
+        result=await self.panel.features.member_list(111,22,self.peer,'owner')
+        self.assertEqual(result['items'][0]['role'],'Propietario');self.assertIsNone(result['next'])
+
     async def test_reply_preview_fetches_original_outside_loaded_page_and_checks_peer(self):
         original=fixtures.message(2,text='Original histórico');original.peer_id=types.PeerUser(55)
         wrong=fixtures.message(3,text='Otro chat');wrong.peer_id=types.PeerUser(99)

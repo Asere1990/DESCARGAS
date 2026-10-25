@@ -96,6 +96,45 @@ class PanelFeatures:
             await self.check(actor,uid,client,entity)
             return {'members':members,'online':online}
 
+    async def member_list(self,actor,uid,handle,kind='members',cursor=''):
+        from .web_panel import name
+        if kind not in ('members','admins','owner'):raise ValueError('Lista no válida.')
+        async with self.p.account(actor,uid) as (client,generation):
+            entity=await self.p.target(actor,uid,generation,client,handle)
+            if not isinstance(entity,(types.Chat,types.Channel)):raise ValueError('Selecciona un grupo o canal.')
+            source=utils.get_peer_id(entity);offset=0
+            if cursor:
+                data=self.p.unpack(cursor,'members')
+                if any(data.get(k)!=v for k,v in dict(actor=actor,uid=uid,generation=generation,source=source,kind=kind).items()):raise ValueError('Abre la lista actual de este grupo.')
+                offset=data.get('offset',0)
+                if not isinstance(offset,int) or not 0<=offset<=1000000:raise ValueError('Página no válida.')
+            try:
+                if isinstance(entity,types.Channel):
+                    result=await client(functions.channels.GetParticipantsRequest(entity,types.ChannelParticipantsSearch('') if kind=='members' else types.ChannelParticipantsAdmins(),offset,50,0))
+                    participants=result.participants;users={u.id:u for u in result.users};total=result.count
+                else:
+                    result=await client(functions.messages.GetFullChatRequest(entity.id))
+                    all_rows=getattr(result.full_chat.participants,'participants',None)
+                    if all_rows is None:raise errors.ChatAdminRequiredError(None)
+                    if kind!='members':all_rows=[p for p in all_rows if isinstance(p,(types.ChatParticipantCreator,types.ChatParticipantAdmin))]
+                    total=len(all_rows);participants=all_rows[offset:offset+50];users={u.id:u for u in result.users}
+            except (errors.ChatAdminRequiredError,errors.ChannelPrivateError):
+                await self.check(actor,uid,client,entity)
+                return {'items':[],'next':None,'available':False}
+            items=[]
+            for participant in participants:
+                owner=isinstance(participant,(types.ChannelParticipantCreator,types.ChatParticipantCreator))
+                admin=owner or isinstance(participant,(types.ChannelParticipantAdmin,types.ChatParticipantAdmin))
+                if kind=='owner' and not owner:continue
+                user=users.get(participant.user_id)
+                if user is None:continue
+                items.append({'id':str(user.id),'name':name(user),'username':getattr(user,'username',None) or '',
+                    'role':'Propietario' if owner else 'Administrador' if admin else 'Miembro','bot':bool(getattr(user,'bot',False))})
+            await self.check(actor,uid,client,entity)
+            more=bool(participants) and offset+len(participants)<total and not (kind=='owner' and items)
+            next_cursor=self.p.pack('members',actor=actor,uid=uid,generation=generation,source=source,kind=kind,offset=offset+len(participants)) if more else None
+            return {'items':items,'next':next_cursor,'available':True}
+
     async def gallery_count(self,actor,uid,handle,topic=0):
         async with self.p.account(actor,uid) as (client,generation):
             entity=await self.p.target(actor,uid,generation,client,handle)
