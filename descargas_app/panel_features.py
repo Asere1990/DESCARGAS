@@ -81,10 +81,11 @@ class PanelFeatures:
         if not query.strip():return {'items':[],'next':None}
         async with self.p.account(actor,uid) as (client,generation):
             await require_consent(self.s,actor,uid)
-            kwargs={}
+            kwargs={};seen=0
             if cursor:
                 c=self.p.unpack(cursor,'search')
                 if any(c.get(k)!=v for k,v in {'actor':actor,'uid':uid,'generation':generation,'q':query}.items()):raise ValueError('Repite la búsqueda.')
+                seen=c.get('seen',0)
                 kwargs={'offset_rate':c['rate'],'offset_id':c['id'],'offset_peer':input_peer(c['peer'])}
             result=await client(functions.messages.SearchGlobalRequest(q=query[:100],filter=types.InputMessagesFilterEmpty(),min_date=None,max_date=None,offset_rate=kwargs.get('offset_rate',0),offset_peer=kwargs.get('offset_peer',types.InputPeerEmpty()),offset_id=kwargs.get('offset_id',0),limit=60))
             entities={utils.get_peer_id(e):e for e in [*result.users,*result.chats]};items=[]
@@ -100,27 +101,31 @@ class PanelFeatures:
                 data=peer_data(entity,uid);kind='private' if isinstance(entity,types.User) else 'channel' if getattr(entity,'broadcast',False) else 'group'
                 items.append({'message':value,'chat':{'id':str(source),'name':name(entity),'type':kind,'handle':self.p.pack('peer',actor=actor,uid=uid,generation=generation,**data),'avatar':bool(getattr(entity,'photo',None))}})
             next_cursor=None
-            if len(result.messages)==60:
+            seen+=len(result.messages)
+            if result.messages and (getattr(result,'next_rate',None) or seen<getattr(result,'count',seen) or len(result.messages)==60):
                 last=result.messages[-1]
-                next_cursor=self.p.pack('search',actor=actor,uid=uid,generation=generation,q=query,rate=getattr(result,'next_rate',0) or 0,id=last.id,peer=peer_data(entities[utils.get_peer_id(last.peer_id)],uid))
+                next_cursor=self.p.pack('search',actor=actor,uid=uid,generation=generation,q=query,seen=seen,rate=getattr(result,'next_rate',0) or 0,id=last.id,peer=peer_data(entities[utils.get_peer_id(last.peer_id)],uid))
             await require_consent(self.s,actor,uid)
             return {'items':items,'next':next_cursor}
     async def topics(self,actor,uid,handle,cursor=''):
         async with self.p.account(actor,uid) as (client,generation):
             entity=await self.p.target(actor,uid,generation,client,handle)
             if not getattr(entity,'forum',False):return {'items':[],'next':None}
-            offset_date=None;offset_id=0;offset_topic=0
+            offset_date=None;offset_id=0;offset_topic=0;seen=0
             if cursor:
                 value=self.p.unpack(cursor,'topics')
                 if any(value.get(k)!=v for k,v in {'actor':actor,'uid':uid,'generation':generation,'peer':utils.get_peer_id(entity)}.items()):raise ValueError('Recarga los temas del grupo.')
-                offset_date=datetime.fromtimestamp(value['date'],timezone.utc);offset_id=value['message'];offset_topic=value['topic']
-            data=await client(functions.messages.GetForumTopicsRequest(entity,offset_date,offset_id,offset_topic,61))
-            items=[{'id':t.id,'title':t.title,'closed':bool(getattr(t,'closed',False)),'unread':getattr(t,'unread_count',0)} for t in data.topics[:60] if isinstance(t,types.ForumTopic)]
+                offset_date=datetime.fromtimestamp(value['date'],timezone.utc);offset_id=value['message'];offset_topic=value['topic'];seen=value.get('seen',0)
+            data=await client(functions.messages.GetForumTopicsRequest(entity,offset_date,offset_id,offset_topic,60))
+            items=[{'id':t.id,'title':t.title,'closed':bool(getattr(t,'closed',False)),'unread':getattr(t,'unread_count',0)} for t in data.topics if isinstance(t,types.ForumTopic)]
             await self.check(actor,uid,client,entity)
             next_cursor=None
-            if len(data.topics)>60:
-                last=data.topics[59]
-                next_cursor=self.p.pack('topics',actor=actor,uid=uid,generation=generation,peer=utils.get_peer_id(entity),date=last.date.timestamp(),message=last.top_message,topic=last.id)
+            seen+=len(data.topics)
+            if data.topics and seen<data.count:
+                last=data.topics[-1]
+                last_message=next((m for m in data.messages if m.id==last.top_message),None)
+                stamp=last.date if getattr(data,'order_by_create_date',False) or last_message is None else last_message.date
+                next_cursor=self.p.pack('topics',actor=actor,uid=uid,generation=generation,peer=utils.get_peer_id(entity),date=stamp.timestamp(),message=last.top_message,topic=last.id,seen=seen)
             return {'items':items,'next':next_cursor}
     async def scheduled(self,actor,uid,handle):
         from .web_panel import message_data

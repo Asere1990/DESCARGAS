@@ -109,3 +109,18 @@ class FeatureTests(unittest.IsolatedAsyncioTestCase):
             response=await self.http.get('/panel/api/'+op,params={'account':22,'peer':self.peer,'message':9})
             self.assertEqual(response.status,403)
         self.client.rpc.assert_not_awaited()
+
+    async def test_topic_cursor_uses_last_message_date_and_short_native_pages(self):
+        self.group();self.entity.forum=True
+        created=datetime(2020,1,1,tzinfo=timezone.utc)
+        recent=datetime(2026,10,25,tzinfo=timezone.utc)
+        item=types.ForumTopic(12,created,types.PeerChannel(77),'Tema',0,90,0,0,0,0,0,0,types.PeerUser(22),types.PeerNotifySettings())
+        message=fixtures.message(90);message.date=recent
+        self.client.rpc.return_value=N(topics=[item],messages=[message],count=10,order_by_create_date=False)
+        data=await self.panel.features.topics(111,22,self.peer)
+        self.assertTrue(data['next'])
+        await self.panel.features.topics(111,22,self.peer,data['next'])
+        request=self.client.rpc.await_args.args[0]
+        self.assertEqual(request.offset_date,recent);self.assertEqual(request.offset_id,90);self.assertEqual(request.offset_topic,12)
+        self.allowed.add(112)
+        with self.assertRaises(ValueError):await self.panel.features.topics(112,22,self.peer,data['next'])
