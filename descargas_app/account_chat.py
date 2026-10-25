@@ -35,11 +35,8 @@ async def connected(service, uid):
         client=service.client(session)
         try:
             await client.connect()
-            # is_user_authorized() treats every RPCError from updates.getState
-            # as False (including temporary failures and FloodWait). Verify the
-            # actual identity instead, without replacing the saved session.
+            if not await client.is_user_authorized():raise ValueError('La sesión fue revocada. Conecta de nuevo la cuenta.')
             me=await client.get_me()
-            if me is None:raise ValueError('Telegram no reconoce la sesión guardada de esta cuenta.')
             if me.id!=uid:raise ValueError('La cuenta conectada no coincide con el Telegram ID.')
             yield client
         finally:await client.disconnect()
