@@ -252,7 +252,6 @@ class TelegramPanel:
             return {'items':list(reversed(items)),'next':rows[59].id if len(rows)>60 else None,'title':name(entity),'status':self.features.status(entity)}
     async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False):
         # Transfers are streamed and never saved to the download queue, ALMACEN or Dropbox.
-        if self.transfers.locked():raise ValueError('Hay dos archivos abiertos. Espera un momento.')
         async with self.transfers,self.account(actor,uid,timeout=300) as (client,generation):
             entity=await self.target(actor,uid,generation,client,handle)
             if avatar:
@@ -278,11 +277,18 @@ class TelegramPanel:
                 return web.Response(body=data,content_type='image/jpeg',headers=HEADERS)
             size=info['size'];start=0;end=size-1;status=200
             if request.headers.get('Range'):
-                match=re.fullmatch(r'bytes=(\d+)-(\d*)',request.headers['Range'])
-                if not match or not size:raise web.HTTPRequestRangeNotSatisfiable()
-                start=int(match[1]);end=min(size-1,int(match[2]) if match[2] else size-1);status=206
-                if start>end or start>=size:raise web.HTTPRequestRangeNotSatisfiable()
-            safe=bool(re.fullmatch(r'(?:image/(?:jpeg|png|webp|gif)|video/(?:mp4|webm)|audio/(?:ogg|mpeg|mp4|aac|wav|webm))',info['mime']))
+                match=re.fullmatch(r'bytes=(\d*)-(\d*)',request.headers['Range'])
+                if not match or not size or not any(match.groups()):raise web.HTTPRequestRangeNotSatisfiable(headers={'Content-Range':f'bytes */{size}'})
+                left,right=match.groups()
+                if left:
+                    start=int(left);end=min(size-1,int(right) if right else size-1)
+                else:
+                    suffix=int(right)
+                    if not suffix:raise web.HTTPRequestRangeNotSatisfiable(headers={'Content-Range':f'bytes */{size}'})
+                    start=max(0,size-suffix);end=size-1
+                status=206
+                if start>end or start>=size:raise web.HTTPRequestRangeNotSatisfiable(headers={'Content-Range':f'bytes */{size}'})
+            safe=bool(re.fullmatch(r'(?:image/(?:jpeg|png|webp|gif)|video/(?:mp4|webm|quicktime|x-m4v)|audio/(?:ogg|mpeg|mp4|aac|wav|webm))',info['mime']))
             if protected and not safe:raise web.HTTPForbidden(reason='Este archivo protegido no admite visualización en el panel.')
             headers={**HEADERS,'Content-Type':info['mime'] if safe else 'application/octet-stream','Accept-Ranges':'bytes',
              'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])+'"'}

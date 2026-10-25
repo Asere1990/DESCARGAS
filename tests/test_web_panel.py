@@ -191,3 +191,28 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         result=p.message_data(m)
         self.assertTrue(result['protected']);self.assertEqual(result['media']['type'],'video')
         self.assertFalse(p.message_data(message(7))['protected'])
+
+    async def test_safari_suffix_ranges_and_quicktime_video_are_streamed_inline(self):
+        payload=b'0123456789abcdefghijklmnop'
+        m=message(9,N(ttl_seconds=None));m.document=N(size=len(payload),mime_type='video/quicktime',attributes=[types.DocumentAttributeVideo(duration=2,w=16,h=16)],thumbs=[])
+        self.client.get_messages.return_value=m
+        transfers=[]
+        class Download:
+            def __init__(self):self.done=False;self.closed=False
+            def __aiter__(self):return self
+            async def __anext__(self):
+                if self.done:raise StopAsyncIteration
+                self.done=True;return payload
+            async def close(self):self.closed=True
+        def stream(*args,**kwargs):
+            transfer=Download();transfers.append(transfer);return transfer
+        self.client.iter_download=stream
+        await self.setup_http()
+        for value,expected in [('bytes=0-1',payload[:2]),('bytes=-6',payload[-6:]),('bytes=20-',payload[20:])]:
+            r=await self.http.get('/panel/api/media',params={'account':'22','peer':self.peer,'message':'9'},headers={'Range':value})
+            self.assertEqual(r.status,206);self.assertEqual(await r.read(),expected)
+            self.assertEqual(r.headers['Content-Type'],'video/quicktime');self.assertTrue(r.headers['Content-Disposition'].startswith('inline'))
+        self.assertTrue(all(t.closed for t in transfers))
+        for value in ['bytes=-0','bytes=999-','bytes=-','bytes=1-2,4-5']:
+            r=await self.http.get('/panel/api/media',params={'account':'22','peer':self.peer,'message':'9'},headers={'Range':value})
+            self.assertEqual(r.status,416)
