@@ -32,16 +32,15 @@ class PrivacyTests(unittest.IsolatedAsyncioTestCase):
     async def test_normal_user_downloads_are_untouched(self):
         await a.require_account(self.s,12)
         self.s.repo.creator_registration.assert_not_awaited()
-    async def test_protected_owner_is_detected_before_reading_messages(self):
-        owner=N(id=12,participant=types.ChannelParticipantCreator(user_id=12,admin_rights=types.ChatAdminRights()))
-        client=N(get_participants=AsyncMock(return_value=[owner]))
-        with self.assertRaisesRegex(ValueError,'restringido'):await a.require_source(self.s,34,-100123,client=client,entity=N(creator=False),actor=88)
-        self.s.repo.pool.execute.assert_awaited_once()
-    async def test_unknown_owner_fails_closed_and_known_former_owner_stays_protected(self):
+    async def test_group_with_protected_owner_is_allowed_without_explicit_source_entry(self):
         client=N(get_participants=AsyncMock(side_effect=RuntimeError()))
-        with self.assertRaisesRegex(ValueError,'verificar'):await a.require_source(self.s,34,-100123,client=client,entity=N(creator=False),actor=88)
+        await a.require_source(self.s,34,-100123,client=client,entity=N(creator=False),actor=88)
+        client.get_participants.assert_not_awaited()
+        self.s.repo.pool.execute.assert_not_awaited()
+    async def test_unknown_and_old_cached_owner_do_not_block_group(self):
         self.s.repo.pool.fetchval.return_value=1
-        with self.assertRaises(ValueError):await a.require_source(self.s,34,-100123,actor=88)
+        await a.require_source(self.s,34,-100123,actor=88)
+        self.s.repo.pool.fetchval.assert_not_awaited()
     async def test_actor_scope_is_task_local_and_reset(self):
         @a.scoped('actor')
         async def action(s,uid):

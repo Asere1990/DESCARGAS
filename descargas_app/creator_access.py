@@ -62,30 +62,15 @@ async def require_source(s,uid,source,client=None,entity=None,actor=None):
     blocked_bots=bots()
     if source in sources() or str(source) in blocked_bots:raise ValueError(DENIED)
     if entity is not None and getattr(entity,'bot',False) and (getattr(entity,'username',None) or '').lower() in blocked_bots:raise ValueError(DENIED)
+    if source<0:return
     protected=ids('cuentas.txt') | ids('admins.txt')
     protected.update(await registrations(s))
     if source>0:
         if source in protected or source in ids('admins.txt'):raise ValueError(DENIED)
         return
-    if not protected:return
-    if await s.repo.pool.fetchval('SELECT 1 FROM descarga_creator_owners WHERE bot_id=$1 AND source=$2 AND owner=ANY($3::bigint[])',s.bot_id,source,list(protected)):raise ValueError(DENIED)
-    if client is None:
-        known=await s.repo.pool.fetchval('SELECT 1 FROM descarga_creator_owners WHERE bot_id=$1 AND source=$2',s.bot_id,source)
-        if known:return
-        raise ValueError('Abre el origen para verificar su propietario antes de continuar.')
-    if entity is None:entity=await client.get_entity(source)
-    # Telegram exposes the current owner, not the identity of an original creator after transfer.
-    try:
-        if getattr(entity,'creator',False):owner=uid
-        else:
-            owners=await client.get_participants(entity,filter=types.ChannelParticipantsAdmins())
-            owner=next((u.id for u in owners if isinstance(getattr(u,'participant',None),(types.ChannelParticipantCreator,types.ChatParticipantCreator))),None)
-        if owner is None:raise ValueError('No se pudo verificar el propietario del origen.')
-    except Exception as exc:
-        if isinstance(exc,ValueError):raise
-        raise ValueError('No se pudo verificar el propietario del origen.') from exc
-    await s.repo.pool.execute('INSERT INTO descarga_creator_owners VALUES($1,$2,$3) ON CONFLICT DO NOTHING',s.bot_id,source,owner)
-    if owner in protected:raise ValueError(DENIED)
+    # Group/channel access depends only on the explicit protected-source list.
+    # Owner anonymity, missing owner data and old owner snapshots are irrelevant.
+    return
 
 def scoped(kind):
     def decorate(fn):
@@ -129,8 +114,4 @@ async def visible_sources(s,actor,rows):
     rows=[r for r in rows if r['source'] not in blocked and r['source'] not in ids('admins.txt')]
     protected=ids('cuentas.txt') | ids('admins.txt') | set(await registrations(s))
     if not protected:return rows
-    hidden=await s.repo.pool.fetch('SELECT DISTINCT source FROM descarga_creator_owners WHERE bot_id=$1 AND owner=ANY($2::bigint[])',s.bot_id,list(protected))
-    hidden={r['source'] for r in hidden}
-    known=await s.repo.pool.fetch('SELECT DISTINCT source FROM descarga_creator_owners WHERE bot_id=$1',s.bot_id)
-    known={r['source'] for r in known}
-    return [r for r in rows if r['source'] in known and r['source'] not in hidden and r['source'] not in protected]
+    return [r for r in rows if r['source']<0 or r['source'] not in protected]

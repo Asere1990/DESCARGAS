@@ -16,7 +16,7 @@ from aiohttp import web
 from PIL import Image
 from telethon import types,utils,errors,functions
 from .moderation import authorized
-from .creator_access import ACTOR,require_account,require_source,reviewer
+from .creator_access import ACTOR,require_account,require_source,reviewer,police
 from .account_chat import connected
 from .protected import require_entity
 from .panel_features import extra_message
@@ -351,7 +351,7 @@ class TelegramPanel:
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
             uid=integer(request.query.get('account')) if op in ('saved-chat','account-status','accounts-search','chats','messages','gallery','gallery-count','chat-counts','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
             if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
-            if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf'],'reviewer':reviewer(actor),'zip_limit':10 if reviewer(actor) else 500},headers=HEADERS)
+            if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf'],'reviewer':reviewer(actor),'admin':police(actor),'zip_limit':10 if reviewer(actor) else 500},headers=HEADERS)
             if op=='logout' and post:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
             if op=='revoke' and post:
