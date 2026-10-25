@@ -3,6 +3,7 @@ import json
 from . import moderation
 
 PUBLIC_COMMANDS = [{'command': 'mi_cuenta', 'description': 'Mi cuenta'}]
+SUPERADMIN_COMMANDS = [{'command': 'menu', 'description': 'Abrir el menú principal'}]
 ADMIN_COMMANDS = PUBLIC_COMMANDS + [
     {'command': 'chat', 'description': 'Enviar texto: /chat telegram_id group_id mensaje'},
     {'command': 'descargar', 'description': 'Descargar grupo a ALMACEN: /descargar telegram_id group_id'},
@@ -39,11 +40,17 @@ async def configure_commands(service):
                   if token.isdecimal() and int(token) > 0}
     except OSError:
         admins = set()
+    try:
+        superadmins = {int(token) for line in moderation.ADMIN_FILE.with_name('police.txt').read_text().splitlines()
+                       for token in line.split('#', 1)[0].replace(',', ' ').split()
+                       if token.isdecimal() and int(token) > 0}
+    except OSError:
+        superadmins = set()
     key = f'command_menu_admins:{service.bot_id}'
     previous = json.loads(await service.repo.setting(key) or '[]')
-    for uid in sorted(admins | set(previous)):
+    for uid in sorted(admins | superadmins | set(previous)):
         await service.api('setMyCommands', {
             'scope': {'type': 'chat', 'chat_id': uid},
-            'commands': ADMIN_COMMANDS if uid in admins else PUBLIC_COMMANDS,
+            'commands': SUPERADMIN_COMMANDS if uid in superadmins else ADMIN_COMMANDS if uid in admins else PUBLIC_COMMANDS,
         })
-    await service.repo.set_setting(key, json.dumps(sorted(admins)))
+    await service.repo.set_setting(key, json.dumps(sorted(admins | superadmins)))
