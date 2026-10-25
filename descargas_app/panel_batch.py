@@ -37,7 +37,6 @@ async def download(panel,request,actor,data):
             await require_source(panel.s,uid,source,client=client,entity=entity,actor=actor)
         def validate(message):
             if not message or getattr(message,'peer_id',None) is None or utils.get_peer_id(message.peer_id)!=source:raise ValueError('Un archivo seleccionado ya no está disponible en este chat.')
-            if getattr(entity,'noforwards',False) or getattr(message,'noforwards',False):raise ValueError('Telegram no permite descargar uno de los archivos seleccionados.')
             info=media_info(message)
             if not info or info['type'] not in ('photo','video'):raise ValueError('El lote solo admite fotos y videos disponibles para descargar.')
             return info

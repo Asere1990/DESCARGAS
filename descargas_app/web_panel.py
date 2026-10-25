@@ -275,8 +275,6 @@ class TelegramPanel:
                 return web.Response(body=data,content_type='image/jpeg',headers=HEADERS)
             m=await client.get_messages(entity,ids=mid)
             if not m:raise ValueError('Archivo no disponible.')
-            protected=bool(getattr(entity,'noforwards',False) or getattr(m,'noforwards',False))
-            if protected and request.query.get('download')=='1':raise web.HTTPForbidden(reason='Solo visualización.')
             info=media_info(m)
             if not info:raise ValueError('Archivo no disponible o temporal.')
             if thumb:
@@ -302,7 +300,6 @@ class TelegramPanel:
                 status=206
                 if start>end or start>=size:raise web.HTTPRequestRangeNotSatisfiable(headers={'Content-Range':f'bytes */{size}'})
             safe=bool(re.fullmatch(r'(?:image/(?:jpeg|png|webp|gif)|video/(?:mp4|webm|quicktime|x-m4v)|audio/(?:ogg|mpeg|mp4|aac|wav|webm))',info['mime']))
-            if protected and not safe:raise web.HTTPForbidden(reason='Este archivo protegido no admite visualización en el panel.')
             headers={**HEADERS,'Content-Type':info['mime'] if safe else 'application/octet-stream','Accept-Ranges':'bytes',
              'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])+'"'}
             if size:headers['Content-Length']=str(end-start+1)

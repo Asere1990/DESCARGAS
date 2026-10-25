@@ -43,8 +43,11 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(all('/' not in n for n in archive.namelist()))
         self.assertEqual(self.closed,[9,10]);self.assertEqual(self.started,[9,10])
         self.client.download_media.assert_not_awaited()
-    async def test_protected_media_is_denied_before_any_bytes_are_downloaded(self):
-        await self.prepare(protected=True);r=await self.send();self.assertEqual(r.status,409);self.assertEqual(self.started,[])
+    async def test_noforwards_media_downloads_with_existing_account_and_source_guards(self):
+        await self.prepare(protected=True);r=await self.send();self.assertEqual(r.status,200)
+        with zipfile.ZipFile(io.BytesIO(await r.read())) as archive:
+            self.assertEqual(len(archive.namelist()),2)
+        self.assertEqual(self.started,[9,10]);self.guard.assert_awaited()
     async def test_batch_requires_csrf_origin_and_current_source_access(self):
         await self.prepare();r=await self.send(csrf='wrong');self.assertEqual(r.status,403)
         self.guard.side_effect=ValueError('Acceso retirado')
