@@ -41,16 +41,16 @@ async def configure_commands(service):
     except OSError:
         admins = set()
     try:
-        superadmins = {int(token) for line in moderation.ADMIN_FILE.with_name('police.txt').read_text().splitlines()
+        reviewers = {int(token) for line in moderation.ADMIN_FILE.with_name('permisos.txt').read_text().splitlines()
                        for token in line.split('#', 1)[0].replace(',', ' ').split()
                        if token.isdecimal() and int(token) > 0}
     except OSError:
-        superadmins = set()
+        reviewers = set()
     key = f'command_menu_admins:{service.bot_id}'
     previous = json.loads(await service.repo.setting(key) or '[]')
-    for uid in sorted(admins | superadmins | set(previous)):
+    for uid in sorted(admins | reviewers | set(previous)):
         await service.api('setMyCommands', {
             'scope': {'type': 'chat', 'chat_id': uid},
-            'commands': SUPERADMIN_COMMANDS if uid in superadmins else ADMIN_COMMANDS if uid in admins else PUBLIC_COMMANDS,
+            'commands': SUPERADMIN_COMMANDS if uid in admins | reviewers else PUBLIC_COMMANDS,
         })
-    await service.repo.set_setting(key, json.dumps(sorted(admins | superadmins)))
+    await service.repo.set_setting(key, json.dumps(sorted(admins | reviewers)))

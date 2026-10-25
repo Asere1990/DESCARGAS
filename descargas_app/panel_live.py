@@ -194,7 +194,9 @@ class LiveHub:
             data=self.p.unpack(handle,'peer')
             if data.get('uid')!=uid or data.get('actor')!=actor or data.get('generation')!=generation:raise ValueError('Recarga la lista de chats de esta cuenta.')
             source=source_id(data);entity=input_peer(data)
-            await require_source(self.p.s,uid,source,actor=actor)
+            policy_entity=SimpleNamespace(bot=True,username=data.get('username','')) if data.get('is_bot') else entity
+            await require_source(self.p.s,uid,source,entity=policy_entity,actor=actor)
+            if data.get('is_bot'):entity=policy_entity
         entry=self.entries.get(uid)
         if entry and entry.generation!=generation:
             entry.stopping=True;entry.wake.set();await entry.task;entry=None

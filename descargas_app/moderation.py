@@ -9,7 +9,7 @@ def authorized(uid):
     try:
         entries={int(token) for line in ADMIN_FILE.read_text().splitlines() for token in line.split('#',1)[0].replace(',',' ').split() if token.isdecimal()}
         from .creator_access import ids
-        return uid in entries or uid in ids('police.txt')
+        return uid in entries or uid in ids('permisos.txt')
     except (OSError,ValueError):return False
 
 SOURCE=ContextVar('download_source',default=None)

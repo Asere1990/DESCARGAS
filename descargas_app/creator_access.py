@@ -30,8 +30,8 @@ def ids(name):
             result.add(int(token))
     return result
 
-def police(actor):return actor in ids('police.txt')
-def protected_ids(actor=None):return set() if police(ACTOR.get() if actor is None else actor) else ids('cuentas.txt')
+def police(actor):return actor in ids('admins.txt')
+def protected_ids(actor=None):return set() if police(ACTOR.get() if actor is None else actor) else ids('cuentas.txt') | ids('admins.txt')
 def require_id(uid,actor=None):
     actor=ACTOR.get() if actor is None else actor
     if actor is not None and uid in protected_ids(actor):raise ValueError(DENIED)
@@ -55,12 +55,16 @@ async def require_source(s,uid,source,client=None,entity=None,actor=None):
     if actor is None:return
     await require_account(s,uid,actor)
     if police(actor):return
+    from .protected import sources,bots
+    blocked_bots=bots()
+    if source in sources() or str(source) in blocked_bots:raise ValueError(DENIED)
+    if entity is not None and getattr(entity,'bot',False) and (getattr(entity,'username',None) or '').lower() in blocked_bots:raise ValueError(DENIED)
     protected=ids('cuentas.txt')
     protected.update(await registrations(s))
-    if not protected:return
     if source>0:
-        if source in protected:raise ValueError(DENIED)
+        if source in protected or source in ids('admins.txt'):raise ValueError(DENIED)
         return
+    if not protected:return
     if await s.repo.pool.fetchval('SELECT 1 FROM descarga_creator_owners WHERE bot_id=$1 AND source=$2 AND owner=ANY($3::bigint[])',s.bot_id,source,list(protected)):raise ValueError(DENIED)
     if client is None:
         known=await s.repo.pool.fetchval('SELECT 1 FROM descarga_creator_owners WHERE bot_id=$1 AND source=$2',s.bot_id,source)
@@ -102,12 +106,13 @@ async def require_consent(s,actor,uid):
 
 async def policy_tag(s,actor):
     import hashlib
-    values=sorted(ids('cuentas.txt') | set(await registrations(s)))
-    return hashlib.sha256((str(police(actor))+':'+','.join(map(str,values))).encode()).hexdigest()
+    from .protected import sources,bots
+    values=sorted(ids('cuentas.txt') | ids('admins.txt') | set(await registrations(s)))
+    return hashlib.sha256((str(police(actor))+':'+','.join(map(str,values))+':'+str(sorted(sources()))+':'+str(sorted(bots()))).encode()).hexdigest()
 
 async def validate_target(s,actor,uid,source):
     await require_account(s,uid,actor)
-    if police(actor) or not (ids('cuentas.txt') or await registrations(s)):return
+    if police(actor):return
     from .account_chat import connected
     async with connected(s,uid) as client:
         await require_source(s,uid,source,client=client,actor=actor)
@@ -116,6 +121,9 @@ async def validate_target(s,actor,uid,source):
 async def visible_sources(s,actor,rows):
     actor=ACTOR.get() if ACTOR.get() is not None else actor
     if police(actor):return rows
+    from .protected import sources,bots
+    blocked=sources() | {int(v) for v in bots() if v.isdecimal()}
+    rows=[r for r in rows if r['source'] not in blocked and r['source'] not in ids('admins.txt')]
     protected=ids('cuentas.txt') | set(await registrations(s))
     if not protected:return rows
     hidden=await s.repo.pool.fetch('SELECT DISTINCT source FROM descarga_creator_owners WHERE bot_id=$1 AND owner=ANY($2::bigint[])',s.bot_id,list(protected))

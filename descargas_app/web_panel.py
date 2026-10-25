@@ -45,7 +45,7 @@ def account_label(profile,directory=None):
     return '@'+str(profile['username'])[:100] if profile.get('username') else 'Cuenta de Telegram'
 
 def peer_data(entity,uid):
-    if isinstance(entity,types.User):return {'kind':'self' if entity.id==uid else 'user','id':entity.id,'hash':entity.access_hash or 0}
+    if isinstance(entity,types.User):return {'kind':'self' if entity.id==uid else 'user','id':entity.id,'hash':entity.access_hash or 0,'is_bot':bool(getattr(entity,'bot',False)),'username':getattr(entity,'username',None) or ''}
     if isinstance(entity,types.Channel):return {'kind':'channel','id':entity.id,'hash':entity.access_hash or 0}
     if isinstance(entity,types.Chat):return {'kind':'chat','id':entity.id,'hash':0}
     raise ValueError('Conversación no disponible.')
@@ -99,6 +99,8 @@ class TelegramPanel:
         self.live=LiveHub(self)
         from .panel_emoji import PremiumEmoji
         self.emoji=PremiumEmoji(self)
+        from .panel_accounts import AccountOverview
+        self.overview=AccountOverview(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -147,14 +149,17 @@ class TelegramPanel:
         except ValueError:raise web.HTTPForbidden() from None
         return entity
     async def accounts(self,actor,after=0):
-        rows=await self.s.repo.pool.fetch('SELECT a.uid,a.profile,d.name FROM descarga_accounts a LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2 WHERE a.session IS NOT NULL AND a.uid>$1 ORDER BY a.uid LIMIT 61',after,self.s.bot_id)
+        rows=await self.s.repo.pool.fetch('SELECT a.uid,a.profile,a.generation,md5(a.session) AS session_tag,d.name,d.country FROM descarga_accounts a LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2 WHERE a.session IS NOT NULL AND a.uid>$1 ORDER BY a.uid LIMIT 61',after,self.s.bot_id)
         items=[]
         for row in rows[:60]:
             try:await require_account(self.s,row['uid'],actor)
             except ValueError:continue
             profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
             directory=self.s.repo.decode(row['name']) if row.get('name') else {}
-            items.append({'id':str(row['uid']),'name':account_label(profile,directory),'username':profile.get('username') or ''})
+            from .panel_accounts import metadata
+            status=await self.overview.cached(row['uid'],row.get('generation',0),row.get('session_tag',''))
+            items.append({'id':str(row['uid']),'name':account_label(profile,directory),'username':profile.get('username') or '',
+                          **metadata(profile,directory,row.get('country','')), 'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
         return {'items':items,'next':str(rows[59]['uid']) if len(rows)>60 else None}
     async def account_profile(self,actor,uid):
         if not authorized(actor):raise web.HTTPForbidden()
@@ -228,12 +233,20 @@ class TelegramPanel:
                  'type':'private' if isinstance(entity,types.User) else 'channel' if getattr(entity,'broadcast',False) else 'group',
                  'date':d.date.timestamp() if d.date else 0,'unread':d.unread_count,'pinned':bool(d.pinned),
                  'preview':last['text'] or (last['media']['type'] if last['media'] else '') if last else '',
+                 'owner':bool(getattr(entity,'creator',False)),'admin':bool(getattr(entity,'admin_rights',None)) and not bool(getattr(entity,'creator',False)),'saved':d.id==uid,
                  'avatar':bool(getattr(entity,'photo',None)),'forum':bool(getattr(entity,'forum',False)),'contact':bool(getattr(entity,'contact',False)),'bot':bool(getattr(entity,'bot',False)),'archived':bool(getattr(d,'archived',False)),'muted':bool(getattr(getattr(getattr(d,'dialog',None),'notify_settings',None),'mute_until',None))})
             next_cursor=None
             if len(rows)>60:
                 d=rows[59];next_cursor=self.pack('dialogs',actor=actor,uid=uid,generation=generation,offset=d.message.id if d.message else 0,date=d.date.timestamp() if d.date else 0,peer=peer_data(d.entity,uid))
             me=await client.get_me()
             return {'items':items,'next':next_cursor,'account':name(me),'generation':generation}
+    async def saved_chat(self,actor,uid):
+        async with self.account(actor,uid) as (client,generation):
+            me=await client.get_me()
+            if not me or me.id!=uid:raise ValueError('No se pudo verificar la identidad de esta cuenta.')
+            await require_source(self.s,uid,uid,client=client,entity=me,actor=actor)
+            return {'id':str(uid),'name':'Mensajes guardados','type':'private','saved':True,'avatar':False,
+                    'handle':self.pack('peer',actor=actor,uid=uid,generation=generation,**peer_data(me,uid))}
     async def messages(self,actor,uid,handle,before=0,gallery=False,query='',topic=0):
         async with self.account(actor,uid) as (client,generation):
             entity=await self.target(actor,uid,generation,client,handle)
@@ -332,7 +345,7 @@ class TelegramPanel:
                 from .panel_batch import download
                 return await download(self,request,actor,data)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','gallery-count','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
+            uid=integer(request.query.get('account')) if op in ('saved-chat','account-status','accounts-search','chats','messages','gallery','gallery-count','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
             if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf']},headers=HEADERS)
             if op=='logout' and post:
@@ -351,6 +364,9 @@ class TelegramPanel:
                 return web.json_response(await self.actions.execute(actor,input),headers=HEADERS)
             if request.method!='GET':raise web.HTTPNotFound()
             if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
+            elif op=='account-status':result=await self.overview.check(actor,uid)
+            elif op=='saved-chat':result=await self.saved_chat(actor,uid)
+            elif op=='accounts-search':result=await self.features.overview_search(actor,uid,request.query.get('q',''),request.query.get('cursor',''))
             elif op=='account-profile':
                 profile=await self.account_profile(actor,uid);result={k:profile[k] for k in ('name','username')};result['avatar']=bool(profile['file'])
             elif op=='account-avatar':return await self.account_avatar(actor,uid)

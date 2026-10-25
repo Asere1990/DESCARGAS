@@ -26,3 +26,27 @@
 .gallery-count{flex-shrink:0;padding:9px 16px;text-align:center;font-size:13px;color:#587b68;background:#f3ffead9;border-bottom:1px solid #b8cdb2}
 
 .batch-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 10px;background:#f5faf3;flex-shrink:0;border-bottom:1px solid #bdd2b6}.batch-toolbar button{padding:8px 10px;border-radius:10px;background:#e3f0ff;font-size:12px}.batch-toolbar span{font-size:12px;color:#587b68}.batch-toolbar #batch-cancel{color:#c34242;background:#fff0f0}.attachment.selectable-media::after{content:'○';position:absolute;right:6px;top:6px;font-size:25px;color:#fff;text-shadow:0 1px 4px #123;line-height:1}.attachment.selected-media{outline:3px solid #0089ff;outline-offset:-3px}.attachment.selected-media::after{content:'✓';background:#0089ff;border:2px solid white;border-radius:50%;width:25px;height:25px;font-size:17px;text-shadow:none;display:grid;place-items:center}
+
+/* Account overview only; chat, composer and media viewer layout are unchanged. */
+.account-group h2{font-size:13px;padding:14px 20px 5px;color:#6f7d88;font-weight:600}
+.account-card{border-bottom:1px solid #e6ebef;padding-bottom:7px}
+.account-card .account{margin-bottom:0;align-items:flex-start}
+.account-card .account>div:last-child{min-width:0;flex:1}
+.account-card .account small{line-height:1.55;font-size:12px;overflow-wrap:anywhere}
+.account-card .account small span{display:block}
+.account-status{display:inline-block;font-size:11px;border-radius:10px;padding:3px 8px;background:#edf0f3;color:#7c858c;margin-top:7px}
+.account-status[data-state=active]{background:#e0f5e5;color:#23783e}
+.account-status[data-state=revoked],.account-status[data-state=invalid],.account-status[data-state=expired]{background:#ffe9e9;color:#b44343}
+.account-checked{padding:0 20px;font-size:10px;color:#8b959c;line-height:1.5}
+.account-check{padding:5px 20px;font-size:11px;text-align:left}
+.overview-actions{display:flex;gap:12px;flex-wrap:wrap;padding:2px 20px}
+.overview-actions button{font-size:12px;padding:5px 0}
+#accounts-progress{line-height:1.5;padding:10px 20px;font-size:12px}
+#accounts-results{padding:0 14px 12px;border-bottom:1px solid #e0e6ea}
+.account-search-hit{display:block;text-align:left;width:100%;padding:12px 8px;border-bottom:1px solid #e0e6ea;color:#273842}
+.account-search-hit strong,.account-search-hit span,.account-search-hit small{display:block;line-height:1.45;overflow-wrap:anywhere}
+.account-search-hit strong{font-size:13px;color:#0785f7}.account-search-hit span{font-size:12px;max-height:72px;overflow:hidden;margin:4px 0;white-space:pre-wrap}
+.account-search-hit small,.account-search-warning{font-size:11px;color:#87919b}
+.account-search-warning{padding:8px;line-height:1.5;color:#997044}
+#accounts-search-form{position:sticky;top:84px;z-index:2}#accounts-search-form button{font-size:12px;flex-shrink:0}
+.filters{flex-wrap:wrap;overflow:visible}.filters button{flex-shrink:0}

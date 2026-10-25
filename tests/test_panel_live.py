@@ -95,5 +95,5 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
                 entry=self.panel.live.entries[22];task=entry.task
                 self.assertEqual(sub.source,55);self.assertIsNone(entry.client)
                 self.client.get_me.assert_not_awaited()
-                self.guard.assert_awaited_once_with(self.s,22,55,actor=111)
+                self.guard.assert_awaited_once_with(self.s,22,55,entity=sub.entity,actor=111)
             task.cancel();await asyncio.gather(task,return_exceptions=True)

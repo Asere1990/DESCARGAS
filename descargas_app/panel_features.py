@@ -102,11 +102,11 @@ class PanelFeatures:
                 title=getattr(f.title,'text',f.title)
                 rows.append({'id':f.id,'title':title,'include':[str(utils.get_peer_id(p)) for p in [*getattr(f,'pinned_peers',[]),*getattr(f,'include_peers',[])]],'exclude':[str(utils.get_peer_id(p)) for p in getattr(f,'exclude_peers',[])],**{key:bool(getattr(f,key,False)) for key in ('contacts','non_contacts','groups','broadcasts','bots','exclude_muted','exclude_read','exclude_archived')}})
             return {'items':rows}
-    async def search(self,actor,uid,query,cursor=''):
+    async def search(self,actor,uid,query,cursor='',overview=False):
         from .web_panel import message_data,peer_data,name,input_peer
         if not query.strip():return {'items':[],'next':None}
         async with self.p.account(actor,uid) as (client,generation):
-            await require_consent(self.s,actor,uid)
+            await (require_account(self.s,uid,actor) if overview else require_consent(self.s,actor,uid))
             kwargs={};seen=0
             if cursor:
                 c=self.p.unpack(cursor,'search')
@@ -131,8 +131,34 @@ class PanelFeatures:
             if result.messages and (getattr(result,'next_rate',None) or seen<getattr(result,'count',seen) or len(result.messages)==60):
                 last=result.messages[-1]
                 next_cursor=self.p.pack('search',actor=actor,uid=uid,generation=generation,q=query,seen=seen,rate=getattr(result,'next_rate',0) or 0,id=last.id,peer=peer_data(entities[utils.get_peer_id(last.peer_id)],uid))
-            await require_consent(self.s,actor,uid)
+            await (require_account(self.s,uid,actor) if overview else require_consent(self.s,actor,uid))
             return {'items':items,'next':next_cursor}
+    async def overview_search(self,actor,uid,query,cursor=''):
+        """Bounded pages, first chat titles then Telegram's message search."""
+        if not isinstance(query,str) or not query.strip() or len(query)>100:raise ValueError('Escribe entre 1 y 100 caracteres.')
+        await require_account(self.s,uid,actor)
+        row=await self.s.repo.account(uid)
+        if not row or not row['session']:raise ValueError('Sin sesión guardada.')
+        generation=row['generation'];stage='chats';inner=''
+        if cursor:
+            c=self.p.unpack(cursor,'overview-search')
+            if any(c.get(k)!=v for k,v in {'actor':actor,'uid':uid,'q':query,'generation':generation}.items()):raise ValueError('Repite la búsqueda; la cuenta o consulta cambió.')
+            stage=c.get('stage');inner=c.get('cursor','')
+            if stage not in ('chats','messages'):raise ValueError('Búsqueda no válida.')
+        if stage=='chats':
+            result=await self.p.chats(actor,uid,inner)
+            items=[{'chat':chat,'message':None} for chat in result['items'] if query.casefold() in chat['name'].casefold()]
+            next_stage='chats' if result['next'] else 'messages'
+            next_cursor=result['next'] or ''
+        else:
+            result=await self.search(actor,uid,query,inner,overview=True);items=result['items']
+            next_stage='messages' if result['next'] else None;next_cursor=result['next']
+        await require_account(self.s,uid,actor)
+        fresh=await self.s.repo.account(uid)
+        if not fresh or fresh['generation']!=generation or not fresh['session']:raise ValueError('La sesión cambió durante la búsqueda.')
+        more=self.p.pack('overview-search',actor=actor,uid=uid,q=query,generation=generation,stage=next_stage,cursor=next_cursor) if next_stage else None
+        return {'items':items,'next':more}
+
     async def topics(self,actor,uid,handle,cursor=''):
         async with self.p.account(actor,uid) as (client,generation):
             entity=await self.p.target(actor,uid,generation,client,handle)

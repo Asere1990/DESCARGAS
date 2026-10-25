@@ -8,18 +8,18 @@ from descargas_app import creator_access as a,creator_search as q
 class PrivacyTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);self.root=Path(tmp.name)
-        (self.root/'cuentas.txt').write_text('12\n');(self.root/'police.txt').write_text('99\n')
+        (self.root/'cuentas.txt').write_text('12\n');(self.root/'admins.txt').write_text('99\n')
         p=patch.object(a,'ROOT',self.root);p.start();self.addCleanup(p.stop)
         self.s=N(bot_id=7,repo=N(creator_registration=AsyncMock(return_value=None),creator_ids=AsyncMock(return_value=[]),pool=N(fetchval=AsyncMock(return_value=False),fetch=AsyncMock(return_value=[]),execute=AsyncMock(),fetchrow=AsyncMock(return_value=None))))
     async def test_files_and_police_changes_apply_immediately(self):
         with self.assertRaises(ValueError):await a.require_account(self.s,12,88)
         await a.require_account(self.s,12,99)
-        (self.root/'police.txt').write_text('')
+        (self.root/'admins.txt').write_text('')
         with self.assertRaises(ValueError):await a.require_account(self.s,12,99)
     async def test_missing_or_malformed_files_fail_closed(self):
         (self.root/'cuentas.txt').write_text('invalid')
         with self.assertRaises(ValueError):await a.require_account(self.s,12,88)
-        (self.root/'police.txt').unlink()
+        (self.root/'admins.txt').unlink()
         with self.assertRaises(ValueError):await a.require_account(self.s,12,99)
     async def test_registered_creator_hidden_from_regular_admin(self):
         self.s.repo.creator_registration.return_value=dict(version=a.VERSION,revoked=False,generation=4,current_generation=4)
