@@ -3,6 +3,13 @@
 # en Telegram Stripe.public.membership_group_overrides cuando existe.
 # No incluye principales ni destinos de GALLERY. CUSTOMER-SERVICE: solo lectura.
 
+#Grupos principales
+-1003720427589
+-1003716284604
+-1003886874628
+-1003816370471
+-1003711183473
+
 # Secundarios del principal -1003711183473
 -1003431747248
 
