@@ -89,6 +89,8 @@ async def access_link(s,actor):
 class TelegramPanel:
     def __init__(self,service):
         self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2);self.profiles={};self.profile_slots=asyncio.Semaphore(2)
+        from .web_actions import PanelActions
+        self.actions=PanelActions(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -302,17 +304,27 @@ class TelegramPanel:
             except ValueError:raise web.HTTPUnauthorized()
             actor=session['actor'];self.rate('actor:'+str(actor),240)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar') else None
+            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details') else None
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf']},headers=HEADERS)
             if op=='logout' and post:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
             if op=='revoke' and post:
                 await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
+            if post and op in ('action','upload','resolve'):
+                if op=='upload':
+                    input,file=await self.actions.read_upload(request)
+                    try:return web.json_response(await self.actions.execute(actor,input,file),headers=HEADERS)
+                    finally:file['close']()
+                input=await request.json()
+                if not isinstance(input,dict):raise ValueError('Solicitud no válida.')
+                if op=='resolve':return web.json_response(await self.actions.resolve(actor,input),headers=HEADERS)
+                return web.json_response(await self.actions.execute(actor,input),headers=HEADERS)
             if request.method!='GET':raise web.HTTPNotFound()
             if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
             elif op=='account-profile':
                 profile=await self.account_profile(actor,uid);result={k:profile[k] for k in ('name','username')};result['avatar']=bool(profile['file'])
             elif op=='account-avatar':return await self.account_avatar(actor,uid)
+            elif op in ('permissions','administrators','user-info','group-details'):result=await self.actions.inspect(actor,uid,request.query.get('peer',''),op=='administrators',request.query.get('target') if op=='user-info' else None,op=='group-details')
             elif op=='chats':result=await self.chats(actor,uid,request.query.get('cursor',''))
             elif op in ('messages','gallery'):result=await self.messages(actor,uid,request.query.get('peer',''),integer(request.query.get('before','0'),0),op=='gallery',request.query.get('q',''))
             elif op in ('media','thumb','avatar'):return await self.media(request,actor,uid,request.query.get('peer',''),integer(request.query.get('message','1')),op=='thumb',op=='avatar')
@@ -322,6 +334,7 @@ class TelegramPanel:
         except errors.FloodWaitError as exc:return web.json_response({'error':f'Telegram pide esperar {exc.seconds} segundos.','retry':exc.seconds},status=429,headers=HEADERS)
         except ValueError as exc:return web.json_response({'error':str(exc)},status=409,headers=HEADERS)
         except web.HTTPException as exc:return web.json_response({'error':{401:'Abre tu panel desde /menu en Telegram.',403:'Acceso no autorizado.',404:'Opción no disponible.',429:'Espera un momento antes de repetir.',416:'Rango no disponible.'}.get(exc.status,'Solicitud no válida.')},status=exc.status,headers=HEADERS)
+        except errors.RPCError as exc:return web.json_response({'error':'Telegram rechazó la operación: '+type(exc).__name__},status=409,headers=HEADERS)
         except TimeoutError:return web.json_response({'error':'La consulta tardó demasiado. Puedes reintentar.'},status=504,headers=HEADERS)
         except Exception:return web.json_response({'error':'No se pudo completar la consulta. Reintenta en un momento.'},status=503,headers=HEADERS)
 
