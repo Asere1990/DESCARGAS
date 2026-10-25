@@ -39,6 +39,12 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         pool=N(acquire=AsyncMock(return_value=conn),release=AsyncMock());hub=LiveHub(N(s=N(repo=N(pool=pool))))
         self.assertTrue(await hub.acquire(22));self.assertTrue(await hub.acquire(33));self.assertEqual(pool.acquire.await_count,1)
         await hub.release(22);await hub.release(33);await hub.close();pool.release.assert_awaited_once_with(conn)
+    async def test_server_shutdown_preserves_loaded_panel_and_requests_reconnection(self):
+        hub=LiveHub(N(s=N()));entry=LiveEntry(hub,22,3)
+        entry.publish=__import__('unittest.mock',fromlist=['Mock']).Mock()
+        hub.entries[22]=entry
+        await hub.close()
+        entry.publish.assert_called_once_with({'kind':'reconnect'})
     async def test_delete_events_do_not_cross_channel_message_id_namespaces(self):
         hub=LiveHub(N(s=N()));entry=LiveEntry(hub,22,3)
         class Sub:
@@ -66,7 +72,8 @@ class LiveTests(unittest.IsolatedAsyncioTestCase):
         class Sub:
             source=55;entity=types.User(55);queue=asyncio.Queue(maxsize=64)
         sub=Sub();entry.subscribers.add(sub);task=asyncio.create_task(entry.run())
-        while (await asyncio.wait_for(sub.queue.get(),1)).get('state')!='live':pass
+        with patch('descargas_app.panel_accounts.identity',client.get_me):
+            while (await asyncio.wait_for(sub.queue.get(),1)).get('state')!='live':pass
         await entry.operation.acquire();hub.notification(None,1,'descargas_panel_yield','22')
         self.assertFalse(entry.ready);self.assertFalse(disconnected.is_set());self.assertFalse(released.is_set())
         entry.stopping=True;entry.operation.release();await asyncio.wait_for(task,2)
@@ -84,6 +91,26 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.panel.live.subscribe=subscribe
         response=await self.http.get('/panel/api/events',params={'account':22,'peer':self.peer})
         text=await response.text();self.assertEqual(response.content_type,'text/event-stream');self.assertIn('"state":"live"',text);self.assertIn('"kind":"edit"',text);self.assertIn('"kind":"revoked"',text);self.assertEqual(sub.validate.await_count,3)
+    async def test_temporary_validation_failure_reconnects_without_forwarding_events(self):
+        await self.setup_http();queue=asyncio.Queue()
+        queue.put_nowait({'kind':'edit','ids':[9]})
+        sub=N(queue=queue,validate=AsyncMock(side_effect=ValueError('Temporary policy failure')))
+        @asynccontextmanager
+        async def subscribe(*args):yield sub
+        self.panel.live.subscribe=subscribe
+        response=await self.http.get('/panel/api/events',params={'account':22,'peer':self.peer})
+        text=await response.text()
+        self.assertIn('"kind": "reconnect"',text)
+        self.assertNotIn('revoked',text);self.assertNotIn('edit',text)
+    async def test_actual_permission_removal_still_revokes_stream(self):
+        from aiohttp import web
+        await self.setup_http();queue=asyncio.Queue();queue.put_nowait({'kind':'edit','ids':[9]})
+        sub=N(queue=queue,validate=AsyncMock(side_effect=web.HTTPForbidden()))
+        @asynccontextmanager
+        async def subscribe(*args):yield sub
+        self.panel.live.subscribe=subscribe
+        response=await self.http.get('/panel/api/events',params={'account':22,'peer':self.peer})
+        text=await response.text();self.assertIn('revoked',text);self.assertNotIn('edit',text)
     async def test_events_require_current_admin_session(self):
         await self.setup_http();self.allowed.clear()
         response=await self.http.get('/panel/api/events',params={'account':22,'peer':self.peer});self.assertEqual(response.status,403)

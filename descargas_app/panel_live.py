@@ -10,7 +10,7 @@ import logging
 import time
 from types import SimpleNamespace
 from aiohttp import web
-from telethon import events,types,utils
+from telethon import errors,events,types,utils
 from .creator_access import ACTOR,require_account,require_source
 from .moderation import authorized
 
@@ -69,8 +69,13 @@ class LiveEntry:
             try:
                 await sub.validate()
                 return sub.actor
-            except (ValueError,web.HTTPException):
-                sub.queue.put_nowait({'kind':'revoked'}) if not sub.queue.full() else None
+            except web.HTTPException as exc:
+                kind='revoked' if exc.status in (401,403) else 'reconnect'
+                if not sub.queue.full():sub.queue.put_nowait({'kind':kind})
+            except ValueError:
+                # Policy checks can be temporarily unavailable. Deliver no data
+                # until revalidated, but do not claim Telegram revoked a key.
+                if not sub.queue.full():sub.queue.put_nowait({'kind':'reconnect'})
         return None
     async def run(self):
         while not self.stopping and not self.hub.stopping:
@@ -84,15 +89,18 @@ class LiveEntry:
                     self.publish({'kind':'state','state':'busy'})
                     await asyncio.sleep(1);continue
                 row=await self.s.repo.account(self.uid)
-                if not row or not row['session'] or row['generation']!=self.generation:
+                if not row or not row['session']:
                     self.publish({'kind':'revoked'});return
+                if row['generation']!=self.generation:
+                    self.publish({'kind':'reconnect'});return
                 if self.client is None:
                     self.client=self.s.client(await self.s.get_session(self.uid))
                     self.client.add_event_handler(self.raw,events.Raw())
                 await self.client.connect()
-                me=await self.client.get_me()
+                from .panel_accounts import identity
+                me=await identity(self.client)
                 if not me or me.id!=self.uid:
-                    self.publish({'kind':'revoked'});return
+                    self.publish({'kind':'reconnect'});return
                 await self.client.set_receive_updates(True)
                 await self.client.catch_up()
                 self.ready=not self.yield_session.is_set()
@@ -106,6 +114,9 @@ class LiveEntry:
                 self.ready=False
                 if self.yield_session.is_set():self.publish({'kind':'state','state':'busy'})
             except asyncio.CancelledError:raise
+            except errors.UnauthorizedError as exc:
+                LOG.warning('Panel live authorization rejected account=%s error=%s',self.uid,type(exc).__name__)
+                self.publish({'kind':'revoked'});return
             except Exception as exc:
                 LOG.warning('Panel live connection deferred (%s)',type(exc).__name__)
                 self.ready=False;self.publish({'kind':'state','state':'reconnecting'})
@@ -142,7 +153,8 @@ class Subscription:
         await self.hub.p.session(self.request)
         await require_account(self.hub.p.s,self.uid,self.actor)
         row=await self.hub.p.s.repo.account(self.uid)
-        if not row or not row['session'] or row['generation']!=self.generation:raise web.HTTPForbidden()
+        if not row or not row['session']:raise web.HTTPForbidden()
+        if row['generation']!=self.generation:raise web.HTTPConflict()
         if self.source is not None:
             entry=self.hub.entries.get(self.uid)
             client=entry.client if entry and entry.ready and entry.client and entry.client.is_connected() else None
@@ -236,15 +248,19 @@ class LiveHub:
                         if data['kind']=='reconnect':break
                     else:await response.write(b': keepalive\n\n')
             except (ConnectionResetError,asyncio.CancelledError):raise
-            except (ValueError,web.HTTPException):
-                with suppress(ConnectionResetError):await response.write(b'data: {"kind":"revoked"}\n\n')
+            except (ValueError,web.HTTPException) as exc:
+                kind='revoked' if isinstance(exc,web.HTTPException) and exc.status in (401,403) else 'reconnect'
+                LOG.info('Panel live validation interrupted account=%s error=%s action=%s',uid,type(exc).__name__,kind)
+                with suppress(ConnectionResetError):await response.write(('data: '+json.dumps({'kind':kind})+'\n\n').encode())
             return response
     async def close(self):
         self.stopping=True
         entries=list(self.entries.values())
         for entry in entries:
             entry.stopping=True;entry.wake.set()
-            entry.publish({'kind':'revoked'})
+            # A deployment/restart is not an account revocation. The existing
+            # panel reconnects without discarding its loaded accounts/chats.
+            entry.publish({'kind':'reconnect'})
         tasks=[e.task for e in entries if e.task and not e.task.done()]
         if tasks:await asyncio.gather(*tasks,return_exceptions=True)
         async with self.db_lock:
