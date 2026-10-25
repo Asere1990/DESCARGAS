@@ -321,7 +321,7 @@ class TelegramPanel:
             except ValueError:raise web.HTTPUnauthorized()
             actor=session['actor'];self.rate('actor:'+str(actor),240)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
+            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','gallery-count','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
             if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf']},headers=HEADERS)
             if op=='logout' and post:
@@ -347,6 +347,7 @@ class TelegramPanel:
             elif op=='emoji':
                 mime,data=await self.emoji.asset(actor,uid,request.query.get('peer',''),integer(request.query.get('message')),integer(request.query.get('document')));return web.Response(body=data,content_type=mime,headers=HEADERS)
             elif op=='changes':result=await self.features.changes(actor,uid,request.query.get('peer',''),request.query.get('ids',''))
+            elif op=='gallery-count':result=await self.features.gallery_count(actor,uid,request.query.get('peer',''),integer(request.query.get('topic','0'),0))
             elif op=='context':result=await self.features.context(actor,uid,request.query.get('peer',''),integer(request.query.get('message')))
             elif op=='global-search':result=await self.features.search(actor,uid,request.query.get('q',''),request.query.get('cursor',''))
             elif op=='folders':result=await self.features.folders(actor,uid)

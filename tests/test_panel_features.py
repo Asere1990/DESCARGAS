@@ -124,3 +124,28 @@ class FeatureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.offset_date,recent);self.assertEqual(request.offset_id,90);self.assertEqual(request.offset_topic,12)
         self.allowed.add(112)
         with self.assertRaises(ValueError):await self.panel.features.topics(112,22,self.peer,data['next'])
+
+    async def test_gallery_totals_use_native_full_history_counters_and_topic(self):
+        self.client.rpc.return_value=[types.messages.SearchCounter(types.InputMessagesFilterPhotos(),1656),types.messages.SearchCounter(types.InputMessagesFilterVideo(),175)]
+        result=await self.panel.features.gallery_count(111,22,self.peer,42)
+        self.assertEqual(result,{'photos':1656,'videos':175,'approximate':False})
+        request=self.client.rpc.await_args.args[0]
+        self.assertIsInstance(request,functions.messages.GetSearchCountersRequest)
+        self.assertEqual(request.top_msg_id,42)
+        self.assertEqual([type(v) for v in request.filters],[types.InputMessagesFilterPhotos,types.InputMessagesFilterVideo])
+        self.client.download_media.assert_not_awaited()
+
+    async def test_gallery_totals_do_not_invent_zero_when_telegram_omits_a_counter(self):
+        self.client.rpc.return_value=[types.messages.SearchCounter(types.InputMessagesFilterPhotos(),100,inexact=True),types.messages.SearchCounter(types.InputMessagesFilterVideo(),20)]
+        self.assertTrue((await self.panel.features.gallery_count(111,22,self.peer))['approximate'])
+        self.client.rpc.return_value=[]
+        with self.assertRaises(ValueError):await self.panel.features.gallery_count(111,22,self.peer)
+
+    async def test_gallery_counter_endpoint_rechecks_source_access_after_native_response(self):
+        await self.setup_http()
+        self.client.rpc.return_value=[types.messages.SearchCounter(types.InputMessagesFilterPhotos(),12),types.messages.SearchCounter(types.InputMessagesFilterVideo(),3)]
+        response=await self.http.get('/panel/api/gallery-count',params={'account':22,'peer':self.peer})
+        self.assertEqual(response.status,200);self.assertEqual((await response.json())['photos'],12)
+        self.guard.side_effect=ValueError('Acceso retirado')
+        response=await self.http.get('/panel/api/gallery-count',params={'account':22,'peer':self.peer})
+        self.assertNotEqual(response.status,200)

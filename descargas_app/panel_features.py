@@ -75,6 +75,15 @@ class PanelFeatures:
             await self.check(actor,uid,client,entity)
             found={m['id'] for m in items}
             return {'items':items,'deleted':[mid for mid in requested if mid not in found]}
+    async def gallery_count(self,actor,uid,handle,topic=0):
+        async with self.p.account(actor,uid) as (client,generation):
+            entity=await self.p.target(actor,uid,generation,client,handle)
+            counters=await client(functions.messages.GetSearchCountersRequest(peer=entity,filters=[types.InputMessagesFilterPhotos(),types.InputMessagesFilterVideo()],top_msg_id=topic or None))
+            await self.check(actor,uid,client,entity)
+            counts={type(c.filter):c for c in counters}
+            photos=counts.get(types.InputMessagesFilterPhotos);videos=counts.get(types.InputMessagesFilterVideo)
+            if photos is None or videos is None:raise ValueError('Telegram no devolvió el total de la galería. Reintenta.')
+            return {'photos':max(0,photos.count),'videos':max(0,videos.count),'approximate':bool(photos.inexact or videos.inexact)}
     async def context(self,actor,uid,handle,mid):
         from .web_panel import message_data,name
         async with self.p.account(actor,uid) as (client,generation):

@@ -20,3 +20,7 @@
 .thread,.accounts,.chat-list{-webkit-overflow-scrolling:touch}.thread{touch-action:pan-y pinch-zoom;flex:1 1 0%;min-height:0;overflow-y:auto;overflow-x:hidden}
 
 .thread.gallery{display:block}.gallery-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;align-content:start}@media(max-width:700px){.gallery-grid{gap:3px}}
+
+#media-content{touch-action:pan-y pinch-zoom;display:flex;align-items:center;justify-content:center;overflow:hidden;min-height:180px}#media-content img,#media-content video{max-height:calc(92dvh - 240px);object-fit:contain}.media-navigation{display:flex;align-items:center;justify-content:center;gap:18px;padding:4px 12px}.media-navigation button{font-size:34px;width:48px;height:44px;border-radius:12px;background:#edf6ff}.media-navigation span{min-width:105px;text-align:center;font-size:13px;color:#73838b}.media-to-chat{display:block;margin:4px auto;padding:10px 20px;border-radius:12px;background:#edf6ff;font-size:15px}#media-dialog .download{padding:10px 16px}#media-dialog #media-note{padding-bottom:10px}
+
+.gallery-count{flex-shrink:0;padding:9px 16px;text-align:center;font-size:13px;color:#587b68;background:#f3ffead9;border-bottom:1px solid #b8cdb2}
