@@ -13,6 +13,7 @@ import secrets
 import time
 from urllib.parse import urlsplit
 from aiohttp import web
+from PIL import Image
 from telethon import types,utils,errors
 from .moderation import authorized
 from .creator_access import ACTOR,require_account,require_source
@@ -31,6 +32,16 @@ def integer(value,minimum=1):
 
 def name(entity):
     return (' '.join(filter(None,[getattr(entity,'first_name',None),getattr(entity,'last_name',None)])) or getattr(entity,'title',None) or 'Sin nombre')[:160]
+
+def account_label(profile,directory=None):
+    profile=profile or {};directory=directory or {}
+    candidates=[profile.get('name'),' '.join(filter(None,[profile.get('first_name'),profile.get('last_name')])),directory.get('name')]
+    for value in candidates:
+        if not isinstance(value,str):continue
+        value=' '.join(value.split())
+        if value and not value.replace('+','').isdigit() and value.casefold() not in ('sin nombre','nombre no disponible','no disponible'):
+            return value[:160]
+    return '@'+str(profile['username'])[:100] if profile.get('username') else 'Cuenta de Telegram'
 
 def peer_data(entity,uid):
     if isinstance(entity,types.User):return {'kind':'self' if entity.id==uid else 'user','id':entity.id,'hash':entity.access_hash or 0}
@@ -77,7 +88,7 @@ async def access_link(s,actor):
 
 class TelegramPanel:
     def __init__(self,service):
-        self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2)
+        self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2);self.profiles={};self.profile_slots=asyncio.Semaphore(2)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -121,14 +132,67 @@ class TelegramPanel:
         except ValueError:raise web.HTTPForbidden() from None
         return entity
     async def accounts(self,actor,after=0):
-        rows=await self.s.repo.pool.fetch('SELECT uid,profile FROM descarga_accounts WHERE session IS NOT NULL AND uid>$1 ORDER BY uid LIMIT 61',after)
+        rows=await self.s.repo.pool.fetch('SELECT a.uid,a.profile,d.name FROM descarga_accounts a LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2 WHERE a.session IS NOT NULL AND a.uid>$1 ORDER BY a.uid LIMIT 61',after,self.s.bot_id)
         items=[]
         for row in rows[:60]:
             try:await require_account(self.s,row['uid'],actor)
             except ValueError:continue
             profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
-            items.append({'id':str(row['uid']),'name':profile.get('name') or str(row['uid']),'username':profile.get('username') or ''})
+            directory=self.s.repo.decode(row['name']) if row.get('name') else {}
+            items.append({'id':str(row['uid']),'name':account_label(profile,directory),'username':profile.get('username') or ''})
         return {'items':items,'next':str(rows[59]['uid']) if len(rows)>60 else None}
+    async def account_profile(self,actor,uid):
+        if not authorized(actor):raise web.HTTPForbidden()
+        try:await require_account(self.s,uid,actor)
+        except ValueError:raise web.HTTPForbidden() from None
+        row=await self.s.repo.pool.fetchrow('SELECT a.profile,d.name FROM descarga_accounts a LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2 WHERE a.uid=$1 AND a.session IS NOT NULL',uid,self.s.bot_id)
+        if not row:raise web.HTTPNotFound()
+        key=(actor,uid);cached=self.profiles.get(key)
+        if cached and cached['expires']>time.monotonic():return cached
+        profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
+        directory=self.s.repo.decode(row['name']) if row.get('name') else {}
+        result={'name':account_label(profile,directory),'username':profile.get('username') or '', 'file':None,'expires':time.monotonic()+30}
+        async with self.profile_slots:
+            # The bot retrieves a public Telegram profile; no user session is opened.
+            try:
+                async with asyncio.timeout(8):info=await self.s.api('getChat',{'chat_id':uid})
+                if info.get('id')!=uid:raise ValueError('Profile does not match account')
+                result.update(name=account_label(info,{'name':result['name']}),username=info.get('username') or '',file=(info.get('photo') or {}).get('small_file_id'),expires=time.monotonic()+600)
+            except asyncio.CancelledError:raise
+            except Exception:pass
+        if not authorized(actor):raise web.HTTPForbidden()
+        try:await require_account(self.s,uid,actor)
+        except ValueError:raise web.HTTPForbidden() from None
+        if len(self.profiles)>=512:self.profiles.pop(next(iter(self.profiles)))
+        self.profiles[key]=result
+        return result
+    async def account_avatar(self,actor,uid):
+        profile=await self.account_profile(actor,uid)
+        if not profile['file']:return web.Response(status=204,headers=HEADERS)
+        data=profile.get('image')
+        if data is None:
+            async with self.profile_slots,asyncio.timeout(15):
+                metadata=await self.s.api('getFile',{'file_id':profile['file']})
+                filename=metadata.get('file_path','')
+                if not re.fullmatch(r'[a-zA-Z0-9_/.-]{1,300}',filename) or '..' in filename:raise ValueError('Foto no disponible.')
+                # Telegram's bot token stays server-side and is never returned in an image URL.
+                async with self.s.http.get('https://api.telegram.org/file/bot'+self.s.token+'/'+filename,allow_redirects=False) as response:
+                    if response.status!=200:return web.Response(status=204,headers=HEADERS)
+                    chunks=[];size=0
+                    async for chunk in response.content.iter_chunked(65536):
+                        size+=len(chunk)
+                        if size>2*1024*1024:raise ValueError('Foto demasiado grande.')
+                        chunks.append(chunk)
+                def thumbnail():
+                    with Image.open(io.BytesIO(b''.join(chunks))) as image:
+                        if image.width*image.height>4000000:raise ValueError('Foto demasiado grande.')
+                        image.thumbnail((96,96));out=io.BytesIO();image.convert('RGB').save(out,format='JPEG',quality=80);return out.getvalue()
+                data=await asyncio.to_thread(thumbnail)
+                if sum(len(v.get('image',b'')) for v in self.profiles.values())+len(data)<4*1024*1024:profile['image']=data
+        if not authorized(actor):raise web.HTTPForbidden()
+        try:await require_account(self.s,uid,actor)
+        except ValueError:raise web.HTTPForbidden() from None
+        return web.Response(body=data,content_type='image/jpeg',headers=HEADERS)
     async def chats(self,actor,uid,cursor=''):
         async with self.account(actor,uid) as (client,generation):
             kwargs={'limit':61}
@@ -235,7 +299,7 @@ class TelegramPanel:
             except ValueError:raise web.HTTPUnauthorized()
             actor=session['actor'];self.rate('actor:'+str(actor),240)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar') else None
+            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar') else None
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf']},headers=HEADERS)
             if op=='logout' and post:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
@@ -243,6 +307,9 @@ class TelegramPanel:
                 await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
             if request.method!='GET':raise web.HTTPNotFound()
             if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
+            elif op=='account-profile':
+                profile=await self.account_profile(actor,uid);result={k:profile[k] for k in ('name','username')};result['avatar']=bool(profile['file'])
+            elif op=='account-avatar':return await self.account_avatar(actor,uid)
             elif op=='chats':result=await self.chats(actor,uid,request.query.get('cursor',''))
             elif op in ('messages','gallery'):result=await self.messages(actor,uid,request.query.get('peer',''),integer(request.query.get('before','0'),0),op=='gallery',request.query.get('q',''))
             elif op in ('media','thumb','avatar'):return await self.media(request,actor,uid,request.query.get('peer',''),integer(request.query.get('message','1')),op=='thumb',op=='avatar')

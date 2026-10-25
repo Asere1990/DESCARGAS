@@ -115,3 +115,53 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         async def download(*args,**kwargs):self.allowed.clear();return b'PRIVATE'
         self.client.download_media.side_effect=download
         await self.setup_http();r=await self.http.get('/panel/api/thumb',params={'account':'22','peer':self.peer,'message':'9'});self.assertEqual(r.status,403);self.assertNotIn(b'PRIVATE',await r.read())
+
+    async def test_account_names_use_directory_and_current_telegram_profile_without_user_sessions(self):
+        self.pool.fetch.return_value=[{'uid':22,'profile':json.dumps({'phone':'12025550123'}),'name':json.dumps({'name':'Nombre del directorio'})}]
+        result=await self.panel.accounts(111)
+        self.assertEqual(result['items'][0]['name'],'Nombre del directorio')
+        self.pool.fetchrow=AsyncMock(return_value=self.pool.fetch.return_value[0])
+        self.s.api=AsyncMock(return_value={'id':22,'first_name':'Ana','last_name':'García','username':'ana_demo','photo':{'small_file_id':'private-photo-id'}})
+        current=await self.panel.account_profile(111,22)
+        self.assertEqual(current['name'],'Ana García');self.assertEqual(current['username'],'ana_demo')
+        again=await self.panel.account_profile(111,22);self.assertEqual(current,again)
+        self.s.api.assert_awaited_once_with('getChat',{'chat_id':22});self.client.get_me.assert_not_awaited()
+        self.assertEqual(p.account_label({'name':'5122070504'}),'Cuenta de Telegram')
+        self.assertEqual(p.account_label({'name':'Nombre no disponible'},{'name':'Nombre conocido'}),'Nombre conocido')
+        self.assertEqual(p.account_label({'username':'equipo'}),'@equipo')
+    async def test_profile_endpoint_never_exposes_photo_file_ids_and_rechecks_access_for_cached_photos(self):
+        self.pool.fetchrow=AsyncMock(return_value={'profile':None,'name':None})
+        self.s.api=AsyncMock(return_value={'id':22,'first_name':'Ana','photo':{'small_file_id':'private-photo-id'}})
+        await self.setup_http()
+        r=await self.http.get('/panel/api/account-profile',params={'account':'22'});data=await r.json()
+        self.assertEqual(data,{'name':'Ana','username':'','avatar':True});self.assertNotIn('private-photo-id',json.dumps(data))
+        self.panel.profiles[(111,22)]['image']=b'cached-avatar'
+        r=await self.http.get('/panel/api/account-avatar',params={'account':'22'});self.assertEqual(r.status,200);self.assertEqual(await r.read(),b'cached-avatar')
+        self.allowed.clear();r=await self.http.get('/panel/api/account-avatar',params={'account':'22'});self.assertEqual(r.status,403)
+    async def test_avatar_is_small_jpeg_and_bot_download_token_stays_server_side(self):
+        import io
+        from PIL import Image
+        image=Image.new('RGB',(640,480),'blue');raw=io.BytesIO();image.save(raw,format='JPEG')
+        class Content:
+            async def iter_chunked(self,size):yield raw.getvalue()
+        class Response:
+            status=200;content=Content()
+            async def __aenter__(self):return self
+            async def __aexit__(self,*args):pass
+        self.pool.fetchrow=AsyncMock(return_value={'profile':None,'name':None})
+        self.s.token='fixture-token'
+        self.s.api=AsyncMock(side_effect=[{'id':22,'first_name':'Ana','photo':{'small_file_id':'photo-id'}},{'file_path':'photos/file_1.jpg'}])
+        class Http:
+            def get(self,*args,**kwargs):return Response()
+        self.s.http=Http()
+        response=await self.panel.account_avatar(111,22)
+        self.assertEqual(response.content_type,'image/jpeg')
+        with Image.open(io.BytesIO(response.body)) as thumbnail:self.assertEqual(thumbnail.size,(96,72))
+        self.assertNotIn(b'fixture-token',response.body);self.assertEqual(self.s.api.await_count,2)
+        self.client.get_me.assert_not_awaited()
+    async def test_unavailable_profile_keeps_the_known_name_and_initials_fallback(self):
+        self.pool.fetchrow=AsyncMock(return_value={'profile':None,'name':json.dumps({'name':'Nombre conocido'})})
+        self.s.api=AsyncMock(side_effect=RuntimeError('Telegram unavailable'))
+        profile=await self.panel.account_profile(111,22)
+        self.assertEqual(profile['name'],'Nombre conocido');self.assertIsNone(profile['file'])
+        response=await self.panel.account_avatar(111,22);self.assertEqual(response.status,204)
