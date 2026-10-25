@@ -4,6 +4,8 @@ import io
 import re
 import time
 import zipfile
+import tempfile
+import logging
 from aiohttp import web
 from telethon import utils
 
@@ -46,35 +48,50 @@ async def download(panel,request,actor,data):
         by_id={m.id:m for m in rows if m and getattr(m,'id',None) in ids}
         for mid in ids:validate(by_id.get(mid))
         await check()
-        response=web.StreamResponse(headers={**HEADERS,'Content-Type':'application/zip','Content-Disposition':'attachment; filename="fotos-videos.zip"'})
-        await response.prepare(request)
-        sink=ZipSink();iterator=None;checked=time.monotonic()
-        try:
-            with zipfile.ZipFile(sink,'w',compression=zipfile.ZIP_STORED,allowZip64=True) as archive:
-                for mid in ids:
-                    await check()
-                    message=await client.get_messages(entity,ids=mid)
-                    info=validate(message)
-                    filename=str(mid)+'_'+re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])[:150]
-                    if '.' not in filename:filename+='.jpg' if info['type']=='photo' else '.webm' if info['mime']=='video/webm' else '.mp4'
-                    with archive.open(filename,'w',force_zip64=True) as output:
-                        await sink.drain(response);written=0
-                        iterator=client.iter_download(message.media,request_size=262144,chunk_size=262144)
-                        try:
-                            async for chunk in iterator:
-                                if not authorized(actor):raise web.HTTPForbidden()
-                                if time.monotonic()-checked>=5:await check();checked=time.monotonic()
-                                output.write(chunk);written+=len(chunk);await sink.drain(response)
-                        finally:
-                            await iterator.close();iterator=None
-                        if info['size'] and written!=info['size']:raise ValueError('Transferencia incompleta.')
-                    await sink.drain(response)
-            await check();await sink.drain(response);await response.write_eof()
-        except asyncio.CancelledError:raise
-        except Exception:
-            # Never finish a valid-looking archive after a failed or revoked transfer.
-            response.force_close()
-            if request.transport:request.transport.close()
-        finally:
-            if iterator is not None:await iterator.close()
-        return response
+        # Finish and verify the ZIP before starting an attachment response.
+        # Mobile download managers need a stable size and a complete archive.
+        # Temporary disk storage bounds RAM and is deleted on every exit path.
+        iterator=None;checked=time.monotonic()
+        with tempfile.TemporaryFile(prefix='descargas-panel-zip-') as prepared:
+            try:
+                with zipfile.ZipFile(prepared,'w',compression=zipfile.ZIP_STORED,allowZip64=True) as archive:
+                    for mid in ids:
+                        await check()
+                        message=await client.get_messages(entity,ids=mid)
+                        info=validate(message)
+                        filename=str(mid)+'_'+re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])[:150]
+                        if '.' not in filename:filename+='.jpg' if info['type']=='photo' else '.webm' if info['mime']=='video/webm' else '.mp4'
+                        with archive.open(filename,'w',force_zip64=True) as output:
+                            written=0
+                            iterator=client.iter_download(message.media,request_size=262144,chunk_size=262144)
+                            try:
+                                async for chunk in iterator:
+                                    if not authorized(actor):raise web.HTTPForbidden()
+                                    if time.monotonic()-checked>=5:await check();checked=time.monotonic()
+                                    await asyncio.to_thread(output.write,chunk);written+=len(chunk)
+                            finally:
+                                await iterator.close();iterator=None
+                            if info['size'] and written!=info['size']:raise ValueError('Transferencia incompleta.')
+                await check()
+                size=prepared.tell();prepared.seek(0)
+                response=web.StreamResponse(headers={**HEADERS,'Content-Type':'application/zip',
+                    'Content-Disposition':'attachment; filename="fotos-videos.zip"',
+                    'Content-Length':str(size),'X-Accel-Buffering':'no'})
+                await response.prepare(request)
+                try:
+                    while chunk:=await asyncio.to_thread(prepared.read,262144):
+                        await check()
+                        await response.write(chunk)
+                    await response.write_eof()
+                except asyncio.CancelledError:raise
+                except Exception as exc:
+                    logging.getLogger(__name__).warning('ZIP delivery interrupted (%s)',type(exc).__name__)
+                    response.force_close()
+                    if request.transport:request.transport.close()
+                return response
+            except asyncio.CancelledError:raise
+            except Exception as exc:
+                logging.getLogger(__name__).warning('ZIP preparation failed (%s)',type(exc).__name__)
+                raise
+            finally:
+                if iterator is not None:await iterator.close()

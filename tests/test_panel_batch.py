@@ -55,7 +55,10 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_streamed_zip_contains_exact_selected_media_once_and_closes_transfers(self):
         await self.prepare();r=await self.send();self.assertEqual(r.status,200)
         self.assertIn('attachment',r.headers['Content-Disposition'])
-        with zipfile.ZipFile(io.BytesIO(await r.read())) as archive:
+        payload=await r.read()
+        self.assertEqual(int(r.headers['Content-Length']),len(payload))
+        self.assertNotIn('Transfer-Encoding',r.headers)
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
             self.assertEqual(len(archive.namelist()),2)
             self.assertEqual([archive.read(n) for n in archive.namelist()],list(self.payloads.values()))
             self.assertTrue(all('/' not in n for n in archive.namelist()))
@@ -76,6 +79,14 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
         await self.prepare();r=await self.send(csrf='wrong');self.assertEqual(r.status,403)
         self.guard.side_effect=ValueError('Acceso retirado')
         r=await self.send();self.assertNotEqual(r.status,200);self.assertEqual(self.started,[])
+    async def test_incomplete_telegram_file_returns_error_instead_of_downloadable_zip(self):
+        await self.prepare()
+        message=await self.client.get_messages(self.entity,ids=10)
+        message.document.size+=1
+        r=await self.send()
+        self.assertEqual(r.status,409);self.assertNotIn('Content-Disposition',r.headers)
+        self.assertIn('Transferencia incompleta',await r.text())
+
     async def test_wrong_chat_message_cannot_be_extracted_in_a_batch(self):
         await self.prepare();m=await self.client.get_messages(self.entity,ids=10);m.peer_id=types.PeerUser(99)
         r=await self.send();self.assertEqual(r.status,409);self.assertEqual(self.started,[])
@@ -88,5 +99,5 @@ class BatchTests(unittest.IsolatedAsyncioTestCase):
             if calls>=4:raise ValueError('Acceso retirado')
         self.guard.side_effect=guard
         r=await self.send()
-        with self.assertRaises(ClientPayloadError):await r.read()
+        self.assertEqual(r.status,409);self.assertNotEqual(r.content_type,'application/zip')
         self.assertEqual(self.started,[9]);self.assertEqual(self.closed,[9])
