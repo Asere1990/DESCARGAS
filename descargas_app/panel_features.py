@@ -58,6 +58,23 @@ class PanelFeatures:
         except errors.RPCError:return
         for item in items:
             if item['out']:item['delivery']='read' if item['id']<=read_max else 'sent'
+    async def changes(self,actor,uid,handle,ids):
+        from .web_panel import message_data,integer
+        requested=list(dict.fromkeys(integer(value) for value in ids.split(',') if value))
+        if len(requested)>100:raise ValueError('Solicita hasta 100 mensajes por consulta.')
+        async with self.p.account(actor,uid) as (client,generation):
+            entity=await self.p.target(actor,uid,generation,client,handle)
+            rows=await client.get_messages(entity,ids=requested) if requested else []
+            items=[]
+            for message in rows:
+                if not message or getattr(message,'peer_id',None) is None or utils.get_peer_id(message.peer_id)!=utils.get_peer_id(entity):continue
+                value=message_data(message,bool(getattr(entity,'noforwards',False)))
+                if value:items.append(value)
+            await self.replies(client,entity,items)
+            await self.receipts(client,entity,items)
+            await self.check(actor,uid,client,entity)
+            found={m['id'] for m in items}
+            return {'items':items,'deleted':[mid for mid in requested if mid not in found]}
     async def context(self,actor,uid,handle,mid):
         from .web_panel import message_data,name
         async with self.p.account(actor,uid) as (client,generation):

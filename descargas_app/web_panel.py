@@ -95,6 +95,10 @@ class TelegramPanel:
         self.actions=PanelActions(self)
         from .panel_features import PanelFeatures
         self.features=PanelFeatures(self)
+        from .panel_live import LiveHub
+        self.live=LiveHub(self)
+        from .panel_emoji import PremiumEmoji
+        self.emoji=PremiumEmoji(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -121,10 +125,15 @@ class TelegramPanel:
         token=ACTOR.set(actor)
         try:
             if self.slots.locked():raise ValueError('Hay varias consultas en curso. Reintenta en unos segundos.')
-            async with self.slots,asyncio.timeout(timeout),connected(self.s,uid) as client:
-                client.flood_sleep_threshold=0
-                row=await self.s.repo.account(uid)
-                yield client,row['generation']
+            async with self.slots,asyncio.timeout(timeout):
+                async with self.live.borrow(actor,uid) as live:
+                    if live:
+                        yield live
+                    else:
+                        async with connected(self.s,uid) as client:
+                            client.flood_sleep_threshold=0
+                            row=await self.s.repo.account(uid)
+                            yield client,row['generation']
                 if not authorized(actor):raise web.HTTPForbidden()
                 await require_account(self.s,uid,actor)
         finally:ACTOR.reset(token)
@@ -312,7 +321,8 @@ class TelegramPanel:
             except ValueError:raise web.HTTPUnauthorized()
             actor=session['actor'];self.rate('actor:'+str(actor),240)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb') else None
+            uid=integer(request.query.get('account')) if op in ('chats','messages','gallery','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
+            if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf']},headers=HEADERS)
             if op=='logout' and post:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
@@ -334,6 +344,9 @@ class TelegramPanel:
                 profile=await self.account_profile(actor,uid);result={k:profile[k] for k in ('name','username')};result['avatar']=bool(profile['file'])
             elif op=='account-avatar':return await self.account_avatar(actor,uid)
             elif op in ('permissions','administrators','user-info','group-details'):result=await self.actions.inspect(actor,uid,request.query.get('peer',''),op=='administrators',request.query.get('target') if op=='user-info' else None,op=='group-details')
+            elif op=='emoji':
+                mime,data=await self.emoji.asset(actor,uid,request.query.get('peer',''),integer(request.query.get('message')),integer(request.query.get('document')));return web.Response(body=data,content_type=mime,headers=HEADERS)
+            elif op=='changes':result=await self.features.changes(actor,uid,request.query.get('peer',''),request.query.get('ids',''))
             elif op=='context':result=await self.features.context(actor,uid,request.query.get('peer',''),integer(request.query.get('message')))
             elif op=='global-search':result=await self.features.search(actor,uid,request.query.get('q',''),request.query.get('cursor',''))
             elif op=='folders':result=await self.features.folders(actor,uid)
@@ -361,12 +374,14 @@ class TelegramPanel:
 
 def mount_panel(app,service):
     panel=TelegramPanel(service)
+    async def stop_live(app):await panel.live.close()
+    app.on_shutdown.append(stop_live)
     async def index(request):
         base=request.path.rstrip('/')
         return web.Response(text=(ROOT/'index.html').read_text().replace('__PANEL_BASE__',html.escape(base,quote=True)),content_type='text/html',headers=HEADERS)
     async def asset(request):
         filename=request.match_info['name']
-        if filename not in ('app.js','style.css','wallpaper.svg'):raise web.HTTPNotFound()
+        if filename not in ('app.js','style.css','wallpaper.svg','lottie-light.js','lottie-LICENSE.txt'):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/filename,headers=HEADERS)
     prefixes={'/panel',urlsplit(service.url).path.rstrip('/')+'/panel'}
     for prefix in prefixes:

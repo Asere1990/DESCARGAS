@@ -157,9 +157,19 @@ class Repository(BillingRepository,AdminRepository):
     async def account_lock(self,uid,wait=True):
         # A dedicated session lock serializes downloads, login and logout across processes.
         async with self.pool.acquire() as conn:
-            if wait:await conn.execute('SELECT pg_advisory_lock($1)',uid)
-            elif not await conn.fetchval('SELECT pg_try_advisory_lock($1)',uid):
-                raise ValueError('Espera a que termine la transferencia en curso y vuelve a intentarlo.')
+            acquired=await conn.fetchval('SELECT pg_try_advisory_lock($1)',uid)
+            if not acquired:
+                # Only a panel listener cooperates. Other busy transfers retain
+                # the original fail-fast behavior of wait=False.
+                live=await conn.fetchval("SELECT EXISTS(SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid WHERE l.locktype='advisory' AND l.granted AND l.objsubid=1 AND l.classid=($1::bigint >> 32)::oid AND l.objid=($1::bigint & 4294967295)::oid AND a.application_name='descargas-panel-live')",uid)
+                if live:await conn.execute("SELECT pg_notify('descargas_panel_yield',$1)",str(uid))
+                if wait:await conn.execute('SELECT pg_advisory_lock($1)',uid)
+                elif live:
+                    for _ in range(50):
+                        await asyncio.sleep(.1)
+                        if await conn.fetchval('SELECT pg_try_advisory_lock($1)',uid):break
+                    else:raise ValueError('Espera a que termine la transferencia en curso y vuelve a intentarlo.')
+                else:raise ValueError('Espera a que termine la transferencia en curso y vuelve a intentarlo.')
             try:yield
             finally:await conn.execute('SELECT pg_advisory_unlock($1)',uid)
     @asynccontextmanager
