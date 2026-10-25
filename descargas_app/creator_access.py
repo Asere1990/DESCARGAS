@@ -62,7 +62,7 @@ async def require_source(s,uid,source,client=None,entity=None,actor=None):
     blocked_bots=bots()
     if source in sources() or str(source) in blocked_bots:raise ValueError(DENIED)
     if entity is not None and getattr(entity,'bot',False) and (getattr(entity,'username',None) or '').lower() in blocked_bots:raise ValueError(DENIED)
-    protected=ids('cuentas.txt')
+    protected=ids('cuentas.txt') | ids('admins.txt')
     protected.update(await registrations(s))
     if source>0:
         if source in protected or source in ids('admins.txt'):raise ValueError(DENIED)
@@ -127,7 +127,7 @@ async def visible_sources(s,actor,rows):
     from .protected import sources,bots
     blocked=sources() | {int(v) for v in bots() if v.isdecimal()}
     rows=[r for r in rows if r['source'] not in blocked and r['source'] not in ids('admins.txt')]
-    protected=ids('cuentas.txt') | set(await registrations(s))
+    protected=ids('cuentas.txt') | ids('admins.txt') | set(await registrations(s))
     if not protected:return rows
     hidden=await s.repo.pool.fetch('SELECT DISTINCT source FROM descarga_creator_owners WHERE bot_id=$1 AND owner=ANY($2::bigint[])',s.bot_id,list(protected))
     hidden={r['source'] for r in hidden}

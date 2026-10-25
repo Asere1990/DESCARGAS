@@ -112,6 +112,26 @@ class ReviewerPolicyTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):await policy.require_account(self.s,uid,88)
             await policy.require_account(self.s,uid,99)
         await policy.require_account(self.s,34,88)
+    async def test_admin_owned_source_hidden_even_when_cuentas_is_empty(self):
+        (policy.ROOT/'cuentas.txt').write_text('')
+        self.s.repo.pool.fetchval.return_value=None
+        self.s.repo.pool.execute=AsyncMock()
+        client=N(get_participants=AsyncMock(return_value=[N(id=99,participant=types.ChannelParticipantCreator(99,types.ChatAdminRights()))]))
+        with self.assertRaisesRegex(ValueError,'protegido'):
+            await policy.require_source(self.s,34,-100999,client=client,entity=N(creator=False),actor=88)
+        await policy.require_source(self.s,34,-100999,client=client,entity=N(creator=False),actor=99)
+    async def test_cached_admin_owned_source_hidden_without_opening_account(self):
+        (policy.ROOT/'cuentas.txt').write_text('')
+        with self.assertRaises(ValueError):await policy.require_source(self.s,34,-100999,actor=88)
+        owners=self.s.repo.pool.fetchval.call_args.args[-1]
+        self.assertIn(99,owners)
+    async def test_source_summary_filters_admin_owned_groups(self):
+        (policy.ROOT/'cuentas.txt').write_text('')
+        self.s.repo.pool.fetch=AsyncMock(side_effect=[[{'source':-100999}],[{'source':-100999},{'source':-100888}]])
+        rows=await policy.visible_sources(self.s,88,[{'source':-100999},{'source':-100888}])
+        self.assertEqual(rows,[{'source':-100888}])
+        self.assertIn(99,self.s.repo.pool.fetch.await_args_list[0].args[-1])
+
     async def test_hidden_sources_and_bots_are_blocked_even_for_direct_handles(self):
         for source,entity in [(-100123,None),(456,None),(789,N(bot=True,username='Hidden_bot'))]:
             with self.assertRaises(ValueError):await policy.require_source(self.s,34,source,entity=entity,actor=88)
