@@ -16,6 +16,27 @@ class FeatureTests(unittest.IsolatedAsyncioTestCase):
     payload=actions.ActionsTests.payload
     group=actions.ActionsTests.group
     setup_http=fixtures.PanelTests.setup_http
+    async def test_group_counts_read_totals_and_online_without_listing_all_members(self):
+        self.group()
+        self.client.rpc.side_effect=[N(full_chat=N(participants_count=1234)),N(onlines=27)]
+        result=await self.panel.features.chat_counts(111,22,self.peer)
+        self.assertEqual(result,{'members':1234,'online':27})
+        calls=[a.args[0] for a in self.client.rpc.await_args_list]
+        self.assertIsInstance(calls[0],functions.channels.GetFullChannelRequest)
+        self.assertIsInstance(calls[1],functions.messages.GetOnlinesRequest)
+        self.guard.assert_awaited()
+    async def test_channel_counts_do_not_request_online_members(self):
+        self.group();self.entity.broadcast=True
+        self.client.rpc.return_value=N(full_chat=N(participants_count=400))
+        result=await self.panel.features.chat_counts(111,22,self.peer)
+        self.assertEqual(result,{'members':400,'online':None})
+        self.assertEqual(self.client.rpc.await_count,1)
+    async def test_unavailable_online_count_is_not_reported_as_zero(self):
+        from telethon import errors
+        self.group();self.client.rpc.side_effect=[N(full_chat=N(participants_count=400)),errors.ChatAdminRequiredError(None)]
+        result=await self.panel.features.chat_counts(111,22,self.peer)
+        self.assertIsNone(result['online']);self.assertEqual(result['members'],400)
+
     async def test_reply_preview_fetches_original_outside_loaded_page_and_checks_peer(self):
         original=fixtures.message(2,text='Original histórico');original.peer_id=types.PeerUser(55)
         wrong=fixtures.message(3,text='Otro chat');wrong.peer_id=types.PeerUser(99)

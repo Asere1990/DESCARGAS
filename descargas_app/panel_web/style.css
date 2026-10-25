@@ -50,3 +50,5 @@
 .account-search-warning{padding:8px;line-height:1.5;color:#997044}
 #accounts-search-form{position:sticky;top:84px;z-index:2}#accounts-search-form button{font-size:12px;flex-shrink:0}
 .filters{flex-wrap:wrap;overflow:visible}.filters button{flex-shrink:0}
+
+#media-dialog{max-height:94dvh;overflow-y:auto}#media-dialog #download{position:sticky;bottom:0;background:#fff;font-weight:600;min-height:44px}#download[aria-disabled=true]{color:#87929a;pointer-events:none}.attachment{-webkit-touch-callout:none;user-select:none;-webkit-user-select:none}.attachment.selectable-media::after{z-index:4;pointer-events:none}#chat-counts{font-size:12px;letter-spacing:0;margin-top:3px}.batch-toolbar{position:relative;z-index:3;min-height:44px}

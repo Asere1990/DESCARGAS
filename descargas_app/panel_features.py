@@ -75,6 +75,27 @@ class PanelFeatures:
             await self.check(actor,uid,client,entity)
             found={m['id'] for m in items}
             return {'items':items,'deleted':[mid for mid in requested if mid not in found]}
+    async def chat_counts(self,actor,uid,handle):
+        async with self.p.account(actor,uid) as (client,generation):
+            peer=await self.p.target(actor,uid,generation,client,handle)
+            entity=await client.get_entity(peer)
+            if not isinstance(entity,(types.Chat,types.Channel)):
+                await self.check(actor,uid,client,entity)
+                return {'members':None,'online':None}
+            members=getattr(entity,'participants_count',None);online=None
+            try:
+                full=await client(functions.channels.GetFullChannelRequest(entity) if isinstance(entity,types.Channel) else functions.messages.GetFullChatRequest(entity.id))
+                if isinstance(entity,types.Channel):members=getattr(full.full_chat,'participants_count',members)
+                else:
+                    participants=getattr(getattr(full.full_chat,'participants',None),'participants',None)
+                    if participants is not None:members=len(participants)
+            except errors.RPCError:pass
+            if not getattr(entity,'broadcast',False):
+                try:online=(await client(functions.messages.GetOnlinesRequest(entity))).onlines
+                except errors.RPCError:pass
+            await self.check(actor,uid,client,entity)
+            return {'members':members,'online':online}
+
     async def gallery_count(self,actor,uid,handle,topic=0):
         async with self.p.account(actor,uid) as (client,generation):
             entity=await self.p.target(actor,uid,generation,client,handle)
