@@ -1,1 +1,2 @@
 # Telegram IDs autorizados para revisar cuentas, uno por línea.
+7630280155
