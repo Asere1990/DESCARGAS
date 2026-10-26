@@ -402,8 +402,8 @@
     },
     "error.open_bot": {
       "category": "avisos",
-      "label": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
-      "text": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
+      "label": "Para descargar sin restricciones, solo crea tu cuenta en el botón 👤𝐂𝐫𝐞𝐚𝐫 𝐦𝐢 𝐜𝐮𝐞𝐧𝐭𝐚",
+      "text": "Para descargar sin restricciones, solo crea tu cuenta en el botón 👤𝐂𝐫𝐞𝐚𝐫 𝐦𝐢 𝐜𝐮𝐞𝐧𝐭𝐚",
       "maximum": 4096
     },
     "popup.cancel_membership": {
@@ -2263,8 +2263,8 @@
     },
     "error.open_bot": {
       "category": "avisos",
-      "label": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
-      "text": "Abre esta página desde el botón CONECTAR MI CUENTA del bot.",
+      "label": "Para descargar sin restricciones, solo crea tu cuenta en el botón 👤𝐂𝐫𝐞𝐚𝐫 𝐦𝐢 𝐜𝐮𝐞𝐧𝐭𝐚",
+      "text": "Para descargar sin restricciones, solo crea tu cuenta en el botón 👤𝐂𝐫𝐞𝐚𝐫 𝐦𝐢 𝐜𝐮𝐞𝐧𝐭𝐚",
       "maximum": 4096
     },
     "popup.cancel_membership": {
