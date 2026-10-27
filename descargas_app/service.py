@@ -109,7 +109,7 @@ class Service:
 
     def client(self,session=''):
         return TelegramClient(StringSession(session),int(self.api_id),self.api_hash,
-            device_model='DESCARGAS · sesión autorizada',app_version='1.0',receive_updates=False,
+            device_model='Telegram · sesión autorizada',app_version='1.0',receive_updates=False,
             flood_sleep_threshold=0,request_retries=3,connection_retries=1,
             raise_last_call_error=True)
 
