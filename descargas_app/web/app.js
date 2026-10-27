@@ -16,7 +16,6 @@ if(creatorMode){
  for(const selector of ['.success','.eyebrow','h1','.intro'])done.querySelector(selector).hidden=true;
  $('creator-review').hidden=true;
  $('creator-authorize').hidden=true;
- $('disconnect').textContent=t("creator.disconnect_button");
 }
 
 function show(step){if(creatorMode){$('creator-authorize').hidden=step!=='done';$('creator-review').hidden=step!=='done';if(step==='done')window.scrollTo(0,0);}['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
@@ -33,22 +32,6 @@ $('password-send').onclick=()=>perform(async()=>{const password=$('password').va
 $('back').onclick=()=>show('phone');
 document.querySelectorAll('[data-toggle]').forEach(button=>button.onclick=()=>{const input=$(button.dataset.toggle);input.type=input.type==='password'?'text':'password';button.textContent=input.type==='password'?t("button.show"):t("button.hide");});
 $('return').onclick=()=>{if(tg)tg.close();};
-$('disconnect').onclick=()=>{
- const run=()=>perform(async()=>{
-  if(creatorMode){
-   await api('creator-revoke');
-   $('creator-consent').checked=false;
-   $('creator-state').textContent=t("status.revoked");
-  }
-  try{await api('disconnect');}
-  catch(e){throw Error((creatorMode?t("error.partial_disconnect"):'')+e.message);}
-  $('consent').checked=false;
-  show('phone');
-  $('notice').textContent=creatorMode?t("status.revoked_disconnected"):t("status.disconnected");
- });
- const question=creatorMode?t("popup.creator_disconnect"):t("popup.disconnect");
- confirmAction(question,run);
-};
 $('contact').onclick=()=>perform(async()=>{
  if(!tg?.requestContact)throw Error(t("error.manual_phone"));
  const shared=await new Promise(resolve=>tg.requestContact(resolve));
