@@ -239,5 +239,39 @@ window.addEventListener('pagehide',saveResume);
 // Safari may restore the page from its back/forward cache without visibilitychange.
 window.addEventListener('pageshow',event=>{if(event.persisted){startLive();if(chat&&!modal&&!contextMode)loadMessages(false,true);}});
 
+
+// Purchased media stays inside this account's read-only folder.
+$('purchases').onclick=()=>openPurchases().catch(e=>notice(e.message));
+async function openPurchases(){
+ if(!account||operationBusy)return;
+ const selected=account,root=el('section'),box=management('⭐ Comprados · '+account.name);
+ box.append(root);let next=null,busy=false,selectedSource=null;
+ const purchases=new Map(),groups=new Map(),status=el('p','Consultando compras…'),list=el('div'),more=el('button','Cargar más compras');
+ more.hidden=true;root.append(status,list,more);
+ const current=()=>account===selected&&root.isConnected&&$('management').open;
+ const url=(op,item,index)=>base+'/api/'+op+'?account='+selected.id+'&peer='+encodeURIComponent(item.chat.handle)+'&purchase='+encodeURIComponent(item.token)+'&index='+index;
+ const stopMedia=()=>{for(const video of list.querySelectorAll('video')){video.pause();video.removeAttribute('src');video.load();}};
+ const render=()=>{
+  stopMedia();list.replaceChildren();
+  if(selectedSource===null){
+   for(const [source,group] of groups){const button=el('button');button.className='search-hit';button.append(el('strong',group.chat.name),el('span',(group.chat.bot?'Bot':{private:'Chat privado',group:'Grupo',channel:'Canal'}[group.chat.type])+' · '+group.items.size+' compras cargadas'));button.onclick=()=>{selectedSource=source;render();};list.append(button);}
+  }else{
+   const group=groups.get(selectedSource),back=el('button','‹ Volver a Comprados');back.onclick=()=>{selectedSource=null;render();};list.append(back,el('h3',group.chat.name));
+   for(const id of group.items){const item=purchases.get(id),card=el('article');card.className='purchase-card';card.append(el('strong',item.title),el('p',date(item.date)+' · '+item.media.length+' archivos'));
+    if(item.link){const link=el('a','Abrir mensaje original en Telegram');link.href=item.link;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}else card.append(el('small','Este chat no tiene un enlace público al mensaje.'));
+    if(item.message){const jump=el('button','Ver mensaje en el panel');jump.onclick=async()=>{stopMedia();$('management').close();try{await openChat(item.chat);await jumpToMessage(item.message);}catch(e){notice(e.message);}};card.append(jump);}
+    for(const media of item.media){const row=el('div'),show=el('button',(media.type==='video'?'▶ Ver video':'🖼 Ver foto')+' '+(media.index+1));row.className='purchase-media';show.onclick=()=>{const node=el(media.type==='video'?'video':'img');node.className='purchase-preview';if(media.type==='video'){node.controls=true;node.playsInline=true;node.preload='metadata';}else node.alt='Foto comprada';node.src=url('purchase-media',item,media.index);node.onerror=()=>notice('No se pudo cargar este archivo. Vuelve a abrir Comprados para actualizarlo.');show.replaceWith(node);};row.append(show);card.append(row);}
+    list.append(card);
+   }
+  }
+  status.textContent=purchases.size?(next?'Resultados parciales · '+purchases.size+' compras cargadas.':'Consulta completada · '+purchases.size+' compras disponibles.'):(next?'Todavía no hay fotos o videos comprados en esta página. Carga más para continuar.':'No hay fotos o videos comprados disponibles para esta cuenta.');
+  more.hidden=!next;
+ };
+ const load=async()=>{if(busy||!current())return;busy=true;more.disabled=true;status.textContent='Consultando compras…';try{const data=await api('purchases?account='+selected.id+(next?'&cursor='+encodeURIComponent(next):''));if(!current())return;for(const item of data.items){if(purchases.has(item.id))continue;purchases.set(item.id,item);let group=groups.get(item.chat.id);if(!group){group={chat:item.chat,items:new Set()};groups.set(item.chat.id,group);}group.items.add(item.id);}next=data.next;render();}catch(e){if(current()){status.textContent=e.message;more.hidden=false;more.textContent='Reintentar';}}finally{busy=false;more.disabled=false;}};
+ more.onclick=load;
+ const close=()=>{stopMedia();$('management').removeEventListener('close',close);};$('management').addEventListener('close',close);
+ await load();
+}
+
 (async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;await loadAccounts();await resumePanel();resumeReady=true;queueResume();}catch(e){locked(e.message);}})();
 })();

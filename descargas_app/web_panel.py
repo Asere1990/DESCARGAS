@@ -270,7 +270,7 @@ class TelegramPanel:
             try:await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
             except ValueError:raise web.HTTPForbidden() from None
             return {'items':list(reversed(items)),'next':rows[59].id if len(rows)>60 else None,'title':name(entity),'status':self.features.status(entity)}
-    async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False):
+    async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False,purchase=None,index=0):
         # Transfers are streamed and never saved to the download queue, ALMACEN or Dropbox.
         async with self.transfers,self.account(actor,uid,timeout=300) as (client,generation):
             entity=await self.target(actor,uid,generation,client,handle)
@@ -280,7 +280,11 @@ class TelegramPanel:
                 await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
                 if not authorized(actor):raise web.HTTPForbidden()
                 return web.Response(body=data,content_type='image/jpeg',headers=HEADERS)
-            m=await client.get_messages(entity,ids=mid)
+            if purchase is not None:
+                from .panel_purchases import resolve
+                m=await resolve(self,actor,uid,generation,client,entity,purchase,index)
+            else:
+                m=await client.get_messages(entity,ids=mid)
             if not m:raise ValueError('Archivo no disponible.')
             info=media_info(m)
             if not info:raise ValueError('Archivo no disponible o temporal.')
@@ -349,7 +353,7 @@ class TelegramPanel:
                 from .panel_batch import download
                 return await download(self,request,actor,data)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('saved-chat','account-status','accounts-search','chats','messages','gallery','member-list','gallery-count','chat-counts','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
+            uid=integer(request.query.get('account')) if op in ('purchases','purchase-media','purchase-thumb','saved-chat','account-status','accounts-search','chats','messages','gallery','member-list','gallery-count','chat-counts','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
             if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf'],'reviewer':reviewer(actor),'admin':police(actor),'zip_limit':10 if reviewer(actor) else 500},headers=HEADERS)
             if op=='logout' and post:
@@ -374,6 +378,11 @@ class TelegramPanel:
             if request.method!='GET':raise web.HTTPNotFound()
             if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
             elif op=='account-status':result=await self.overview.check(actor,uid)
+            elif op=='purchases':
+                from .panel_purchases import listing
+                result=await listing(self,actor,uid,request.query.get('cursor',''))
+            elif op in ('purchase-media','purchase-thumb'):
+                return await self.media(request,actor,uid,request.query.get('peer',''),1,thumb=op=='purchase-thumb',purchase=request.query.get('purchase',''),index=integer(request.query.get('index','0'),0))
             elif op=='saved-chat':result=await self.saved_chat(actor,uid)
             elif op=='accounts-search':result=await self.features.overview_search(actor,uid,request.query.get('q',''),request.query.get('cursor',''))
             elif op=='account-profile':
@@ -427,3 +436,4 @@ def mount_panel(app,service):
         app.router.add_get(prefix,index);app.router.add_get(prefix+'/',index)
         app.router.add_get(prefix+'/assets/{name}',asset);app.router.add_route('*',prefix+'/api/{op}',panel.handle)
     return panel
+
