@@ -374,7 +374,7 @@ $("browser-logout").onclick=async()=>{
    await openAdminScreen();
   }catch(e){
    show("admin-login");
-   if(e.message.includes("GALERIAS_ADMIN_PASSWORD"))
+   if(e.message.includes("PASSWORD"))
       $("browser-login-error").textContent=e.message;
   }
   return;

@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS wg_admin_login_attempts(
 
 def configured_password():
     # No hay contraseña predeterminada ni se acepta una contraseña vacía.
-    return os.environ.get("GALERIAS_ADMIN_PASSWORD","")
+    return os.environ.get("PASSWORD","")
 
 def password_version():
     secret=configured_password()
@@ -94,7 +94,7 @@ async def login(g,request):
     configured=configured_password()
     if not configured or not password_version():
         raise web.HTTPServiceUnavailable(
-            text="Configura GALERIAS_ADMIN_PASSWORD en CLOUDFLARE → Environment.")
+            text="Configura PASSWORD en CLOUDFLARE → Environment.")
     try:
         data=await request.json()
     except Exception:
