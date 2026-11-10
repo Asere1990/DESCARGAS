@@ -61,7 +61,7 @@ function renderFolders(){
   const title=document.createElement("h3");title.textContent=folder.name;
   const stats=document.createElement("p");
   stats.textContent=pretty(folder.photos)+" fotos · "+pretty(folder.videos)+" videos"+
-   (folder.pending?" · respaldando…":"");
+   (S.me?.admin && folder.pending?" · respaldando…":"");
   card.append(cover,title,stats);
   card.onclick=()=>openFolder(folder);
   card.onkeydown=e=>{if(e.key==="Enter")openFolder(folder);};
