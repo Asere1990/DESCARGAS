@@ -7,6 +7,7 @@ on:
       - 'web_galerias/**'
       - 'tests/test_web_galerias.py'
       - 'tests/test_web_galerias_standalone.py'
+      - 'tests/test_web_galerias_sync.py'
       - 'galerias_standalone.py'
       - 'descargas_app/service.py'
       - 'scale_web.py'
@@ -32,3 +33,4 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_web_galerias.py -v
           python -m unittest discover -s tests -p test_web_galerias_standalone.py -v
+          python -m unittest discover -s tests -p test_web_galerias_sync.py -v

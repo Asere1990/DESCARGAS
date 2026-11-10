@@ -147,8 +147,13 @@ function previewAdmin(){
   const card=document.createElement("div");card.className="admin-row";
   const title=document.createElement("h3");title.textContent=f.name+(f.active?"":" (oculta)");
   const info=document.createElement("p");
-  info.textContent="Origen: "+f.peer+" · "+pretty(f.ready)+" respaldados · "+
-    pretty(f.pending)+" pendientes · "+(f.complete?"Historial catalogado":"Catalogación pendiente")+
+  const state=!f.active?"Pausada":S.admin.sync_enabled?"Respaldo activo":"Esperando sincronizador";
+  info.textContent="Origen: "+f.peer+" · "+state+" · "+
+    pretty(f.ready)+" archivos respaldados · "+pretty(f.pending)+" pendientes · "+
+    pretty(f.scan_count)+" mensajes revisados · "+
+    (f.complete?"Historial catalogado":"Catalogación en progreso")+
+    (f.missing?" · "+pretty(f.missing)+" no disponibles":"")+
+    (f.skipped?" · "+pretty(f.skipped)+" omitidos":"")+
     (f.error?" · "+f.error:"");
   const buttons=document.createElement("div");buttons.className="row-actions";
   const edit=document.createElement("button");edit.className="small-btn";edit.textContent="Renombrar";
@@ -183,9 +188,11 @@ function previewAdmin(){
  }
  const h=$("admin-health");
  h.innerHTML="<h2>Estado del respaldo</h2><p>"+(S.admin.storage_ready?
-  "✓ Almacenamiento privado configurado":"⚠ Falta configurar almacenamiento privado")+
-  "</p><p>"+(S.admin.sync_enabled?"Sincronización habilitada":"Sincronización desactivada durante el piloto")+
-  "</p><p>Una copia completa permanece independiente de Telegram una vez respaldada.</p>";
+  "✓ Almacenamiento R2 conectado":"⚠ Almacenamiento privado pendiente")+
+  "</p><p>"+(S.admin.sync_enabled?
+   "✓ Copia masiva automática: "+esc(S.admin.sync_phase||"en marcha"):
+   "⚠ Sincronizador detenido o pendiente de conexión")+
+  "</p><p>Agregar carpeta → comenzar; ocultar carpeta → pausar; restaurar → continuar. No se borran archivos de R2.</p>";
 }
 async function loadAdmin(){
  try{S.admin=await api("admin-overview");previewAdmin();}catch(e){notice(e.message);}
@@ -295,7 +302,7 @@ $("add-folder").onclick=async()=>{
  const peer=$("new-peer").value.trim(),name=$("new-name").value.trim();
  if(!/^-[0-9]{3,19}$/.test(peer)||!name)return notice("Escribe un ID negativo y el nombre.");
  try{await api("admin-folder",{peer,name});$("new-peer").value="";$("new-name").value="";
-  notice("Carpeta añadida. Se catalogará cuando se active el respaldo.");await loadAdmin();await refresh();}
+  notice("Carpeta agregada: el respaldo se iniciará automáticamente si el sincronizador está conectado.");await loadAdmin();await refresh();}
  catch(e){notice(e.message);}
 };
 $("load-permissions").onclick=loadPermissions;
