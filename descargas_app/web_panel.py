@@ -246,7 +246,7 @@ class TelegramPanel:
                 except ValueError:continue
                 handle=self.pack('peer',actor=actor,uid=uid,generation=generation,**data)
                 last=message_data(d.message,bool(getattr(entity,'noforwards',False))) if d.message else None
-                items.append({'id':str(d.id),'handle':handle,'name':'Mensajes guardados' if d.id==uid else name(entity),
+                items.append({'id':str(d.id),'handle':handle,'name':'Mensajes guardados' if d.id==uid else name(entity),'username':getattr(entity,'username',None) or '',
                  'type':'private' if isinstance(entity,types.User) else 'channel' if getattr(entity,'broadcast',False) else 'group',
                  'date':d.date.timestamp() if d.date else 0,'unread':d.unread_count,'pinned':bool(d.pinned),
                  'preview':last['text'] or (last['media']['type'] if last['media'] else '') if last else '',
