@@ -132,6 +132,15 @@ class Service:
             connect_label='👤𝐂𝐑𝐄𝐀𝐑 𝐂𝐔𝐄𝐍𝐓𝐀' if text=="𝘾𝙧𝙚𝙖 𝙩𝙪 𝙘𝙪𝙚𝙣𝙩𝙖 𝙥𝙧𝙞𝙢𝙚𝙧𝙤 𝙖𝙣𝙩𝙚𝙨 𝙙𝙚 𝙙𝙚𝙨𝙘𝙖𝙧𝙜𝙖𝙧 𝙖𝙧𝙘𝙝𝙞𝙫𝙤𝙨." else '📥𝐃𝐄𝐒𝐂𝐀𝐑𝐆𝐀𝐑 𝐀𝐇𝐎𝐑𝐀'
             buttons=[[{'text':'👤 MI CUENTA' if connected else connect_label,'web_app':{'url':self.url},'style':'primary' if connected else 'success'}]]
             buttons.append([{'text':'🛡 PROTECCIÓN A CREADORES','web_app':{'url':self.url+'?mode=creator'},'style':'primary'}])
+            # Piloto Web Galerías: botón adicional, sin cambiar las opciones existentes.
+            try:
+                from web_galerias.permissions import button_visible
+                if button_visible(uid):
+                    buttons.append([{'text':'🖼 WEB GALERÍAS',
+                        'web_app':{'url':self.url.rstrip('/')+'/web-galerias'},
+                        'style':'primary'}])
+            except Exception:
+                pass  # Jamás impedir el funcionamiento del menú original.
             payload['reply_markup']={'inline_keyboard':buttons}
         await self.api('sendMessage',payload)
 
