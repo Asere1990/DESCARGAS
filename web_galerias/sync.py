@@ -250,11 +250,19 @@ async def sync_folder(g,source):
         if g.closed:raise asyncio.CancelledError()
         return
     except errors.FloodWaitError as exc:
-        seconds=int(getattr(exc,"seconds",60))
-        await mark_discovery(g,folder,uid,True,delay=seconds+5)
+        seconds=max(1,int(getattr(exc,"seconds",60)))
+        # Un FloodWait de 27 s no debe provocar otro intento al cabo de 30 s.
+        # Enfriar tanto esta sesión como el descubrimiento global, sin
+        # interferir con las descargas de DESCARGAS.
+        per_account_cooldown=max(600,seconds+120)
+        g.sync_cooldown_until=max(getattr(g,"sync_cooldown_until",0),
+                                  time.monotonic()+max(90,seconds+45))
+        await mark_discovery(g,folder,uid,True,delay=per_account_cooldown)
         await g.db().execute("""UPDATE wg_folders
-          SET error='Esperando límites de Telegram' WHERE id=$1 AND active""",folder)
-        log.warning("Gallery account rate-limited for %d seconds",seconds)
+          SET error='Telegram pidió esperar; respaldo reprogramado sin afectar cuentas'
+          WHERE id=$1 AND active""",folder)
+        log.warning("Gallery cooldown after rate limit: wait=%ds account_cooldown=%ds",
+                    seconds,per_account_cooldown)
     except ValueError as exc:
         # Cuenta ocupada = ceder, pero credencial no válida = pasar a otra.
         if "Espera a que termine" not in str(exc):
@@ -420,6 +428,11 @@ async def run(g):
                 try:
                     if os.getenv("GALERIAS_SYNC_ENABLED","0")!="1" or not g.storage.ready:
                         await asyncio.sleep(10)
+                        continue
+                    remaining=getattr(g,"sync_cooldown_until",0)-time.monotonic()
+                    if remaining>0:
+                        await checkpoint(g,phase="esperando Telegram")
+                        await asyncio.sleep(min(30,max(1,remaining)))
                         continue
                     await checkpoint(g,phase="esperando_carpetas")
                     folders=await db.fetch("""SELECT * FROM wg_folders WHERE active
