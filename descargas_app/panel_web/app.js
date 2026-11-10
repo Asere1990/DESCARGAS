@@ -562,6 +562,116 @@ $('accounts-search-form').onsubmit=e=>{
 $('continue-account-search').onclick=()=>{if(overviewMode==='phrases')runAccountSearch(true);else if(isEntitySearchMode(overviewMode))runAccountEntitySearch(true);else runAccountMetadataSearch(true);};
 
 
+// Search execution lives on the authenticated web server, not in this browser.
+// iOS may suspend JavaScript in the background; the encrypted database checkpoint
+// and server job continue independently. This view only polls and renders results.
+let persistentJob=null,persistentCursor=0,persistentFetching=false,persistentSeen=new Set(),
+    persistentDisplayed=0,persistentMore=null,persistentPollBusy=false;
+function serverSearchState(state){return ['queued','running','waiting'].includes(state);}
+function serverSearchNote(job){
+ const count=job.completed+'/'+job.total+' cuentas activas revisadas · '+job.found+' resultados';
+ if(job.state==='complete')return 'Búsqueda terminada · '+count;
+ if(job.state==='incomplete')return 'Búsqueda incompleta · '+count+' · '+job.failures+' cuentas con error. Puedes reintentar.';
+ if(job.state==='paused')return 'Búsqueda pausada por ti · '+count;
+ if(job.state==='waiting')return 'Esperando a Telegram; la búsqueda seguirá automáticamente · '+count;
+ if(job.state==='queued')return 'Búsqueda guardada en el servidor · '+count;
+ return 'Búsqueda en segundo plano · '+count+(job.current?' · '+job.current:'');
+}
+function renderServerJob(job){
+ if(!job){
+  persistentJob=null;return;
+ }
+ if(persistentJob?.id!==job.id){
+  persistentCursor=0;persistentDisplayed=0;persistentSeen.clear();persistentMore=null;
+  $('accounts-results').replaceChildren();$('accounts-results').hidden=false;
+  $('accounts-search-mode').value=job.mode;$('accounts-query').value=job.query;
+ }
+ persistentJob=job;
+ $('accounts-progress').textContent=serverSearchNote(job);
+ const running=serverSearchState(job.state);
+ $('cancel-account-search').hidden=!running;
+ $('cancel-account-search').textContent='Pausar búsqueda';
+ $('continue-account-search').hidden=!(job.state==='paused'||job.state==='incomplete');
+ $('continue-account-search').textContent=job.state==='incomplete'?'Reintentar pendientes':'Reanudar búsqueda';
+ if(job.state==='complete'&&!job.found&&!persistentDisplayed&&!$('accounts-results').children.length){
+  $('accounts-results').append(el('p','Búsqueda terminada sin coincidencias.'));
+ }
+}
+function renderServerHit(job,row){
+ const a=row.account,hit=row.hit;
+ if(!a?.id||persistentSeen.has(a.id+':'+(hit?.chat?.id||'meta')+':'+(hit?.message?.id||'title')))return;
+ persistentSeen.add(a.id+':'+(hit?.chat?.id||'meta')+':'+(hit?.message?.id||'title'));
+ if(job.mode==='phrases'&&hit?.chat)accountSearchHit(a,hit);
+ else if(isEntitySearchMode(job.mode)&&hit?.chat)entitySearchHit(a,hit);
+ else if(!hit)metadataSearchHit(a);
+ persistentDisplayed++;
+}
+async function loadPersistentResults(){
+ const job=persistentJob;
+ if(!job||persistentFetching)return;
+ persistentFetching=true;
+ try{
+  const r=await api('search-job-results?id='+encodeURIComponent(job.id)+'&after='+persistentCursor);
+  if(persistentJob?.id!==job.id)return;
+  const box=$('accounts-results'),more=box.querySelector('[data-server-more]');
+  if(more)more.remove();
+  for(const row of r.items||[])renderServerHit(job,row);
+  persistentCursor=r.cursor||persistentCursor;
+  persistentMore=r.next;
+  if(r.next){
+   const button=el('button','Mostrar más resultados');
+   button.className='more';button.dataset.serverMore='1';
+   button.onclick=()=>loadPersistentResults().catch(e=>notice(e.message));
+   box.append(button);
+  }
+ }finally{persistentFetching=false;}
+}
+async function refreshPersistentSearch(){
+ if(persistentPollBusy||document.hidden||$('workspace').hidden)return;
+ persistentPollBusy=true;
+ try{
+  const response=await api('search-job-status');
+  const job=response.job;
+  if(!job){persistentJob=null;return;}
+  const changed=persistentJob?.id!==job.id;
+  renderServerJob(job);
+  if(changed||(!persistentMore&&job.found>persistentDisplayed)||
+     (['complete','paused','incomplete'].includes(job.state)&&!persistentDisplayed&&job.found))
+   await loadPersistentResults();
+ }finally{persistentPollBusy=false;}
+}
+async function startPersistentSearch(){
+ const searchMode=$('accounts-search-mode').value,needle=$('accounts-query').value.trim();
+ if(!needle&&!isEntitySearchMode(searchMode))return;
+ try{
+  const data=await api('search-job-start',{mode:searchMode,query:needle});
+  renderServerJob(data.job);
+  await refreshPersistentSearch();
+ }catch(e){notice(e.message);}
+}
+async function controlPersistentSearch(action){
+ if(!persistentJob)return;
+ try{
+  const result=await api('search-job-control',{id:persistentJob.id,action});
+  renderServerJob(result.job);
+  if(result.job?.state==='complete'||result.job?.state==='paused')
+   await loadPersistentResults();
+ }catch(e){notice(e.message);}
+}
+// Override only the account-overview search controls. Keep the chat's own
+// per-conversation search and every other account panel feature unchanged.
+$('accounts-search-form').onsubmit=e=>{e.preventDefault();startPersistentSearch();};
+$('cancel-account-search').onclick=()=>controlPersistentSearch('pause');
+$('continue-account-search').onclick=()=>controlPersistentSearch('resume');
+document.addEventListener('visibilitychange',()=>{
+ if(!document.hidden)refreshPersistentSearch().catch(e=>notice(e.message));
+});
+window.addEventListener('pageshow',()=>refreshPersistentSearch().catch(e=>notice(e.message)));
+setInterval(()=>{
+ if(!document.hidden&&$('workspace').dataset.view==='accounts')
+  refreshPersistentSearch().catch(()=>{});
+},3000);
+
 // Panel-only continuity. No credentials, drafts, protected content or Telegram sessions are stored.
 let resumeKey='',resumeReady=false,resumeRestoring=false,resumeTimer=null;
 const RESUME_TTL=7*86400000,RESUME_LIMIT=100;
@@ -662,5 +772,5 @@ async function openPurchases(){
  await load();
 }
 
-(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();}catch(e){locked(e.message);}})();
+(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();await refreshPersistentSearch();}catch(e){locked(e.message);}})();
 })();

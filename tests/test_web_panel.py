@@ -55,6 +55,36 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         await self.setup_http();r=await self.http.post('/panel/api/revoke',headers={'Origin':'http://test','X-Panel-CSRF':self.csrf},json={});self.assertEqual(r.status,200)
         r=await self.http.get('/panel/api/accounts');self.assertEqual(r.status,401)
         r=await self.http.post('/panel/api/login',headers={'Origin':'http://test'},json={'token':code});self.assertEqual(r.status,401)
+    async def test_background_search_endpoints_remain_authenticated_and_csrf_protected(self):
+        await self.setup_http()
+        self.panel.background_search.begin=AsyncMock(return_value={'job':{'id':'search-id'}})
+        self.panel.background_search.control=AsyncMock(return_value={'job':{'state':'paused'}})
+        self.panel.background_search.status=AsyncMock(return_value={'job':None})
+        self.panel.background_search.results=AsyncMock(return_value={'items':[],'next':None})
+        r=await self.http.get('/panel/api/search-job-status')
+        self.assertEqual(r.status,200)
+        self.panel.background_search.status.assert_awaited_once_with(111,'0','')
+        r=await self.http.post('/panel/api/search-job-start',
+            headers={'Origin':'http://test'},json={'mode':'phrases','query':'casa'})
+        self.assertEqual(r.status,403)
+        self.panel.background_search.begin.assert_not_awaited()
+        r=await self.http.post('/panel/api/search-job-start',
+            headers={'Origin':'http://test','X-Panel-CSRF':self.csrf},
+            json={'mode':'phrases','query':'casa'})
+        self.assertEqual(r.status,200)
+        self.panel.background_search.begin.assert_awaited_once_with(111,'0','phrases','casa')
+        r=await self.http.post('/panel/api/search-job-control',
+            headers={'Origin':'http://test','X-Panel-CSRF':self.csrf},
+            json={'id':'search-id','action':'pause'})
+        self.assertEqual(r.status,200)
+        self.panel.background_search.control.assert_awaited_once_with(111,'0','search-id','pause')
+        r=await self.http.get('/panel/api/search-job-results',params={'id':'search-id','after':'0'})
+        self.assertEqual(r.status,200)
+        self.panel.background_search.results.assert_awaited_once_with(111,'0','search-id',0)
+        self.allowed.clear()
+        r=await self.http.get('/panel/api/search-job-results',params={'id':'search-id'})
+        self.assertEqual(r.status,403)
+
     async def test_origin_csrf_cookie_and_role_are_checked_on_every_request(self):
         await self.setup_http()
         code=(await p.access_link(self.s,111)).split('#')[1]

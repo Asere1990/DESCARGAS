@@ -101,6 +101,8 @@ class TelegramPanel:
         self.emoji=PremiumEmoji(self)
         from .panel_accounts import AccountOverview
         self.overview=AccountOverview(self)
+        from .panel_background_search import BackgroundPanelSearch
+        self.background_search=BackgroundPanelSearch(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -370,6 +372,23 @@ class TelegramPanel:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
             if op=='revoke' and post:
                 await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
+            if post and op in ('search-job-start','search-job-control'):
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Solicitud de búsqueda no válida.')
+                if op=='search-job-start':
+                    result=await self.background_search.begin(actor,session['version'],
+                        data.get('mode'),data.get('query'))
+                else:
+                    result=await self.background_search.control(actor,session['version'],
+                        str(data.get('id','')),data.get('action'))
+                return web.json_response(result,headers=HEADERS)
+            if op=='search-job-status' and request.method=='GET':
+                return web.json_response(await self.background_search.status(
+                    actor,session['version'],request.query.get('id','')),headers=HEADERS)
+            if op=='search-job-results' and request.method=='GET':
+                return web.json_response(await self.background_search.results(
+                    actor,session['version'],request.query.get('id',''),
+                    integer(request.query.get('after','0'),0)),headers=HEADERS)
             if post and op=='deliver-selection':
                 from .panel_delivery import enqueue
                 data=await request.json()
@@ -433,6 +452,8 @@ class TelegramPanel:
 def mount_panel(app,service):
     panel=TelegramPanel(service)
     async def stop_live(app):await panel.live.close()
+    app.on_startup.append(panel.background_search.start)
+    app.on_shutdown.append(panel.background_search.stop)
     app.on_shutdown.append(stop_live)
     async def index(request):
         base=request.path.rstrip('/')
