@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from web_galerias.sync import (
     PauseGuard, PauseRequested, backup_one, folder_active, source_free,
-    sync_folder, media_kind, find_dialog
+    sync_folder, media_kind, find_dialog, fair_round, sync_limits
 )
 from web_galerias.storage import PrivateStorage
 from web_galerias.admin import admin_op
@@ -173,6 +173,61 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         executed=[x.args[0] for x in db.execute.await_args_list]
         self.assertTrue(any("state='missing'" in x for x in executed))
         self.assertFalse(any("DELETE" in x for x in executed))
+
+    def test_50_gallery_rounds_are_small_without_preventing_backups(self):
+        with patch.dict(os.environ, {"GALERIAS_SYNC_BATCH_FILES": "5"}):
+            self.assertEqual(sync_limits(1), (5, 90))
+            self.assertEqual(sync_limits(10), (2, 60))
+            self.assertEqual(sync_limits(50), (1, 30))
+
+    async def test_50_galleries_use_bounded_parallel_accounts(self):
+        g,_=gallery()
+        folders=[{"id":i+1,"source_uid":i%4+1} for i in range(50)]
+        active=set()
+        peak=0
+        calls=[]
+
+        async def simulate(_g,folder,**kwargs):
+            nonlocal peak
+            account=folder["source_uid"]
+            self.assertNotIn(account,active)
+            active.add(account)
+            peak=max(peak,len(active))
+            await asyncio.sleep(0.002)
+            calls.append((folder["id"],kwargs))
+            active.remove(account)
+
+        with patch.dict(os.environ, {"GALERIAS_SYNC_PARALLEL_ACCOUNTS":"3",
+                                     "GALERIAS_SYNC_BETWEEN_FOLDERS":"0"}):
+            with patch("web_galerias.sync.sync_folder",side_effect=simulate):
+                await fair_round(g,folders)
+        self.assertEqual({x[0] for x in calls},set(range(1,51)))
+        self.assertEqual(len(calls),50)
+        self.assertGreater(peak,1)
+        self.assertLessEqual(peak,3)
+        self.assertTrue(all(item["max_files"]==1 and item["scan_size"]==30
+                            for _,item in calls))
+
+    async def test_50_galleries_sharing_one_account_never_duplicate_session(self):
+        g,_=gallery()
+        folders=[{"id":i+1,"source_uid":111} for i in range(50)]
+        active=0
+        peak=0
+
+        async def simulate(_g,folder,**kwargs):
+            nonlocal active,peak
+            active+=1
+            peak=max(peak,active)
+            await asyncio.sleep(0)
+            active-=1
+
+        with patch.dict(os.environ, {"GALERIAS_SYNC_PARALLEL_ACCOUNTS":"4",
+                                     "GALERIAS_SYNC_BETWEEN_FOLDERS":"0"}):
+            with patch("web_galerias.sync.sync_folder",side_effect=simulate) as mocked:
+                await fair_round(g,folders)
+        self.assertEqual(mocked.await_count,50)
+        self.assertEqual(peak,1)
+
 
 
 if __name__=="__main__":
