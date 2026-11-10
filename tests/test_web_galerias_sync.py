@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from web_galerias.sync import (
     PauseGuard, PauseRequested, backup_one, folder_active, source_free,
-    sync_folder, media_kind
+    sync_folder, media_kind, find_dialog
 )
 from web_galerias.storage import PrivateStorage
 from web_galerias.admin import admin_op
@@ -34,6 +34,18 @@ def gallery(store=None):
 
 
 class SafeSync(unittest.IsolatedAsyncioTestCase):
+    async def test_cached_peer_prevents_repeated_dialog_scan(self):
+        from telethon import types
+        g,db=gallery()
+        db.fetchval=AsyncMock(return_value=b"encrypted-handle")
+        g.s.repo=SimpleNamespace(decode=lambda value:{
+            "kind":"channel","id":771234567,"hash":987654321})
+        client=SimpleNamespace(iter_dialogs=MagicMock())
+        result=await find_dialog(g,client,8,123456,-1000771234567)
+        self.assertIsInstance(result,types.InputPeerChannel)
+        self.assertEqual(result.channel_id,771234567)
+        client.iter_dialogs.assert_not_called()
+
     async def test_remove_folder_never_starts_telegram_session(self):
         g,db=gallery()
         row={"id":7,"peer":-100998877,"source_uid":None}
