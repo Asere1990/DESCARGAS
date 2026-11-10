@@ -231,6 +231,7 @@ function accountMetadataMatches(a,mode,query){
  const folded=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('es').trim();
  const term=folded(query);
  if(!term)return false;
+ if(mode==='name')return folded(a.name).includes(term);
  if(mode==='id'){const digits=term.replace(/\D/g,'');return !!digits&&String(a.id||'').includes(digits);}
  if(mode==='username'){const username=term.replace(/^@/,'');return !!username&&folded(a.username).replace(/^@/,'').includes(username);}
  if(mode==='phone'){const digits=term.replace(/\D/g,'');return !!digits&&String(a.phone||'').replace(/\D/g,'').includes(digits);}
@@ -274,7 +275,7 @@ async function runAccountMetadataSearch(){
   addMatches();
   while(accountsNext&&run===overviewRun){
    if(document.hidden)break;
-   $('accounts-progress').textContent='Buscando por '+({id:'Telegram ID',username:'@username',phone:'teléfono',country:'país'}[mode]||mode)+' · '+overviewAccounts.size+' cuentas consultadas…';
+   $('accounts-progress').textContent='Buscando por '+({name:'nombre de Telegram',id:'Telegram ID',username:'@username',phone:'teléfono',country:'país'}[mode]||mode)+' · '+overviewAccounts.size+' cuentas consultadas…';
    await loadAccounts(true);
    if(run!==overviewRun)return;
    addMatches();
@@ -295,7 +296,7 @@ function resetAccountSearch(){
  $('accounts-progress').textContent='Selecciona una cuenta vinculada';
 }
 $('accounts-search-mode').onchange=()=>{
- const fields={phrases:'Buscar frases',id:'Telegram ID',username:'@username',phone:'Número de teléfono',country:'País'};
+ const fields={phrases:'Buscar frases',name:'Nombre de Telegram',id:'Telegram ID',username:'@username',phone:'Número de teléfono',country:'País'};
  const current=$('accounts-search-mode').value,field=$('accounts-query');
  field.value='';field.placeholder=fields[current]||fields.phrases;
  field.setAttribute('aria-label','Buscar por '+(fields[current]||'frases'));
