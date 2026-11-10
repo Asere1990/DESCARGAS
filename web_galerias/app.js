@@ -117,6 +117,7 @@ function toggleSelection(id){
 function showViewerMedia(){
  if(!S.items.length)return;
  const m=S.items[S.viewer];$("viewer-counter").textContent=(S.viewer+1)+" / "+S.items.length;
+ $("viewer-watermark").textContent="ID "+String(tg?.initDataUnsafe?.user?.id||"")+" · "+new Date().toISOString().slice(0,16)+" UTC";
  const img=$("view-image"),video=$("view-video");
  video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
  if(m.kind==="video"){img.hidden=true;video.hidden=false;video.src=m.view;}
