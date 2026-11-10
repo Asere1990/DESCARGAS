@@ -1,0 +1,2 @@
+# Telegram IDs de usuarios de prueba de Web Galerías (uno por línea)
+# El administrador se obtiene de admins.txt de DESCARGAS.

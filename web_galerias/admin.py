@@ -1,0 +1,170 @@
+"""Acciones administrativas y editor visual de Web Galerías, solo admins.txt."""
+import base64
+import json
+import re
+import time
+from aiohttp import web
+from .permissions import is_admin,is_tester
+from .core import DEFAULTS,ASSET_MIME,MAX_ASSET,identifier
+
+TEXTS={"title","button_label","intro_caption","intro_label"}
+COLORS={"button_color","accent","background","text_color"}
+CHOICES={"header_mode":{"text","image"},"tile_shape":{"square","rectangle"}}
+
+def cleaned_design(value):
+    if not isinstance(value,dict) or set(value)-set(DEFAULTS):
+        raise web.HTTPBadRequest(text="Configuración del editor incorrecta.")
+    result=dict(DEFAULTS)
+    for key,val in value.items():
+        if key=="daily_limit":
+            if val!=100:raise web.HTTPBadRequest(text="El límite diario está fijado en 100.")
+        elif key in TEXTS:
+            if not isinstance(val,str) or len(val)>160 or any(ord(c)<32 for c in val):
+                raise web.HTTPBadRequest(text="Texto inválido.")
+            result[key]=val
+        elif key in COLORS:
+            if not isinstance(val,str) or not re.fullmatch(r"#[0-9a-fA-F]{6}",val):
+                raise web.HTTPBadRequest(text="Color inválido.")
+            result[key]=val
+        elif key in CHOICES:
+            if val not in CHOICES[key]:raise web.HTTPBadRequest(text="Opción inválida.")
+            result[key]=val
+    return result
+
+async def admin_op(g,uid,op,data):
+    if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
+    db=g.db()
+    if op=="admin-overview":
+        folders=await db.fetch("""SELECT f.id,f.peer,f.name,f.active,f.error,f.complete,f.scan_count,
+            f.last_check,f.source_uid,COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
+            COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending
+            FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
+            GROUP BY f.id ORDER BY f.id DESC""")
+        users=await db.fetch("""SELECT u.uid,u.name,u.first_seen,u.last_seen,
+            s.state,s.paid_until,p.mode
+            FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
+            LEFT JOIN wg_user_prefs p ON p.uid=u.uid
+            ORDER BY u.last_seen DESC LIMIT 500""")
+        return {"folders":[dict(x) for x in folders],
+            "users":[{**dict(x),"admin":is_admin(x["uid"]),"tester":is_tester(x["uid"])} for x in users],
+            "storage_ready":g.storage.ready,"sync_enabled":__import__("os").getenv("GALERIAS_SYNC_ENABLED","0")=="1",
+            "last_error":g.last_error}
+    if op=="admin-folder":
+        try:peer=int(data.get("peer",0))
+        except (ValueError,TypeError,OverflowError):raise web.HTTPBadRequest(text="ID incorrecto.")
+        if not -2**63<peer<0:raise web.HTTPBadRequest(text="Escribe el ID completo negativo del grupo o canal.")
+        name=str(data.get("name","")).strip()
+        if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre de carpeta incorrecto.")
+        row=await db.fetchrow("""INSERT INTO wg_folders(peer,name,created) VALUES($1,$2,$3)
+          ON CONFLICT(peer) DO UPDATE SET name=excluded.name,active=TRUE
+          RETURNING id""",peer,name,time.time())
+        await g.log(uid,op)
+        return {"ok":True,"id":row["id"]}
+    if op=="admin-folder-update":
+        folder=identifier(data.get("folder"))
+        name=str(data.get("name","")).strip()
+        if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre inválido.")
+        await db.execute("UPDATE wg_folders SET name=$2 WHERE id=$1",folder,name)
+        await g.log(uid,op)
+        return {"ok":True}
+    if op=="admin-folder-remove":
+        folder=identifier(data.get("folder"))
+        # Desactivar en galería, nunca abandonar, borrar o denunciar grupos de Telegram.
+        await db.execute("UPDATE wg_folders SET active=FALSE WHERE id=$1",folder)
+        await g.log(uid,op)
+        return {"ok":True}
+    if op=="admin-user-access":
+        target=identifier(data.get("user"))
+        mode=await db.fetchval("SELECT mode FROM wg_user_prefs WHERE uid=$1",target) or "all"
+        rows=await db.fetch("SELECT folder FROM wg_user_folders WHERE uid=$1",target)
+        return {"mode":mode,"folders":[x["folder"] for x in rows]}
+    if op=="admin-access":
+        target=identifier(data.get("user"))
+        mode=data.get("mode");folders=data.get("folders",[])
+        if mode not in ("all","selected") or not isinstance(folders,list) or len(folders)>300:
+            raise web.HTTPBadRequest(text="Permisos de carpetas incorrectos.")
+        ids=list(dict.fromkeys(identifier(f) for f in folders))
+        async with db.acquire() as c,c.transaction():
+            await c.execute("""INSERT INTO wg_user_prefs(uid,mode) VALUES($1,$2)
+                ON CONFLICT(uid) DO UPDATE SET mode=excluded.mode""",target,mode)
+            await c.execute("DELETE FROM wg_user_folders WHERE uid=$1",target)
+            if mode=="selected" and ids:
+                valid=await c.fetch("SELECT id FROM wg_folders WHERE id=ANY($1::bigint[])",ids)
+                await c.executemany("INSERT INTO wg_user_folders(uid,folder) VALUES($1,$2)",
+                                     [(target,r["id"]) for r in valid])
+        await g.log(uid,op)
+        return {"ok":True}
+    if op=="admin-design":
+        design=cleaned_design(data.get("design"))
+        await db.execute("""INSERT INTO wg_config(key,value) VALUES('design',$1::jsonb)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value""",json.dumps(design))
+        await g.log(uid,op)
+        return {"ok":True,"design":design}
+    if op=="admin-upload":
+        return await upload(g,uid,data)
+    if op=="admin-sync-reset":
+        folder=identifier(data.get("folder"))
+        await db.execute("UPDATE wg_folders SET scan_cursor=0,complete=FALSE,error='' WHERE id=$1",folder)
+        await g.log(uid,op)
+        return {"ok":True}
+    raise web.HTTPNotFound()
+
+async def upload(g,uid,data):
+    """Subida a trozos de 192KiB para no cambiar el límite HTTP de DESCARGAS."""
+    key=data.get("key");mime=data.get("mime")
+    if key not in ASSET_MIME or mime not in ASSET_MIME[key]:
+        raise web.HTTPBadRequest(text="Formato de archivo no admitido.")
+    upload=str(data.get("upload",""))
+    if not re.fullmatch("[a-f0-9]{32}",upload):raise web.HTTPBadRequest(text="Identificador de subida incorrecto.")
+    part=identifier(data.get("part"),0);total=identifier(data.get("total"))
+    if total>130 or part>=total:raise web.HTTPBadRequest(text="Cantidad de bloques inválida.")
+    try:body=base64.b64decode(data.get("data",""),validate=True)
+    except Exception:raise web.HTTPBadRequest(text="Bloque inválido.") from None
+    if not body or len(body)>192*1024:raise web.HTTPBadRequest(text="Bloque demasiado grande.")
+    db=g.db()
+    async with db.acquire() as c,c.transaction():
+        await c.execute("""INSERT INTO wg_upload_parts(upload,uid,key,mime,part,total,body,created)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+          ON CONFLICT(upload,part) DO NOTHING""",upload,uid,key,mime,part,total,body,time.time())
+        rows=await c.fetch("""SELECT part,total,key,mime,body FROM wg_upload_parts
+          WHERE upload=$1 AND uid=$2 ORDER BY part""",upload,uid)
+        if len(rows)!=total:return {"ok":True,"received":len(rows),"total":total}
+        if any(x["part"]!=i or x["total"]!=total or x["key"]!=key or x["mime"]!=mime
+               for i,x in enumerate(rows)):raise web.HTTPBadRequest(text="Los bloques no coinciden.")
+        blob=b"".join(bytes(x["body"]) for x in rows)
+        if len(blob)>MAX_ASSET[key]:raise web.HTTPBadRequest(text="Archivo demasiado grande.")
+        if mime=="image/png" and not blob.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise web.HTTPBadRequest(text="Formato PNG inválido.")
+        if mime=="image/jpeg" and not blob.startswith(b"\xff\xd8\xff"):
+            raise web.HTTPBadRequest(text="Formato JPEG inválido.")
+        if mime=="image/webp" and not (blob.startswith(b"RIFF") and blob[8:12]==b"WEBP"):
+            raise web.HTTPBadRequest(text="Formato WEBP inválido.")
+        if mime.startswith("video/") and not (
+            b"ftyp" in blob[:64] or blob.startswith(b"\x1a\x45\xdf\xa3")):
+            raise web.HTTPBadRequest(text="Formato de video inválido.")
+        await c.execute("""INSERT INTO wg_assets(key,mime,body,updated) VALUES($1,$2,$3,$4)
+          ON CONFLICT(key) DO UPDATE SET mime=excluded.mime,body=excluded.body,updated=excluded.updated""",
+          key,mime,blob,time.time())
+        await c.execute("DELETE FROM wg_upload_parts WHERE upload=$1",upload)
+    await g.log(uid,"admin-asset-"+key)
+    return {"ok":True,"complete":True}
+
+async def asset(g,request):
+    key=request.match_info["key"]
+    if key not in ASSET_MIME:raise web.HTTPNotFound()
+    row=await g.db().fetchrow("SELECT mime,body FROM wg_assets WHERE key=$1",key)
+    if not row:raise web.HTTPNotFound()
+    body=bytes(row["body"])
+    headers={"Accept-Ranges":"bytes","Cache-Control":"public, max-age=300",
+             "X-Content-Type-Options":"nosniff"}
+    rng=request.headers.get("Range","")
+    if rng:
+        m=re.fullmatch(r"bytes=(\d*)-(\d*)",rng)
+        if not m:raise web.HTTPRequestRangeNotSatisfiable()
+        start=int(m.group(1) or 0)
+        end=min(int(m.group(2) or len(body)-1),len(body)-1)
+        if start>end or start>=len(body):raise web.HTTPRequestRangeNotSatisfiable()
+        headers["Content-Range"]=f"bytes {start}-{end}/{len(body)}"
+        return web.Response(status=206,body=body[start:end+1],
+                            content_type=row["mime"],headers=headers)
+    return web.Response(body=body,content_type=row["mime"],headers=headers)

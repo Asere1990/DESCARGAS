@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<title>Web Galerías</title>
+<link rel="stylesheet" href="/web-galerias/static/style.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script defer src="/web-galerias/static/app.js"></script>
+</head><body>
+<div id="app" class="app">
+ <section id="intro" class="intro screen">
+  <div class="intro-video-wrap"><video id="intro-video" controls playsinline preload="metadata" poster="" hidden></video>
+   <div id="intro-placeholder" class="intro-placeholder"><span>✦</span><span>GALERÍAS PRIVADAS</span></div></div>
+  <div class="intro-bottom"><div id="intro-logo" class="intro-logo">▦</div>
+   <div id="intro-headline" class="intro-headline">Web Galerías</div>
+   <p id="intro-subtitle">Explora nuestras galerías privadas</p>
+   <button id="enter" class="primary">ENTRAR A LA GALERÍA</button>
+   <p id="intro-notice" class="quiet">Acceso seguro desde Telegram</p>
+  </div>
+ </section>
+ <section id="library" class="screen hidden">
+  <header class="topbar"><div class="branding"><img id="brand-logo" alt="" hidden><span id="brand-icon">▦</span>
+   <strong id="brand-name">Web Galerías</strong></div>
+   <div class="top-actions"><button id="admin-open" class="icon-btn hidden" aria-label="Administración">⚙</button>
+    <button id="go-intro" class="icon-btn" aria-label="Portada">⌂</button></div></header>
+  <main class="container">
+   <div class="eyebrow">MI COLECCIÓN</div><h1>Mis galerías</h1>
+   <div class="stats"><div><strong id="stat-folders">0</strong><small>Carpetas</small></div>
+    <div><strong id="stat-photos">0</strong><small>Fotos</small></div>
+    <div><strong id="stat-videos">0</strong><small>Videos</small></div></div>
+   <div class="section-heading"><h2>Álbumes</h2><span id="folder-counter" class="muted"></span></div>
+   <div id="folders" class="folders"></div>
+   <div class="quota"><span>Descargas disponibles hoy</span><strong id="quota-count">100 de 100</strong>
+    <div class="quota-track"><div id="quota-fill"></div></div></div>
+  </main>
+ </section>
+ <section id="album" class="screen hidden">
+  <header class="topbar"><button id="back-library" class="icon-btn" aria-label="Volver">‹</button>
+   <div class="album-heading"><strong id="album-title">Carpeta</strong><small id="album-subtitle"></small></div>
+   <button id="select-mode" class="text-btn">Seleccionar</button></header>
+  <div class="search"><span>⌕</span><input id="query" type="search" placeholder="Buscar por caption o comentarios" autocomplete="off"></div>
+  <div id="selection-bar" class="selection-bar hidden"><span id="selection-count">0 de 10</span>
+   <button id="selection-cancel" class="small-btn">Cancelar</button>
+   <button id="selection-download" class="small-btn strong">Descargar</button></div>
+  <div id="album-grid" class="media-grid"></div>
+  <button id="load-more" class="load-more hidden">Cargar más</button>
+  <div id="empty-gallery" class="empty hidden">Todavía no hay archivos respaldados aquí.</div>
+ </section>
+ <section id="viewer" class="viewer hidden" aria-label="Visor de fotos y videos">
+   <div class="viewer-top"><button id="close-viewer" class="icon-btn light">✕</button><span id="viewer-counter"></span>
+     <button id="viewer-download" class="icon-btn light" aria-label="Descargar">↓</button></div>
+   <div id="viewer-stage" class="viewer-stage"><img id="view-image" alt="" hidden><video id="view-video" controls playsinline hidden></video><div id="viewer-watermark" class="viewer-watermark" aria-hidden="true"></div></div>
+   <div class="viewer-bottom"><button id="viewer-prev" class="arrow" aria-label="Anterior">‹</button>
+    <span>Desliza para cambiar · Pellizca para ampliar</span><button id="viewer-next" class="arrow" aria-label="Siguiente">›</button></div>
+ </section>
+ <section id="admin" class="screen hidden">
+  <header class="topbar"><button id="admin-back" class="icon-btn">‹</button>
+   <strong>Administración · Web Galerías</strong><button id="admin-refresh" class="icon-btn">↻</button></header>
+  <main class="container editor">
+   <p class="eyebrow">PANEL PRIVADO</p><h1>Configuración</h1>
+   <nav class="admin-tabs"><button data-tab="carpetas" class="active">Carpetas</button>
+    <button data-tab="usuarios">Usuarios</button><button data-tab="diseno">Editor visual</button>
+    <button data-tab="estado">Respaldo</button></nav>
+   <div id="tab-carpetas" class="tab">
+    <div class="panel-card"><h2>Agregar carpeta</h2>
+     <label>Group ID o Channel ID<input id="new-peer" placeholder="-1001234567890" inputmode="numeric"></label>
+     <label>Nombre visible para usuarios<input id="new-name" placeholder="Ej.: Trabajo"></label>
+     <button id="add-folder" class="primary compact">Agregar a la galería</button></div>
+    <div id="admin-folders"></div>
+   </div>
+   <div id="tab-usuarios" class="tab hidden">
+    <div class="panel-card"><h2>Permisos por usuario</h2>
+      <label>Telegram ID<input id="permission-uid" inputmode="numeric" placeholder="Telegram ID"></label>
+      <button id="load-permissions" class="small-btn strong">Consultar permisos</button>
+      <label>Visibilidad<select id="permission-mode"><option value="all">Todas las carpetas</option><option value="selected">Solo las seleccionadas</option></select></label>
+      <div id="permission-folders" class="check-folders"></div>
+      <button id="save-permissions" class="primary compact">Guardar permisos</button>
+     </div><h2>Usuarios e historial</h2><div id="admin-users"></div>
+   </div>
+   <div id="tab-diseno" class="tab hidden">
+    <div class="panel-card"><h2>Identidad de la Mini App</h2>
+     <label>Nombre principal<input id="edit-title"></label>
+     <label>Presentación de cabecera<select id="edit-header_mode"><option value="text">Nombre escrito</option><option value="image">Imagen diseñada</option></select></label>
+     <label>Texto principal de publicidad<input id="edit-intro_label"></label>
+     <label>Descripción<input id="edit-intro_caption"></label>
+     <label>Texto del botón<input id="edit-button_label"></label>
+     <label>Forma de miniaturas<select id="edit-tile_shape"><option value="square">Cuadradas</option><option value="rectangle">Rectangulares</option></select></label></div>
+    <div class="panel-card"><h2>Colores</h2>
+      <div class="color-grid"><label>Botón<input type="color" id="edit-button_color"></label>
+       <label>Destacado<input type="color" id="edit-accent"></label>
+       <label>Fondo<input type="color" id="edit-background"></label>
+       <label>Textos<input type="color" id="edit-text_color"></label></div>
+      <button id="save-design" class="primary compact">Guardar diseño</button></div>
+    <div class="panel-card"><h2>Imágenes y video</h2>
+      <label>Logo<input id="upload-logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <label>Cabecera diseñada<input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <label>Video publicitario<input id="upload-intro" type="file" accept="video/mp4,video/quicktime,video/webm"></label>
+      <div id="upload-progress" class="muted">Los cambios aparecerán sin modificar el código.</div>
+     </div>
+   </div>
+   <div id="tab-estado" class="tab hidden"><div id="admin-health" class="panel-card"></div>
+     <p class="muted">El respaldo se realiza desde una cuenta libre, de forma lenta y con un límite propio. Las sesiones originales no se modifican.</p>
+   </div>
+  </main>
+ </section>
+ <div id="toast" class="toast hidden" role="status"></div>
+</div></body></html>
