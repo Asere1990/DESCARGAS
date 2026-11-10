@@ -12,8 +12,8 @@ class PrivateStorage:
     def __init__(self):
         self.bucket = os.getenv("GALERIAS_R2_BUCKET", "").strip()
         self.endpoint = os.getenv("GALERIAS_R2_ENDPOINT", "").strip()
-        self.key = os.getenv("GALERIAS_R2_ACCESS_KEY_ID", "").strip()
-        self.secret = os.getenv("GALERIAS_R2_SECRET_ACCESS_KEY", "").strip()
+        self.key = (os.getenv("CLOUD_ID") or os.getenv("GALERIAS_R2_ACCESS_KEY_ID") or "").strip()
+        self.secret = (os.getenv("CLOUD_SECRET") or os.getenv("GALERIAS_R2_SECRET_ACCESS_KEY") or "").strip()
         self.client = None
 
     @property
