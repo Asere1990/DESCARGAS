@@ -240,7 +240,8 @@ class ScaleService(Service):
         chat=message.get('chat') or {}
         actor=message.get('from') or {}
         uid=actor.get('id')
-        command=(message.get('text') or '').split(None,1)[0].split('@',1)[0]
+        words=(message.get('text') or '').split(None,1)
+        command=words[0].split('@',1)[0] if words else ''
         if (command in ('/start','/mi_cuenta') and chat.get('type')=='private'
                 and isinstance(uid,int) and uid>0 and not actor.get('is_bot')):
             token=START_MENU_UID.set(uid)
