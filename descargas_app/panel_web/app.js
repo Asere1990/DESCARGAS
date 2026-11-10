@@ -244,6 +244,30 @@ $('cancel-account-search').onclick=()=>{cancelOverviewSearch();$('accounts-progr
 function accountSearchHit(a,hit){const button=el('button');button.className='account-search-hit';const kind=hit.chat.saved?'Mensajes guardados':({private:'Chat privado',group:'Grupo',channel:'Canal'}[hit.chat.type]||'Conversación');button.append(el('strong',a.name+' · '+a.id),el('span',kind+' · '+hit.chat.name));if(hit.message)button.append(el('span',hit.message.text||labels[hit.message.media?.type]||'Mensaje'),el('small',date(hit.message.date)+' '+time(hit.message.date)));else button.append(el('small','Coincidencia en el nombre'));button.onclick=async()=>{cancelOverviewSearch();try{await selectAccount(a);await openChat(hit.chat);if(hit.message)await jumpToMessage(hit.message.id,true);}catch(e){notice(e.message);}};$('accounts-results').append(button);}
 let overviewNeedle='',overviewSeen=new Set(),overviewSkipped=0,overviewComplete=0,overviewTotal=0,overviewResults=[],overviewFailures=[],overviewDisplayed=0,overviewMode='phrases';
 const OVERVIEW_RESULT_PAGE=80;
+const ENTITY_SEARCH_MODES=new Set(['channels','channel_id','groups','group_id','bots']);
+function isEntitySearchMode(mode){return ENTITY_SEARCH_MODES.has(mode);}
+function entityIdMatches(id,needle){
+ const value=String(id||'').trim(),requested=String(needle||'').replace(/\s/g,'');
+ if(!/^-?\d+$/.test(requested))return false;
+ if(value===requested)return true;
+ // Telegram peers can be shown as -100<id> or -<id>. Also allow the
+ // unmarked numeric ID, but never a partial number or a different peer type.
+ if(!requested.startsWith('-'))return (value.startsWith('-100')&&value.slice(4)===requested)||
+  (value.startsWith('-')&&value.slice(1)===requested);
+ return false;
+}
+function entitySearchMatches(chat,mode,needle){
+ if(!chat||!isEntitySearchMode(mode))return false;
+ if(mode==='bots'){if(chat.type!=='private'||chat.bot!==true)return false;}
+ else if(mode.startsWith('channel')){if(chat.type!=='channel')return false;}
+ else if(chat.type!=='group')return false;
+ if(mode==='channel_id'||mode==='group_id')return entityIdMatches(chat.id,needle);
+ const folded=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('es').trim();
+ const term=folded(needle),username=term.replace(/^@/,'');
+ // Empty text means list every authorized channel, group or bot in that category.
+ return !term||folded(chat.name).includes(term)||
+  (!!username&&folded(chat.username).replace(/^@/,'').includes(username));
+}
 function activeSearchAccounts(accounts){return [...accounts].filter(a=>a.status?.state==='active');}
 function searchProgress(current=''){
  const progress=$('accounts-progress');
@@ -256,6 +280,7 @@ function appendOverviewResults(){
  while(overviewDisplayed<to){
   const hit=overviewResults[overviewDisplayed++];
   if(overviewMode==='phrases')accountSearchHit(hit.account,hit.hit);
+  else if(isEntitySearchMode(overviewMode))entitySearchHit(hit.account,hit.hit);
   else metadataSearchHit(hit.account);
  }
  if(overviewDisplayed<overviewResults.length){
@@ -360,6 +385,102 @@ async function runAccountSearch(continuing=false){
   }
  }
 }
+function entitySearchHit(a,hit){
+ const chat=hit.chat,kind=chat.bot?'Bot':chat.type==='channel'?'Canal':'Grupo';
+ const button=el('button');button.className='account-search-hit';
+ button.append(el('strong',chat.name||kind));
+ button.append(el('span',kind+' · ID: '+chat.id));
+ if(chat.username)button.append(el('small','@'+chat.username.replace(/^@/,'')));
+ button.append(el('small','Cuenta activa: '+a.name+' · '+a.id));
+ button.onclick=async()=>{
+  cancelOverviewSearch();
+  try{await selectAccount(a);await openChat(chat);}
+  catch(e){notice(e.message);}
+ };
+ $('accounts-results').append(button);
+}
+async function runAccountEntitySearch(continuing=false){
+ const mode=$('accounts-search-mode').value,needle=$('accounts-query').value.trim();
+ if(!isEntitySearchMode(mode))return;
+ if((mode==='channel_id'||mode==='group_id')&&!/^-?\d+$/.test(needle)){
+  $('accounts-progress').textContent='Introduce el ID completo del canal o grupo.';
+  return;
+ }
+ if(operationBusy)return notice('Espera a que termine la operación.');
+ cancelOverviewSearch();
+ const run=overviewRun;
+ overviewSearching=true;statusQueue=[];stopLive();
+ $('cancel-account-search').hidden=false;$('continue-account-search').hidden=true;
+ $('accounts-results').hidden=false;
+ try{
+  if(!continuing||mode!==overviewMode||needle!==overviewNeedle){
+   overviewNeedle=needle;overviewMode=mode;overviewSeen.clear();
+   overviewResults=[];overviewFailures=[];overviewPending=[];overviewSkipped=0;overviewComplete=0;overviewTotal=0;
+   $('accounts-results').replaceChildren();
+   const active=await loadActiveSearchScope(run);
+   if(run!==overviewRun)return;
+   if(!active){
+    $('accounts-progress').textContent='Búsqueda pausada: aún faltan cuentas por cargar. Pulsa Buscar para reintentar.';
+    return;
+   }
+   overviewTotal=active.length;
+   overviewPending=active.map(a=>({account:a,cursor:'',cursors:new Set()}));
+  }else if(!overviewPending.length&&overviewFailures.length){
+   overviewPending=overviewFailures.splice(0).map(v=>({account:v.account,cursor:v.cursor,cursors:new Set()}));
+   overviewSkipped=0;
+  }
+  searchProgress();
+  while(overviewPending.length&&run===overviewRun){
+   if(document.hidden)break;
+   const work=overviewPending[0],a=work.account;
+   searchProgress(a.name);
+   try{
+    const result=await api('chats?account='+a.id+(work.cursor?'&cursor='+encodeURIComponent(work.cursor):''));
+    if(run!==overviewRun)return;
+    if(!Array.isArray(result.items))throw Error('Respuesta de conversaciones inválida.');
+    if(a.generation!==undefined&&result.generation!==undefined&&a.generation!==result.generation)
+     throw Error('La sesión cambió durante la búsqueda.');
+    for(const chat of result.items){
+     if(!entitySearchMatches(chat,mode,needle))continue;
+     const key=a.id+':'+chat.id;
+     if(overviewSeen.has(key))continue;
+     overviewSeen.add(key);overviewResults.push({account:a,hit:{chat}});
+    }
+    if(result.next){
+     if(typeof result.next!=='string'||result.next===work.cursor||work.cursors.has(result.next))
+      throw Error('Telegram repitió una página de chats; no se puede confirmar el final.');
+     work.cursors.add(result.next);work.cursor=result.next;
+    }else{overviewPending.shift();overviewComplete++;}
+   }catch(e){
+    if(run!==overviewRun)return;
+    overviewPending.shift();overviewFailures.push({account:a,cursor:work.cursor,error:e.message});
+    overviewSkipped=overviewFailures.length;
+   }
+   searchProgress();
+   // Use the existing read-only chats endpoint at a conservative rate.
+   if(overviewPending.length)await new Promise(resolve=>setTimeout(resolve,400));
+  }
+  if(run!==overviewRun)return;
+  finishOverviewResults();
+  if(overviewPending.length)
+   $('accounts-progress').textContent='Búsqueda pausada · '+overviewComplete+'/'+overviewTotal+' cuentas activas terminadas · '+overviewResults.length+' resultados parciales.';
+  else if(overviewFailures.length){
+   $('accounts-progress').textContent='Búsqueda incompleta · '+overviewComplete+'/'+overviewTotal+' cuentas activas terminadas · '+overviewFailures.length+' con error · '+overviewResults.length+' coincidencias. Pulsa Seguir buscando para reintentar.';
+   for(const issue of overviewFailures){
+    const warning=el('p',issue.account.name+' · No se pudo revisar: '+issue.error);
+    warning.className='account-search-warning';$('accounts-results').append(warning);
+   }
+  }else $('accounts-progress').textContent='Búsqueda terminada · '+overviewComplete+'/'+overviewTotal+' cuentas activas revisadas · '+overviewResults.length+' '+(mode==='bots'?'bots':mode.startsWith('channel')?'canales':'grupos')+' encontrados.';
+ }catch(e){
+  if(run===overviewRun)$('accounts-progress').textContent='Búsqueda incompleta · '+overviewComplete+'/'+overviewTotal+' cuentas revisadas: '+e.message;
+ }finally{
+  if(run===overviewRun){
+   overviewSearching=false;$('cancel-account-search').hidden=true;
+   $('continue-account-search').hidden=!overviewPending.length&&!overviewFailures.length;
+   pumpStatuses();
+  }
+ }
+}
 function metadataSearchHit(a){
  const button=el('button');button.className='account-search-hit';
  button.append(el('strong',a.name+' · '+a.id));
@@ -423,20 +544,22 @@ function resetAccountSearch(){
  $('accounts-progress').textContent='Selecciona una cuenta vinculada';
 }
 $('accounts-search-mode').onchange=()=>{
- const fields={phrases:'Buscar frases',name:'Nombre de Telegram',id:'Telegram ID',username:'@username',phone:'Número de teléfono',country:'País'};
+ const fields={phrases:'Buscar frases',channels:'Nombre o @usuario (opcional)',channel_id:'Canal ID completo',groups:'Nombre o @usuario (opcional)',group_id:'Group ID completo',bots:'Nombre o @usuario (opcional)',name:'Nombre de Telegram',id:'Telegram ID',username:'@username',phone:'Número de teléfono',country:'País'};
  const current=$('accounts-search-mode').value,field=$('accounts-query');
  field.value='';field.placeholder=fields[current]||fields.phrases;
  field.setAttribute('aria-label','Buscar por '+(fields[current]||'frases'));
- field.inputMode=current==='id'?'numeric':current==='phone'?'tel':'search';
+ field.inputMode=['id','channel_id','group_id'].includes(current)?'numeric':current==='phone'?'tel':'search';
  resetAccountSearch();
 };
 $('accounts-query').oninput=()=>{if(overviewSearching||!$('accounts-query').value.trim())resetAccountSearch();};
 $('accounts-search-form').onsubmit=e=>{
  e.preventDefault();
- if($('accounts-search-mode').value==='phrases')runAccountSearch(false);
+ const mode=$('accounts-search-mode').value;
+ if(mode==='phrases')runAccountSearch(false);
+ else if(isEntitySearchMode(mode))runAccountEntitySearch(false);
  else runAccountMetadataSearch();
 };
-$('continue-account-search').onclick=()=>{if(overviewMode==='phrases')runAccountSearch(true);else runAccountMetadataSearch(true);};
+$('continue-account-search').onclick=()=>{if(overviewMode==='phrases')runAccountSearch(true);else if(isEntitySearchMode(overviewMode))runAccountEntitySearch(true);else runAccountMetadataSearch(true);};
 
 
 // Panel-only continuity. No credentials, drafts, protected content or Telegram sessions are stored.
