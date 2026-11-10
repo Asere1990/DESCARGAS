@@ -4,7 +4,10 @@ Comparte datos solo mediante credenciales explícitas y tareas de lectura.
 """
 import asyncio
 import os
+import logging
+import secrets
 from aiohttp import web
+from web_galerias.storage import PrivateStorage
 from cryptography.fernet import Fernet
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -22,12 +25,17 @@ class IsolatedGalleryService:
         self.ready=False
 
     async def start(self,app):
+        app["r2_verify_task"]=asyncio.create_task(verify_r2())
         if not self.cipher or not self.repo or not self.repo.url or not self.token:
             return  # Fail closed; UI visible but no one can access private data.
         await self.repo.start()
         self.ready=True
 
     async def close(self,app):
+        task=app.get("r2_verify_task")
+        if task:
+            task.cancel()
+            await asyncio.gather(task,return_exceptions=True)
         self.ready=False
         if self.repo:await self.repo.close()
 
@@ -43,6 +51,39 @@ class IsolatedGalleryService:
             receive_updates=False,flood_sleep_threshold=0,request_retries=2,
             connection_retries=1,raise_last_call_error=True,
             device_model="Web Galerías · lectura autorizada")
+
+
+
+async def verify_r2():
+    """Verificación segura y mínima del bucket privado R2; sin Telegram ni sesiones."""
+    storage=PrivateStorage()
+    log=logging.getLogger("cloudflare-r2")
+    if not storage.ready:
+        log.warning("R2 check: missing configuration")
+        return
+    def check():
+        key="healthcheck/"+secrets.token_hex(16)+".txt"
+        payload=b"web-galerias-r2-healthcheck-v1"
+        client=storage._client()
+        uploaded=False
+        try:
+            client.put_object(Bucket=storage.bucket,Key=key,Body=payload,ContentType="text/plain")
+            uploaded=True
+            response=client.get_object(Bucket=storage.bucket,Key=key)
+            try:
+                data=response["Body"].read()
+            finally:
+                response["Body"].close()
+            if data != payload:
+                raise ValueError("R2 returned different bytes")
+        finally:
+            if uploaded:
+                client.delete_object(Bucket=storage.bucket,Key=key)
+    try:
+        await asyncio.wait_for(asyncio.to_thread(check),timeout=45)
+        log.warning("R2 check: write/read/delete OK")
+    except Exception as exc:
+        log.warning("R2 check: failed (%s)",type(exc).__name__)
 
 service=IsolatedGalleryService()
 app=web.Application(client_max_size=512*1024)
