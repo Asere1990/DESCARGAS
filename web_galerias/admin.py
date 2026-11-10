@@ -40,7 +40,7 @@ async def admin_op(g,uid,op,data):
             f.active,f.error,f.complete,f.scan_count,
             f.last_check,f.source_uid,
             COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
-            COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending,
+            COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending,
             COUNT(m.id) FILTER(WHERE m.state='missing')::int AS missing,
             COUNT(m.id) FILTER(WHERE m.state='skipped')::int AS skipped
             FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
