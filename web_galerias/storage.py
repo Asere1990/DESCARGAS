@@ -74,7 +74,11 @@ class PrivateStorage:
         return await self.object_size(key) is not None
 
     async def upload_stream(self, chunks, key, mime, check=None):
-        """Video a R2 en multipart de 8 MiB, sin usar disco ni cargarlo en RAM."""
+        """Vídeo Telegram -> R2 con lectura anticipada acotada y verificación completa.
+
+        Una única descarga Telegram. Mientras R2 sube una parte, una cola
+        pequeña puede seguir leyendo Telegram; nunca guarda el vídeo completo.
+        """
         key = self.safe_key(key)
         client = self._client()
         create = await asyncio.to_thread(
@@ -85,12 +89,26 @@ class PrivateStorage:
         number = 1
         buffer = bytearray()
         total = 0
+        # 8 trozos Telegram de hasta 512 KiB: presión de retorno automática.
+        queue = asyncio.Queue(maxsize=8)
+
+        async def prefetch():
+            try:
+                async for chunk in chunks:
+                    if check is not None:
+                        await check()
+                    if chunk:
+                        await queue.put(bytes(chunk))
+            finally:
+                await queue.put(None)
+
+        producer = asyncio.create_task(prefetch())
         try:
-            async for chunk in chunks:
-                if check is not None:
-                    await check()
-                if not chunk:
-                    continue
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    await producer  # Propaga errores reales del origen Telegram.
+                    break
                 buffer.extend(chunk)
                 total += len(chunk)
                 while len(buffer) >= 8 * 1024 * 1024:
@@ -122,7 +140,10 @@ class PrivateStorage:
                 raise ValueError("La copia guardada no coincide con el tamaño descargado.")
             return total
         except BaseException:
-            # Nunca dejar deliberadamente una subida multipart incompleta facturando.
+            # Cancelar la lectura Telegram, esperar su cierre y abortar R2
+            # sin publicar objetos incompletos ni dejar multipartes abiertos.
+            producer.cancel()
+            await asyncio.gather(producer, return_exceptions=True)
             try:
                 await asyncio.shield(asyncio.to_thread(
                     client.abort_multipart_upload, Bucket=self.bucket, Key=key,

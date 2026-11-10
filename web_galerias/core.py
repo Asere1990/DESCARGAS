@@ -168,9 +168,9 @@ class GalleryCore:
         SELECT f.id,
           COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name,
           f.complete,f.error,
-          COUNT(m.id) FILTER(WHERE m.state='ready' AND m.kind='photo')::int AS photos,
-          COUNT(m.id) FILTER(WHERE m.state='ready' AND m.kind='video')::int AS videos,
-          COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending
+          COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='photo')::int AS photos,
+          COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='video')::int AS videos,
+          COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending
         FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
         LEFT JOIN wg_user_prefs p ON p.uid=$1
         WHERE f.active AND ($2 OR COALESCE(p.mode,'all')='all' OR EXISTS(
@@ -195,7 +195,7 @@ class GalleryCore:
             from .downloads import temporary_link
             for folder in folders:
                 cover=await self.db().fetchval("""SELECT id FROM wg_media
-                  WHERE folder=$1 AND state='ready' AND thumb_key IS NOT NULL
+                  WHERE folder=$1 AND state IN ('preview','ready') AND thumb_key IS NOT NULL
                   ORDER BY date DESC LIMIT 1""",folder["id"])
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
                   temporary_link(self,uid,cover,"thumb")) if cover else None
@@ -216,18 +216,23 @@ class GalleryCore:
         if not await self.permitted(uid,folder):raise web.HTTPForbidden(text="Carpeta no autorizada.")
         query=normal(query.strip())[:100]
         if query:
-            rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size
-              FROM wg_media WHERE folder=$1 AND state='ready'
+            rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key
+              FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
               AND to_tsvector('simple',search_text) @@ plainto_tsquery('simple',$2)
               AND id<$3 ORDER BY id DESC LIMIT 61""",folder,query,cursor or 2**63-1)
         else:
-            rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size
-              FROM wg_media WHERE folder=$1 AND state='ready'
+            rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key
+              FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
               AND id<$2 ORDER BY id DESC LIMIT 61""",folder,cursor or 2**63-1)
         result=[]
         for x in rows[:60]:
             item=dict(x)
-            item["thumb"]="/web-galerias/media/"+str(x["id"])+"/thumb?t="+token(uid,x["id"],"thumb")
-            item["view"]="/web-galerias/media/"+str(x["id"])+"/view?t="+token(uid,x["id"],"view")
+            item["available"]=x["state"]=="ready"
+            item["thumb"]=("/web-galerias/media/"+str(x["id"])+"/thumb?t="+
+                           token(uid,x["id"],"thumb")) if x["thumb_key"] else None
+            item["view"]=("/web-galerias/media/"+str(x["id"])+"/view?t="+
+                          token(uid,x["id"],"view")) if item["available"] else None
+            item.pop("thumb_key",None)
+            item.pop("state",None)
             result.append(item)
         return {"items":result,"next":rows[59]["id"] if len(rows)>60 else None}

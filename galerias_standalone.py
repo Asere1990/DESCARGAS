@@ -38,7 +38,9 @@ class IsolatedGalleryService:
         except (ValueError,TypeError):
             logging.getLogger("web-galerias").error("Invalid session cipher configuration")
             self.cipher=None
-        self.repo=GalleryRepository(os.getenv("DATABASE_URL",""),self.cipher,pool_size=3) if self.cipher else None
+        # La sincronización puede usar hasta cuatro cuentas en paralelo:
+        # 1 conexión líder + 2 por cuenta + conexiones de la web.
+        self.repo=GalleryRepository(os.getenv("DATABASE_URL",""),self.cipher,pool_size=11) if self.cipher else None
         self.api_id=os.getenv("ID","")
         self.api_hash=os.getenv("HASH","")
         self.ready=False
