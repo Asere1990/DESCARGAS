@@ -41,7 +41,7 @@ async def choose_account(g,folder):
     db=g.db();now=time.time()
     row=await db.fetchrow("""SELECT a.uid FROM descarga_accounts a
       LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
-      WHERE a.session IS NOT NULL AND (d.tried_at IS NULL OR d.tried_at<$2)
+      WHERE a.session IS NOT NULL AND (a.uid=$3 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2)
       ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
                COALESCE(d.tried_at,0),a.uid LIMIT 1""",
       folder["id"],now-900,folder["source_uid"])
@@ -109,8 +109,15 @@ async def sync_folder(g,folder):
                       high_water=GREATEST(high_water,$2),scan_count=scan_count+$3
                       WHERE id=$1""",folder["id"],max(x.id for x in rows),len(rows))
     except asyncio.CancelledError:raise
-    except ValueError:
-        # account_lock ocupado o sesión revocada: no tocar ni cerrar sesiones.
+    except ValueError as exc:
+        # Cuenta ocupada: ceder; sesión revocada: buscar otra cuenta disponible.
+        if "Espera a que termine" not in str(exc):
+            await db.execute("""INSERT INTO wg_discovery(folder,uid,tried_at,works)
+              VALUES($1,$2,$3,FALSE) ON CONFLICT(folder,uid)
+              DO UPDATE SET tried_at=excluded.tried_at,works=FALSE""",
+              folder["id"],uid,time.time())
+            await db.execute("UPDATE wg_folders SET source_uid=NULL WHERE id=$1 AND source_uid=$2",
+                             folder["id"],uid)
         return
     except (errors.RPCError,OSError,TimeoutError) as exc:
         log.warning("Gallery sync deferred (%s)",type(exc).__name__)
