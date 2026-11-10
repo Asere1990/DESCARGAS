@@ -28,7 +28,8 @@ async def media(g,request):
     uid=identifier(p["uid"]);item=identifier(request.match_info["item"])
     if item!=p["item"]:raise web.HTTPForbidden()
     row=await g.db().fetchrow("""SELECT folder,thumb_key,file_key
-       FROM wg_media WHERE id=$1 AND state='ready'""",item)
+       FROM wg_media WHERE id=$1 AND
+        (state='ready' OR ($2='thumb' AND state='preview'))""",item,kind)
     if not row or not await g.permitted(uid,row["folder"]):raise web.HTTPForbidden()
     key=row["thumb_key"] if kind=="thumb" else row["file_key"]
     if not key:raise web.HTTPNotFound()
