@@ -37,7 +37,7 @@ class Request:
 class BrowserAdminTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.env=patch.dict(os.environ,{
-            "GALERIAS_ADMIN_PASSWORD":"Ejemplo contraseña de prueba 2026",
+            "PASSWORD":"Ejemplo contraseña de prueba 2026",
             "DESCARGAS_SESSION_KEY":"Solo para tests: secreto del servicio",
         })
         self.env.start()
@@ -77,7 +77,7 @@ class BrowserAdminTests(unittest.IsolatedAsyncioTestCase):
                              for call in self.db.execute.await_args_list))
 
     async def test_missing_password_configuration_fails_closed(self):
-        with patch.dict(os.environ,{"GALERIAS_ADMIN_PASSWORD":""}):
+        with patch.dict(os.environ,{"PASSWORD":""}):
             with self.assertRaises(web.HTTPServiceUnavailable):
                 await admin_browser.login(self.g,Request({
                     "uid":"7539025033","password":""}))
@@ -101,7 +101,7 @@ class BrowserAdminTests(unittest.IsolatedAsyncioTestCase):
         self.db.fetchrow.return_value={
             "uid":7539025033,"password_version":old,
             "last_seen":now,"expires_at":now+86400}
-        with patch.dict(os.environ,{"GALERIAS_ADMIN_PASSWORD":"different password"}):
+        with patch.dict(os.environ,{"PASSWORD":"different password"}):
             with self.assertRaises(web.HTTPUnauthorized):
                 await admin_browser.authenticate(self.g,Request(token=token))
 
