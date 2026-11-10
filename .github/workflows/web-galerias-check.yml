@@ -9,6 +9,8 @@ on:
       - 'tests/test_web_galerias_standalone.py'
       - 'tests/test_web_galerias_sync.py'
       - 'galerias_standalone.py'
+      - 'descargas_app/subscription_actions.py'
+      - 'tests/test_subscription_actions.py'
       - 'descargas_app/service.py'
       - 'scale_web.py'
       - 'pyproject.toml'
@@ -34,3 +36,4 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias.py -v
           python -m unittest discover -s tests -p test_web_galerias_standalone.py -v
           python -m unittest discover -s tests -p test_web_galerias_sync.py -v
+          python -m unittest discover -s tests -p test_subscription_actions.py -v
