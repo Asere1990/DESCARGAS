@@ -254,8 +254,9 @@ class BackgroundPanelSearch:
                 try:await require_source(self.s,uid,int(item['chat']['id']),actor=actor)
                 except ValueError:continue
             items.append(data)
-        return {'items':items,'next':rows[79]['seq'] if len(rows)>80 else None,
-                'total':row['found']}
+        cursor=rows[min(len(rows),80)-1]['seq'] if rows else after
+        return {'items':items,'next':cursor if len(rows)>80 else None,
+                'cursor':cursor,'total':row['found']}
 
     def cursor_hash(self,mode,cursor):
         purpose='overview-search' if mode=='phrases' else 'dialogs'
