@@ -1,7 +1,7 @@
 """Copia masiva progresiva, con pausa/reanudación por carpeta e idempotencia en R2.
 
 Solo CLOUDFLARE con GALERIAS_SYNC_ENABLED=1 ejecuta este motor.
-Una cuenta/una conexión a la vez, con el advisory lock de DESCARGAS.
+Carriles por cuenta con concurrencia limitada y lock compartido con DESCARGAS.
 No actualiza sesiones, no inicia bot polling y jamás elimina archivos R2 al ocultar carpetas.
 """
 import asyncio
@@ -34,6 +34,8 @@ ALTER TABLE wg_media ADD COLUMN IF NOT EXISTS available DOUBLE PRECISION NOT NUL
 ALTER TABLE wg_media ADD COLUMN IF NOT EXISTS error TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS wg_media_pending ON wg_media(folder,available,id)
  WHERE state='pending';
+CREATE TABLE IF NOT EXISTS wg_account_cooldown(
+ uid BIGINT PRIMARY KEY,available_at DOUBLE PRECISION NOT NULL DEFAULT 0);
 """
 
 class PauseRequested(Exception):
@@ -128,7 +130,9 @@ async def choose_account(g,folder):
     now=time.time()
     row=await g.db().fetchrow("""SELECT a.uid FROM descarga_accounts a
       LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
+      LEFT JOIN wg_account_cooldown c ON c.uid=a.uid
       WHERE a.session IS NOT NULL AND COALESCE(d.next_after,0)<=$2
+        AND COALESCE(c.available_at,0)<=$2
         AND (a.uid=$3 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
       ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
                COALESCE(d.tried_at,0),a.uid LIMIT 1""",
@@ -145,17 +149,18 @@ async def mark_discovery(g,folder,uid,works,delay=0):
        folder,uid,time.time(),works,time.time()+max(0,delay))
 
 
-async def catalog_batch(g,folder,client,entity,source):
+async def catalog_batch(g,folder,client,entity,source,limit=90):
     """Indexa con checkpoint duradero, incluso aunque no haya archivos nuevos."""
     if not await folder_active(g,folder):raise PauseRequested()
     rows=[]
+    limit=max(10,min(120,int(limit)))
     if not source["complete"]:
         async for m in client.iter_messages(entity,
-              offset_id=source["scan_cursor"] or 0,limit=90):
+              offset_id=source["scan_cursor"] or 0,limit=limit):
             rows.append(m)
     else:
         async for m in client.iter_messages(entity,
-              min_id=source["high_water"],reverse=True,limit=90):
+              min_id=source["high_water"],reverse=True,limit=limit):
             rows.append(m)
     if not await folder_active(g,folder):raise PauseRequested()
     if not rows:
@@ -190,7 +195,7 @@ async def media_retry(g,folder,message,exc):
       type(exc).__name__)
 
 
-async def sync_folder(g,source):
+async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False):
     """Un turno de lectura + copia, con lock exclusivo de cuenta ya existente."""
     from descargas_app.account_chat import connected
     folder=source["id"]
@@ -220,13 +225,19 @@ async def sync_folder(g,source):
             # Construir el índice y a la vez subir originales, en lugar de
             # completar la exploración antes de poner las primeras fotos en R2.
             await checkpoint(g,folder,"catalogando")
-            await catalog_batch(g,folder,client,entity,source)
-            batch=max(1,min(12,int(os.getenv("GALERIAS_SYNC_BATCH_FILES","5"))))
+            await catalog_batch(g,folder,client,entity,source,limit=scan_size)
+            if catalog_only:
+                await checkpoint(g,folder,"en_espera")
+                return
+            requested=max_files if max_files is not None else os.getenv("GALERIAS_SYNC_BATCH_FILES","5")
+            batch=max(1,min(12,int(requested)))
             for _ in range(batch):
                 await guard()
                 item=await g.db().fetchrow("""SELECT message,kind,mime,size
                    FROM wg_media WHERE folder=$1 AND state='pending'
-                    AND available<=$2 ORDER BY id DESC LIMIT 1""",
+                    AND available<=$2
+                     ORDER BY CASE WHEN kind='photo' THEN 0 ELSE 1 END,
+                              id DESC LIMIT 1""",
                     folder,time.time())
                 if not item:break
                 m=await client.get_messages(entity,ids=item["message"])
@@ -255,8 +266,11 @@ async def sync_folder(g,source):
         # Enfriar tanto esta sesión como el descubrimiento global, sin
         # interferir con las descargas de DESCARGAS.
         per_account_cooldown=max(600,seconds+120)
-        g.sync_cooldown_until=max(getattr(g,"sync_cooldown_until",0),
-                                  time.monotonic()+max(90,seconds+45))
+        # Enfriar esta cuenta para todas sus carpetas, sin frenar otras cuentas.
+        await g.db().execute("""INSERT INTO wg_account_cooldown(uid,available_at)
+          VALUES($1,$2) ON CONFLICT(uid) DO UPDATE
+          SET available_at=GREATEST(wg_account_cooldown.available_at,excluded.available_at)""",
+          uid,time.time()+per_account_cooldown)
         await mark_discovery(g,folder,uid,True,delay=per_account_cooldown)
         await g.db().execute("""UPDATE wg_folders
           SET error='Telegram pidió esperar; respaldo reprogramado sin afectar cuentas'
@@ -413,8 +427,53 @@ async def backup_one(g,folder,item,message,client,guard):
       thumb_key if thumb_size else None,original_size or 0)
 
 
+def sync_limits(total):
+    """Turnos cortos para no monopolizar las demás galerías."""
+    try:
+        default=max(1,min(12,int(os.getenv("GALERIAS_SYNC_BATCH_FILES","5"))))
+    except ValueError:
+        default=5
+    count=max(1,int(total))
+    return min(default,max(1,24//count)), (90 if count<=5 else 60 if count<20 else 30)
+
+
+async def fair_round(g,folders,*,catalog_only=False):
+    """Avanza todas las galerías en rondas, con cuentas distintas en paralelo.
+
+    Una cuenta conserva su lock exclusivo para proteger las sesiones de
+    DESCARGAS; el número de sesiones concurrentes es reducido y ajustable.
+    """
+    if not folders or g.closed:
+        return
+    files,scan=sync_limits(len(folders))
+    try:
+        max_accounts=max(1,min(4,int(os.getenv("GALERIAS_SYNC_PARALLEL_ACCOUNTS","3"))))
+    except ValueError:
+        max_accounts=3
+    try:
+        spacing=max(0.0,min(5.0,float(os.getenv("GALERIAS_SYNC_BETWEEN_FOLDERS","0.5"))))
+    except ValueError:
+        spacing=0.5
+    semaphore=asyncio.Semaphore(max_accounts)
+    lanes={}
+    for folder in folders:
+        lanes.setdefault(folder["source_uid"] or 0,[]).append(folder)
+
+    async def lane(group):
+        async with semaphore:
+            for folder in group:
+                if g.closed:
+                    return
+                await sync_folder(g,folder,max_files=files,scan_size=scan,
+                                  catalog_only=catalog_only)
+                if spacing:
+                    await asyncio.sleep(spacing)
+
+    await asyncio.gather(*(lane(group) for group in lanes.values()))
+
+
 async def run(g):
-    """Un solo sincronizador incluso en despliegues solapados; seguimiento reanudable."""
+    """Líder exclusivo; progreso equitativo y reanudable hasta 50 galerías."""
     db=g.db()
     await db.execute(EXTRA)
     async with db.acquire() as leader:
@@ -423,16 +482,11 @@ async def run(g):
                 break
             await asyncio.sleep(5)
         try:
-            log.warning("Gallery mass backup active; sources only selected folders")
+            log.warning("Gallery mass backup active; fair bounded parallel lanes")
             while not g.closed:
                 try:
                     if os.getenv("GALERIAS_SYNC_ENABLED","0")!="1" or not g.storage.ready:
                         await asyncio.sleep(10)
-                        continue
-                    remaining=getattr(g,"sync_cooldown_until",0)-time.monotonic()
-                    if remaining>0:
-                        await checkpoint(g,phase="esperando Telegram")
-                        await asyncio.sleep(min(30,max(1,remaining)))
                         continue
                     await checkpoint(g,phase="esperando_carpetas")
                     folders=await db.fetch("""SELECT * FROM wg_folders WHERE active
@@ -440,12 +494,13 @@ async def run(g):
                     if not folders:
                         await asyncio.sleep(5)
                         continue
-                    for folder in folders:
-                        if g.closed:break
-                        if await folder_active(g,folder["id"]):
-                            await sync_folder(g,folder)
-                        await asyncio.sleep(max(5,min(120,int(
-                          os.getenv("GALERIAS_SYNC_DELAY_SECONDS","15")))))
+                    # Registrar todas las nuevas antes de la primera subida
+                    # larga; después índice y backup avanzan por rondas.
+                    fresh=[x for x in folders if not x["scan_count"]]
+                    if fresh:
+                        await fair_round(g,fresh,catalog_only=True)
+                    await fair_round(g,folders)
+                    await asyncio.sleep(3)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
