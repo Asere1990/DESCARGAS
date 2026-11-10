@@ -150,7 +150,17 @@ class TelegramPanel:
         return entity
     async def accounts(self,actor,after=0):
         limited=reviewer(actor);page_size=5 if limited else 60
-        rows=await self.s.repo.pool.fetch('SELECT a.uid,a.profile,a.generation,md5(a.session) AS session_tag,d.name,d.country FROM descarga_accounts a LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2 WHERE a.session IS NOT NULL AND a.uid>$1 ORDER BY a.uid LIMIT $3',after,self.s.bot_id,page_size+1)
+        # Read all status snapshots for this page in the same database round trip.
+        # Account sessions remain encrypted and are never opened by this listing.
+        rows=await self.s.repo.pool.fetch(
+            """SELECT a.uid,a.profile,a.generation,md5(a.session) AS session_tag,
+                      d.name,d.country,st.value AS status_cache
+               FROM descarga_accounts a
+               LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2
+               LEFT JOIN descarga_settings st
+                 ON st.key='panel-account-status:' || $2::text || ':' || a.uid::text
+               WHERE a.session IS NOT NULL AND a.uid>$1
+               ORDER BY a.uid LIMIT $3""",after,self.s.bot_id,page_size+1)
         items=[]
         for row in rows[:page_size]:
             try:await require_account(self.s,row['uid'],actor)
@@ -158,14 +168,14 @@ class TelegramPanel:
             profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
             directory=self.s.repo.decode(row['name']) if row.get('name') else {}
             from .panel_accounts import metadata
-            status=await self.overview.cached(row['uid'],row.get('generation',0),row.get('session_tag',''))
+            status=self.overview.cached_value(row.get('status_cache'),row.get('generation',0),row.get('session_tag',''))
             if limited:
                 if not status:
                     try:
                         async with asyncio.timeout(4):status=await self.overview.check(actor,row['uid'])
                     except (ValueError,TimeoutError,errors.RPCError,OSError):continue
                 if not status or status.get('state')!='active':continue
-            items.append({'id':str(row['uid']),'name':account_label(profile,directory),'username':profile.get('username') or '',
+            items.append({'id':str(row['uid']),'generation':row.get('generation',0),'name':account_label(profile,directory),'username':profile.get('username') or '',
                           **metadata(profile,directory,row.get('country','')), 'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
         return {'items':items,'next':str(rows[page_size-1]['uid']) if len(rows)>page_size else None,'reviewer':limited}
     async def account_profile(self,actor,uid):

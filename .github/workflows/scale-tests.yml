@@ -31,4 +31,6 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
+      - run: node --check descargas_app/panel_web/app.js
+      - run: node --test tests/test_panel_account_cache.cjs
       - run: python -m unittest discover -s tests -v

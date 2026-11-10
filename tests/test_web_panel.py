@@ -70,6 +70,31 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         self.account_guard.side_effect=check
         result=await self.panel.accounts(111)
         self.assertEqual([v['id'] for v in result['items']],['22']);self.assertNotIn('session',str(result))
+    async def test_account_listing_reads_cached_states_with_one_database_round_trip(self):
+        import time
+        now=time.time()
+        def row(uid,tag,state,checked,generation=3):
+            snapshot=json.dumps({'generation':generation,'session_tag':tag,
+                                 'state':state,'reason':'Checked by Telegram','checked':checked})
+            return {'uid':uid,'profile':json.dumps({'name':'Cuenta '+str(uid)}),
+                    'generation':3,'session_tag':tag,'name':None,'country':'',
+                    'status_cache':snapshot}
+        self.pool.fetch.return_value=[
+            row(22,'current','active',now),
+            row(33,'old','revoked',now-400),
+            row(44,'changed','expired',now,generation=2),
+        ]
+        self.repo.setting=AsyncMock(side_effect=AssertionError('No per-account status query'))
+        result=await self.panel.accounts(111)
+        self.assertEqual([a['status']['state'] for a in result['items']],
+                         ['active','unknown','unknown'])
+        self.assertEqual([a['generation'] for a in result['items']],[3,3,3])
+        self.pool.fetch.assert_awaited_once()
+        self.assertIn('LEFT JOIN descarga_settings',self.pool.fetch.await_args.args[0])
+        self.repo.setting.assert_not_awaited()
+        self.assertNotIn('session_tag',str(result))
+        self.assertNotIn('status_cache',str(result))
+
     async def test_dialogs_include_all_kinds_and_scope_handles_without_access_hash_leaks(self):
         entities=[self.entity,types.Chat(id=100,title='Grupo',photo=types.ChatPhotoEmpty(),participants_count=1,date=datetime.now(timezone.utc),version=1),types.Channel(id=200,title='Canal',photo=types.ChatPhotoEmpty(),date=datetime.now(timezone.utc),broadcast=True,access_hash=789)]
         self.rows=[N(entity=e,id=p.source_id(p.peer_data(e,22)),message=message(5),date=datetime.now(timezone.utc),unread_count=2,pinned=False) for e in entities]
