@@ -274,7 +274,7 @@ async function runAccountMetadataSearch(){
   addMatches();
   while(accountsNext&&run===overviewRun){
    if(document.hidden)break;
-   $('accounts-progress').textContent='Buscando por '+mode+' · '+overviewAccounts.size+' cuentas consultadas…';
+   $('accounts-progress').textContent='Buscando por '+({id:'Telegram ID',username:'@username',phone:'teléfono',country:'país'}[mode]||mode)+' · '+overviewAccounts.size+' cuentas consultadas…';
    await loadAccounts(true);
    if(run!==overviewRun)return;
    addMatches();
@@ -299,10 +299,10 @@ $('accounts-search-mode').onchange=()=>{
  const current=$('accounts-search-mode').value,field=$('accounts-query');
  field.value='';field.placeholder=fields[current]||fields.phrases;
  field.setAttribute('aria-label','Buscar por '+(fields[current]||'frases'));
- field.inputMode=current==='id'||current==='phone'?'numeric':'search';
+ field.inputMode=current==='id'?'numeric':current==='phone'?'tel':'search';
  resetAccountSearch();
 };
-$('accounts-query').oninput=()=>{if(!$('accounts-query').value.trim())resetAccountSearch();};
+$('accounts-query').oninput=()=>{if(!$('accounts-query').value.trim()||($('accounts-search-mode').value!=='phrases'&&overviewSearching))resetAccountSearch();};
 $('accounts-search-form').onsubmit=e=>{
  e.preventDefault();
  if($('accounts-search-mode').value==='phrases')runAccountSearch(false);
