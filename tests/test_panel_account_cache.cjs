@@ -28,6 +28,7 @@ function setup(){
   "this.setAccountTab=setAccountTab;this.updateAccountCard=updateAccountCard;"+
   "this.groupHidden=key=>accountGroups.get(key).section.hidden;"+
   "this.updateAccountGroups=updateAccountGroups;"+
+  "this.accountMetadataMatches=accountMetadataMatches;"+
   "this.restoreCachedAccounts=restoreCachedAccounts;this.saveAccounts=saveAccounts;"+
   "this.configureCache=()=>{accountListKey='panel-test';accountListReady=true;loadedAccountPages=2;};"+
   "this.resetLists=()=>{overviewAccounts.clear();accountCards.clear();};"+
@@ -125,4 +126,65 @@ test('reviewers cannot switch to inactive accounts',()=>{
  assert.equal(ctx.groupHidden('active'),false);
  assert.equal(ctx.groupHidden('inactive'),true);
  assert.equal($('account-tab-inactive').hidden,true);
+});
+
+test('account metadata matches ID, @username, formatted phone and accent-insensitive country',()=>{
+ const {ctx}=setup(),a={id:'718024794',username:'Ejemplo_ABC',phone:'+1 (305) 497-4151',country:'España',country_code:'ES'};
+ assert.equal(ctx.accountMetadataMatches(a,'id','718024794'),true);
+ assert.equal(ctx.accountMetadataMatches({...a,name:'José García'},'name','JOSE GARCIA'),true);
+ assert.equal(ctx.accountMetadataMatches({...a,name:'José García'},'name','otro'),false);
+ assert.equal(ctx.accountMetadataMatches(a,'id','779'),false);
+ assert.equal(ctx.accountMetadataMatches(a,'id','abcdef'),false);
+ assert.equal(ctx.accountMetadataMatches(a,'username','@ejemplo_abc'),true);
+ assert.equal(ctx.accountMetadataMatches(a,'username','otra'),false);
+ assert.equal(ctx.accountMetadataMatches(a,'username','@'),false);
+ assert.equal(ctx.accountMetadataMatches(a,'phone','305-497-4151'),true);
+ assert.equal(ctx.accountMetadataMatches(a,'phone','305888'),false);
+ assert.equal(ctx.accountMetadataMatches(a,'country','espana'),true);
+ assert.equal(ctx.accountMetadataMatches(a,'country','ES'),true);
+ assert.equal(ctx.accountMetadataMatches(a,'country','cuba'),false);
+});
+
+test('the header, account tabs and search remain inside the same sticky container',()=>{
+ const html=fs.readFileSync(__dirname+'/../descargas_app/panel_web/index.html','utf8');
+ const css=fs.readFileSync(__dirname+'/../descargas_app/panel_web/style.css','utf8');
+ const start=html.indexOf('<div class="accounts-sticky">'),end=html.indexOf('<div class="overview-actions">');
+ const sticky=html.slice(start,end);
+ assert.ok(start>0&&end>start);
+ assert.ok(sticky.includes('id="account-tab-active"'));
+ assert.ok(sticky.includes('id="account-tab-inactive"'));
+ assert.ok(sticky.includes('id="accounts-search-form"'));
+ assert.ok(sticky.trimEnd().endsWith('</div>'));
+ assert.match(css,/\.accounts-sticky\{position:sticky;top:0/);
+ assert.match(css,/#accounts-search-form\{position:static/);
+ assert.match(sticky,/id="logout"[^>]* hidden>/);
+ for(const value of ['phrases','name','id','username','phone','country'])
+  assert.ok(sticky.includes('value="'+value+'"'));
+});
+
+test('account lookup searches authorized paginated metadata without starting Telegram sessions',async()=>{
+ const matchBlock=source.slice(source.indexOf('function accountMetadataMatches('),source.indexOf('function cancelOverviewSearch()'));
+ const searchBlock=source.slice(source.indexOf('function metadataSearchHit('),source.indexOf('function resetAccountSearch()'));
+ const nodes=new Map(),accountData=new Map();
+ const $=id=>{
+  if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',hidden:false,children:[],append(...a){this.children.push(...a);},replaceChildren(){this.children=[];}});
+  return nodes.get(id);
+ };
+ const el=(tag,value='')=>({tagName:tag.toUpperCase(),textContent:value,children:[],append(...a){this.children.push(...a);}});
+ $('accounts-query').value='Mexico';$('accounts-search-mode').value='country';
+ const ctx={$,el,overviewAccounts:accountData,accountsNext:'first',overviewRun:0,overviewSearching:false,statusQueue:[],overviewPending:[],
+  operationBusy:false,document:{hidden:false},accountStates:{active:'Activa',unknown:'Sin verificar'},
+  notice(){},selectAccount(){},pumpStatuses(){},cancelOverviewSearch(){ctx.overviewRun++;ctx.overviewSearching=false;},loadAccounts:async()=>{
+   ctx.pages++;
+   if(ctx.pages===1){accountData.set('11',{id:'11',name:'A',country:'México',username:'a',phone:'123',status:{state:'active'}});ctx.accountsNext='second';}
+   else{accountData.set('22',{id:'22',name:'B',country:'Cuba',username:'b',phone:'456',status:{state:'active'}});ctx.accountsNext=null;}
+  },pages:0};
+ vm.createContext(ctx);
+ vm.runInContext(matchBlock+searchBlock+'\nthis.runAccountMetadataSearch=runAccountMetadataSearch;',ctx);
+ await ctx.runAccountMetadataSearch();
+ assert.equal(ctx.pages,2);
+ assert.equal($('accounts-results').children.length,1);
+ assert.match($('accounts-results').children[0].children[0].textContent,/A · 11/);
+ assert.match($('accounts-progress').textContent,/1 cuenta/);
+ assert.equal($('cancel-account-search').hidden,true);
 });
