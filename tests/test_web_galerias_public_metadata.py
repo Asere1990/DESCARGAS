@@ -30,6 +30,29 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
         for hidden in ("pending","complete","error","peer","source_uid"):
             self.assertNotIn(hidden,folder)
 
+    async def test_free_tester_matches_paying_customer_exactly(self):
+        # La autorización puede provenir de acceso.txt o del pago, pero una vez
+        # autorizado el cliente recibe idénticos datos, cuotas y carpetas.
+        core,db=self.make_core()
+        core.folder_list=AsyncMock(side_effect=lambda uid:[{
+            "id":7,"name":"Fotos públicas de Cuba","photos":4,"videos":0,
+            "pending":550,"complete":False,"error":"RateLimit"}])
+        pilot_user=await core.bootstrap(5662710947)
+        paying_user=await core.bootstrap(1600000000)
+        self.assertEqual(pilot_user,paying_user)
+        self.assertNotIn("tester",pilot_user)
+        self.assertTrue(pilot_user["allowed"])
+        self.assertFalse(pilot_user["admin"])
+        self.assertEqual(pilot_user["remaining"],100)
+        self.assertEqual(len(pilot_user["folders"]),1)
+
+    def test_public_ui_has_no_tester_label(self):
+        from pathlib import Path
+        script=(Path(__file__).resolve().parents[1]/"web_galerias"/"app.js").read_text()
+        self.assertIn('"Acceso verificado"',script)
+        self.assertNotIn('S.me.tester',script)
+        self.assertNotIn('"Usuario de prueba"',script)
+
     async def test_admin_sees_backup_metadata(self):
         core,db=self.make_core()
         result=await core.bootstrap(7539025033)

@@ -47,7 +47,7 @@ async function refresh(){
  $("quota-fill").style.width=(S.me.remaining)+"%";
  if(!S.me.allowed)$("intro-notice").textContent=S.me.pilot?
   "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
- else $("intro-notice").textContent=S.me.admin?"Acceso de administrador":S.me.tester?"Usuario de prueba":"Acceso verificado";
+ else $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
 }
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";

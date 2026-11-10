@@ -8,7 +8,7 @@ import unicodedata
 from datetime import datetime,timezone
 from pathlib import Path
 from aiohttp import web
-from .permissions import is_admin,is_tester,pilot_allowed
+from .permissions import is_admin,pilot_allowed
 from .storage import PrivateStorage
 
 SCHEMA="""
@@ -195,7 +195,7 @@ class GalleryCore:
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
                   temporary_link(self,uid,cover,"thumb")) if cover else None
         used=await self.db().fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0
-        return {"admin":is_admin(uid),"tester":is_tester(uid),"allowed":allowed,
+        return {"admin":is_admin(uid),"allowed":allowed,
           "pilot":os.getenv("GALERIAS_PUBLIC","0")!="1","design":await self.design(),
           "folders":folders,"photos":sum(f["photos"] for f in folders),
           "videos":sum(f["videos"] for f in folders),
