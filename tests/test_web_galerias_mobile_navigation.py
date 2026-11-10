@@ -46,16 +46,24 @@ class GalleryMobileNavigation(unittest.TestCase):
         cls.doc.feed(cls.html)
 
     def test_no_duplicate_controls(self):
-        for control in ("go-intro","admin-open","admin-back","admin-refresh"):
+        for control in ("go-intro","admin-open","admin-back","admin-refresh",
+                        "back-library","select-mode","selection-cancel",
+                        "selection-download","close-viewer","viewer-download",
+                        "viewer-prev","viewer-next"):
             self.assertEqual(len(self.doc.buttons.get(control,[])),1,control)
 
     def test_bottom_buttons_instead_of_unreachable_header_icons(self):
-        self.assertEqual(len(self.doc.nav_classes),2)
+        self.assertEqual(len(self.doc.nav_classes),4)
         self.assertEqual(set(self.doc.nav_classes[0]),{"go-intro","admin-open"})
-        self.assertEqual(set(self.doc.nav_classes[1]),{"admin-back","admin-refresh"})
+        self.assertEqual(set(self.doc.nav_classes[1]),{"back-library","select-mode"})
+        self.assertEqual(set(self.doc.nav_classes[2]),{"selection-cancel","selection-download"})
+        self.assertEqual(set(self.doc.nav_classes[3]),{"admin-back","admin-refresh"})
         headers=re.findall(r"<header\b[^>]*>.*?</header>",self.html,re.DOTALL)
         for header in headers:
-            for identifier in ("go-intro","admin-open","admin-back","admin-refresh"):
+            for identifier in ("go-intro","admin-open","admin-back","admin-refresh",
+                               "back-library","select-mode","selection-cancel",
+                               "selection-download","close-viewer","viewer-download",
+                               "viewer-prev","viewer-next"):
                 self.assertNotIn(f'id="{identifier}"',header)
 
     def test_accessibility_and_permissions_unchanged(self):
@@ -73,6 +81,19 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn("--tg-content-safe-area-inset-bottom",self.css)
         self.assertIn("touch-action:manipulation",self.css)
         self.assertIn("#admin .container.editor",self.css)
+
+    def test_album_and_viewer_controls_are_bottom_only(self):
+        self.assertIn('id="album-actions" class="mobile-actions"',self.html)
+        self.assertIn('id="selection-bar" class="mobile-actions selection-actions hidden"',self.html)
+        viewer=self.html.split('<nav class="viewer-bottom"')[1].split("</nav>")[0]
+        for control in ("close-viewer","viewer-prev","viewer-next","viewer-download"):
+            self.assertIn(f'id="{control}"',viewer)
+        self.assertIn("min-height:55px",self.css)
+
+    def test_non_admin_cannot_see_backup_status(self):
+        self.assertIn('S.me?.admin && folder.pending',self.js)
+        self.assertIn('textContent="Nombre público:',self.js)
+        self.assertIn('id="new-public-name"',self.html)
 
     def test_button_events_preserved(self):
         for code in ('$("go-intro").onclick=()=>show("intro")',
