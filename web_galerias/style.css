@@ -45,3 +45,41 @@
 .mobile-action:active{transform:scale(.98)}
 @media (pointer:coarse){.mobile-action{min-height:56px}}
 @media (max-width:360px){.mobile-actions{gap:8px;padding-left:12px;padding-right:12px}.mobile-action{font-size:13px;gap:6px}}
+
+
+/* Todos los controles del cliente al alcance del pulgar, incluso en álbumes y visor. */
+#album{padding-bottom:calc(130px + max(env(safe-area-inset-bottom,0px),var(--tg-safe-area-inset-bottom,0px),var(--tg-content-safe-area-inset-bottom,0px)))}
+#album .topbar{justify-content:center}
+#album .album-heading{text-align:center;min-width:0}
+#album .media-grid{padding-bottom:16px}
+#album .selection-actions{gap:9px}
+.selection-counter{white-space:nowrap;font-size:12px;color:var(--text);font-variant-numeric:tabular-nums;align-self:center}
+.selection-actions .mobile-action{font-size:13px;min-height:55px}
+.viewer-top{justify-content:center;padding-top:calc(20px + max(env(safe-area-inset-top,0px),var(--tg-safe-area-inset-top,0px),var(--tg-content-safe-area-inset-top,0px)));pointer-events:none}
+.viewer-stage{padding-bottom:calc(88px + max(env(safe-area-inset-bottom,0px),var(--tg-safe-area-inset-bottom,0px),var(--tg-content-safe-area-inset-bottom,0px)))}
+.viewer-bottom{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  align-items:stretch;
+  padding:10px 12px calc(13px + max(env(safe-area-inset-bottom,0px),var(--tg-safe-area-inset-bottom,0px),var(--tg-content-safe-area-inset-bottom,0px)));
+  border-top:1px solid rgba(255,255,255,.16);
+  background:rgba(16,18,24,.95);
+  z-index:30;
+}
+.viewer-action{
+  flex:1;
+  min-width:0;
+  min-height:55px;
+  border:1px solid rgba(255,255,255,.2);
+  border-radius:14px;
+  color:#fff;
+  background:rgba(255,255,255,.14);
+  font-size:13px;
+  font-weight:700;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
+.viewer-action.viewer-save{background:var(--accent);border-color:var(--accent)}
+.viewer-action:active{transform:scale(.97)}
+@media(max-width:370px){.viewer-bottom{gap:5px;padding-left:8px;padding-right:8px}.viewer-action{font-size:12px}}
