@@ -35,7 +35,9 @@ async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
     if op=="admin-overview":
-        folders=await db.fetch("""SELECT f.id,f.peer,f.name,f.active,f.error,f.complete,f.scan_count,
+        folders=await db.fetch("""SELECT f.id,f.peer,f.name,
+            COALESCE(f.public_name,'') AS public_name,
+            f.active,f.error,f.complete,f.scan_count,
             f.last_check,f.source_uid,
             COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
             COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending,
@@ -65,10 +67,18 @@ async def admin_op(g,uid,op,data):
         except (ValueError,TypeError,OverflowError):raise web.HTTPBadRequest(text="ID incorrecto.")
         if not -2**63<peer<0:raise web.HTTPBadRequest(text="Escribe el ID completo negativo del grupo o canal.")
         name=str(data.get("name","")).strip()
-        if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre de carpeta incorrecto.")
-        row=await db.fetchrow("""INSERT INTO wg_folders(peer,name,created) VALUES($1,$2,$3)
-          ON CONFLICT(peer) DO UPDATE SET name=excluded.name,active=TRUE
-          RETURNING id""",peer,name,time.time())
+        if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre interno incorrecto.")
+        public_name=data.get("public_name")
+        if public_name is not None:
+            if not isinstance(public_name,str) or not public_name.strip() or len(public_name.strip())>100:
+                raise web.HTTPBadRequest(text="Nombre visible incorrecto.")
+            public_name=public_name.strip()
+        row=await db.fetchrow("""INSERT INTO wg_folders(peer,name,public_name,created)
+          VALUES($1,$2,$3,$4)
+          ON CONFLICT(peer) DO UPDATE SET name=excluded.name,
+            public_name=COALESCE(excluded.public_name,wg_folders.public_name),
+            active=TRUE
+          RETURNING id""",peer,name,public_name,time.time())
         # Reactivación conserva todas las copias ready en R2 y los cursores.
         # Solo los archivos antes no disponibles pueden volver a intentarse.
         await db.execute("""UPDATE wg_media SET state='pending',
@@ -77,9 +87,17 @@ async def admin_op(g,uid,op,data):
         return {"ok":True,"id":row["id"]}
     if op=="admin-folder-update":
         folder=identifier(data.get("folder"))
-        name=str(data.get("name","")).strip()
-        if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre inválido.")
-        await db.execute("UPDATE wg_folders SET name=$2 WHERE id=$1",folder,name)
+        field=data.get("field","name")
+        if field not in ("name","public_name"):
+            raise web.HTTPBadRequest(text="Tipo de nombre incorrecto.")
+        name=data.get("name")
+        if not isinstance(name,str) or not name.strip() or len(name.strip())>100:
+            raise web.HTTPBadRequest(text="Nombre inválido.")
+        if field=="name":
+            await db.execute("UPDATE wg_folders SET name=$2 WHERE id=$1",folder,name.strip())
+        else:
+            await db.execute("UPDATE wg_folders SET public_name=$2 WHERE id=$1",
+                             folder,name.strip())
         await g.log(uid,op)
         return {"ok":True}
     if op=="admin-folder-remove":
