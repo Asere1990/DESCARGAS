@@ -21,7 +21,7 @@ async function pumpProfiles(){if(profileBusy||operationBusy||!profileQueue.lengt
 const profileObserver=new IntersectionObserver(entries=>{for(const item of entries)if(item.isIntersecting){profileObserver.unobserve(item.target);const task=item.target.profileTask;if(task){profileQueue.push(task);pumpProfiles();}}},{rootMargin:'80px'});
 const imageObserver=new IntersectionObserver(entries=>{for(const item of entries)if(item.isIntersecting){const img=item.target;imageObserver.unobserve(img);if(img.dataset.url)scheduleImage(img,img.dataset.url);}}, {rootMargin:'100px'});
 function lazyImage(parent,url,alt,protectedMedia=false){const img=el('img');img.alt=alt;img.style.opacity='0';img.dataset.url=url;img.dataset.protected=protectedMedia?'1':'0';img.draggable=false;if(protectedMedia)img.oncontextmenu=e=>e.preventDefault();parent.append(img);const cached=protectedMedia?null:imageCache.get(url);if(cached){img.src=cached.url;img.style.opacity='1';}else imageObserver.observe(img);return img;}
-async function loadAccounts(append=false){const r=await api('accounts'+(append&&accountsNext?'?after='+accountsNext:''));panelReviewer=!!r.reviewer;if(!append){loadedAccountPages=0;profileObserver.disconnect();profileQueue=[];statusQueue=[];overviewAccounts.clear();accountCards.clear();buildAccountGroups();}for(const a of r.items){overviewAccounts.set(a.id,a);if(!accountCards.has(a.id))createAccountCard(a);else updateAccountCard(a);}accountsNext=r.next;loadedAccountPages++;$('more-accounts').hidden=!r.next;if(!append&&!r.items.length)$('accounts').append(el('p',r.next?'No hay cuentas visibles en esta página. Pulsa Cargar más cuentas.':'No hay cuentas disponibles con tus permisos.'));queueAccountCache();}
+async function loadAccounts(append=false){const r=await api('accounts'+(append&&accountsNext?'?after='+accountsNext:''));panelReviewer=!!r.reviewer;if(!append){loadedAccountPages=0;profileObserver.disconnect();profileQueue=[];statusQueue=[];overviewAccounts.clear();accountCards.clear();buildAccountGroups();}for(const a of r.items){overviewAccounts.set(a.id,a);if(!accountCards.has(a.id))createAccountCard(a);else updateAccountCard(a);}accountsNext=r.next;loadedAccountPages++;$('more-accounts').hidden=!r.next;updateAccountGroups();if(!append&&!r.items.length)$('accounts').append(el('p',r.next?'No hay cuentas visibles en esta página. Pulsa Cargar más cuentas.':'No hay cuentas disponibles con tus permisos.'));queueAccountCache();}
 async function selectAccount(a){if(operationBusy)return notice('Espera a que termine la operación en curso.');cancelOverviewSearch();stopLive();resetComposer();$('manage-chat').hidden=true;epoch++;thumbQueue=[];account=a;chat=null;rows=[];messages.clear();mode='messages';$('gallery-count').hidden=true;$('thread').classList.remove('gallery');$('thread').replaceChildren(el('p','Selecciona una conversación de esta cuenta.'));$('chat-title').textContent='Tus conversaciones';$('chat-subtitle').textContent=a.name;$('chat-avatar').textContent='➤';$('message-tabs').hidden=true;$('older').hidden=true;filter='all';document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter==='all'));query='';$('chat-search').value='';$('account-name').textContent=a.name;$('account-chip').textContent=a.name;view('chats');$('chats').replaceChildren(el('p','Cargando chats…'));notice('');await loadChats();await loadFolders();startLive();}
 async function loadChats(append=false,quiet=false){if(!account)return;const requestEpoch=epoch;const r=await api('chats?account='+account.id+(append&&chatsNext?'&cursor='+encodeURIComponent(chatsNext):''));if(requestEpoch!==epoch)return;if(account.generation!==undefined&&r.generation!==undefined&&account.generation!==r.generation)rows=[];account.generation=r.generation;const oldRows=JSON.stringify(rows);const incoming=r.items.map(item=>{const old=rows.find(r=>r.id===item.id);return old?{...item,handle:old.handle}:item;});rows=append?[...rows,...incoming.filter(item=>!rows.some(old=>old.id===item.id))]:quiet?[...incoming,...rows.filter(old=>!incoming.some(item=>item.id===old.id))]:incoming;if(!quiet)chatsNext=r.next;account.name=r.account||account.name;$('account-name').textContent=account.name;$('account-chip').textContent=account.name;notice('');$('more-chats').hidden=!chatsNext;if(!quiet||JSON.stringify(rows)!==oldRows)renderChats();}
 function matchesChatFilter(c,selected){return selected==='all'||(selected==='owner'?!!c.owner:selected==='admin'?!!c.admin:selected==='saved'?!!c.saved:c.type===selected);}
@@ -153,11 +153,35 @@ document.addEventListener('visibilitychange',()=>{for(const node of premiumNodes
 
 $('compose-text').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('composer').requestSubmit();}});
 const overviewAccounts=new Map(),accountCards=new Map();
-let accountGroups=new Map(),statusQueue=[],statusBusy=false,overviewRun=0,overviewSearching=false,overviewPending=[];
+let accountGroups=new Map(),accountTab='active',statusQueue=[],statusBusy=false,overviewRun=0,overviewSearching=false,overviewPending=[];
 const accountStates={active:'Activa',revoked:'Sesión revocada',expired:'Sesión vencida',invalid:'Sin sesión válida',unknown:'Sin verificar'};
 function statusGroup(state){return state==='active'?'active':'inactive';}
-function buildAccountGroups(){accountGroups.clear();$('accounts').replaceChildren();for(const [key,title] of [['active','Cuentas activas'],['inactive','Cuentas no activas o sin verificar']]){const section=el('section'),heading=el('h2',title),list=el('div');section.className='account-group';section.append(heading,list);$('accounts').append(section);accountGroups.set(key,{section,heading,list,title});}}
-function updateAccountGroups(){for(const [key,group] of accountGroups){const count=group.list.children.length;group.section.hidden=panelReviewer&&key!=='active';group.heading.textContent=group.title+(panelReviewer?'':' · '+count);}}
+function buildAccountGroups(){accountGroups.clear();$('accounts').replaceChildren();for(const [key,title] of [['active','Cuentas activas'],['inactive','Cuentas no activas o sin verificar']]){const section=el('section'),heading=el('h2',title),list=el('div');section.className='account-group';section.append(heading,list);$('accounts').append(section);accountGroups.set(key,{section,heading,list,title});}updateAccountGroups();}
+function updateAccountGroups(){
+ const selected=panelReviewer?'active':accountTab,partial=accountsNext?'+':'';
+ for(const [key,group] of accountGroups){
+  const count=group.list.children.length;
+  group.section.hidden=key!==selected;
+  group.heading.textContent=group.title+(panelReviewer?'':' · '+count);
+  const button=$('account-tab-'+key);
+  button.dataset.selected=String(key===selected);
+  button.setAttribute('aria-pressed',String(key===selected));
+  $('account-count-'+key).textContent=String(count)+partial;
+ }
+ $('account-tab-inactive').hidden=panelReviewer;
+ const note=$('account-tab-note'),parts=[];
+ if(selected==='inactive')parts.push('Incluye cuentas sin verificar; no significa que su sesión esté revocada.');
+ if(accountsNext)parts.push('Contadores parciales (+): puedes cargar más cuentas.');
+ note.textContent=parts.join(' ');
+ note.hidden=!parts.length;
+}
+function setAccountTab(value){
+ if(value!=='active'&&value!=='inactive')return;
+ if(panelReviewer&&value==='inactive')return;
+ accountTab=value;updateAccountGroups();queueResume();
+}
+$('account-tab-active').onclick=()=>setAccountTab('active');
+$('account-tab-inactive').onclick=()=>setAccountTab('inactive');
 function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';card.status.textContent=accountStates[state]||accountStates.unknown;card.status.dataset.state=state;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');const group=accountGroups.get(statusGroup(state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
 async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
 async function pumpStatuses(){if(statusBusy||overviewSearching||operationBusy||!statusQueue.length||$('workspace').dataset.view!=='accounts')return;statusBusy=true;const a=statusQueue.shift();try{await verifyAccount(a);}finally{statusBusy=false;pumpStatuses();}}
@@ -198,6 +222,7 @@ function restoreCachedAccounts(){
   }
   accountsNext=typeof saved.next==='string'?saved.next:null;
   $('more-accounts').hidden=!accountsNext;
+  updateAccountGroups();
   if(overviewAccounts.size)$('accounts-progress').textContent='Cuentas guardadas; actualizando información…';
   return Math.min(25,Math.max(0,Number(saved.pages)||0));
  }catch{return 0;}
@@ -225,7 +250,7 @@ function snapshotResume(){
  const at=Math.max(0,ordered.findIndex(m=>String(m.id)===anchor?.id)),start=Math.max(0,at-30),selected=ordered.slice(start,start+RESUME_LIMIT);
  // Never store protected message bodies or media; they must be fetched again.
  const items=selected.filter(m=>!m.protected).map(({signature,...m})=>m);
- return {version:1,saved:Date.now(),view:currentView,account:account?{id:account.id,generation:account.generation}:null,
+ return {version:1,saved:Date.now(),view:currentView,accountTab,account:account?{id:account.id,generation:account.generation}:null,
   chat:currentView==='conversation'&&chat?{id:chat.id,handle:chat.handle,name:chat.name,type:chat.type,forum:chat.forum}:null,
   mode,query,filter,chatQuery:$('chat-search').value,topic,contextMode,contextFocus,anchor,
   scroll:$('thread').scrollTop,chatsScroll:document.querySelector('.chat-list').scrollTop,accountsScroll:document.querySelector('.accounts').scrollTop,
@@ -255,6 +280,7 @@ async function restoreConversation(saved){
 async function resumePanel(){
  const saved=readResume();if(!saved)return;resumeRestoring=true;
  try{
+  setAccountTab(saved.accountTab==='inactive'?'inactive':'active');
   if(saved.view==='accounts'||!saved.account){document.querySelector('.accounts').scrollTop=Number(saved.accountsScroll)||0;return;}
   while(!overviewAccounts.has(saved.account.id)&&accountsNext)await loadAccounts(true);
   const a=overviewAccounts.get(saved.account.id);if(!a)return;
