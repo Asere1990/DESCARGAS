@@ -67,6 +67,8 @@ async def sync_folder(g,folder):
                   VALUES($1,$2,$3,FALSE) ON CONFLICT(folder,uid)
                   DO UPDATE SET tried_at=excluded.tried_at,works=FALSE""",
                   folder["id"],uid,time.time())
+                await db.execute("UPDATE wg_folders SET source_uid=NULL WHERE id=$1 AND source_uid=$2",
+                                 folder["id"],uid)
                 return
             await db.execute("""INSERT INTO wg_discovery(folder,uid,tried_at,works)
                 VALUES($1,$2,$3,TRUE) ON CONFLICT(folder,uid)
@@ -111,7 +113,7 @@ async def sync_folder(g,folder):
         # account_lock ocupado o sesión revocada: no tocar ni cerrar sesiones.
         return
     except (errors.RPCError,OSError,TimeoutError) as exc:
-        log.warning("Gallery sync skipped account %s (%s)",uid,type(exc).__name__)
+        log.warning("Gallery sync deferred (%s)",type(exc).__name__)
         await db.execute("UPDATE wg_folders SET error=$2 WHERE id=$1",
                          folder["id"],type(exc).__name__)
         await db.execute("""INSERT INTO wg_discovery(folder,uid,tried_at,works)
@@ -166,14 +168,21 @@ async def backup_one(g,folder,item,message,client):
     kind=item["kind"];suffix=".jpg" if kind=="photo" else ".mp4"
     cap=int(os.getenv("GALERIAS_MAX_BACKUP_MB","128"))*1024*1024
     if item["size"] and item["size"]>cap:
-        # Archivo grande: se dejará pendiente hasta aumentar el límite explícitamente.
+        # No bloquear el índice por archivos superiores al límite de seguridad.
+        await g.db().execute("UPDATE wg_media SET state='skipped' WHERE folder=$1 AND message=$2",
+                             folder,item["message"])
         return
     with tempfile.TemporaryDirectory(prefix="wg-") as tmp:
         original=str(Path(tmp)/("original"+suffix))
         downloaded=await client.download_media(message,file=original)
         if not downloaded:return
         path=Path(downloaded)
-        if not path.is_file() or path.stat().st_size>cap:return
+        if not path.is_file():return
+        if path.stat().st_size>cap:
+            await g.db().execute("UPDATE wg_media SET state='skipped' WHERE folder=$1 AND message=$2",
+                                 folder,message.id)
+            return
+        actual_size=path.stat().st_size
         thumb=Path(tmp)/"thumb.jpg"
         if kind=="photo":
             with Image.open(path) as image:
@@ -191,13 +200,23 @@ async def backup_one(g,folder,item,message,client):
                         image.convert("RGB").save(thumb,format="JPEG",quality=85)
             except Exception:
                 pass
+            if not thumb.exists():
+                try:
+                    import imageio_ffmpeg
+                    import subprocess
+                    exe=imageio_ffmpeg.get_ffmpeg_exe()
+                    subprocess.run([exe,"-hide_banner","-loglevel","error","-ss","1",
+                      "-i",str(path),"-frames:v","1","-vf","scale=640:-2",
+                      "-y",str(thumb)],timeout=25,check=True,
+                      stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                except Exception:pass
         key=f"folders/{folder}/{message.id}/original{path.suffix or suffix}"
         thumb_key=f"folders/{folder}/{message.id}/thumb.jpg" if thumb.exists() else None
         await g.storage.upload(path,key,item["mime"] or ("image/jpeg" if kind=="photo" else "video/mp4"))
         if thumb_key:await g.storage.upload(thumb,thumb_key,"image/jpeg")
     await g.db().execute("""UPDATE wg_media SET state='ready',file_key=$3,
       thumb_key=$4,size=$5 WHERE folder=$1 AND message=$2 AND state='pending'""",
-      folder,message.id,key,thumb_key,path_size if False else item["size"])
+      folder,message.id,key,thumb_key,actual_size)
 
 async def run(g):
     db=g.db()
