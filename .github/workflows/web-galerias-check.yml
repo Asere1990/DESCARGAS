@@ -1,0 +1,30 @@
+name: Web Galerías — piloto privado
+on:
+  push:
+    branches: [feature/web-galerias-piloto-20261110]
+  pull_request:
+    paths:
+      - 'web_galerias/**'
+      - 'tests/test_web_galerias.py'
+      - 'descargas_app/service.py'
+      - 'scale_web.py'
+      - 'pyproject.toml'
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Revisión de sintaxis
+        run: |
+          python -m compileall -q web_galerias descargas_app
+          node --check web_galerias/app.js
+      - name: Dependencias
+        run: pip install -e .
+      - name: Tests de Web Galerías
+        run: python -m unittest discover -s tests -p test_web_galerias.py -v
