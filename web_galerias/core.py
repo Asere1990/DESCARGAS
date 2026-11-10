@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS wg_folders(
  complete BOOLEAN NOT NULL DEFAULT FALSE,source_uid BIGINT,
  last_check DOUBLE PRECISION NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '',
  scan_count BIGINT NOT NULL DEFAULT 0);
+-- El nombre original permanece interno; el nombre público jamás se infiere.
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS public_name TEXT;
 CREATE TABLE IF NOT EXISTS wg_media(
  id BIGSERIAL PRIMARY KEY,folder BIGINT NOT NULL REFERENCES wg_folders(id),
  message BIGINT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('photo','video')),
@@ -158,7 +160,9 @@ class GalleryCore:
 
     async def folder_list(self,uid):
         rows=await self.db().fetch("""
-        SELECT f.id,f.name,f.complete,f.error,
+        SELECT f.id,
+          COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name,
+          f.complete,f.error,
           COUNT(m.id) FILTER(WHERE m.state='ready' AND m.kind='photo')::int AS photos,
           COUNT(m.id) FILTER(WHERE m.state='ready' AND m.kind='video')::int AS videos,
           COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending
