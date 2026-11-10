@@ -35,7 +35,7 @@ class GalleryStartButton(unittest.IsolatedAsyncioTestCase):
             START_MENU_UID.reset(token)
 
     def test_all_three_pilot_users_get_button(self):
-        for uid in (8193438800,8829300345,5662710947):
+        for uid in (1609522430,7536216348,5662710947):
             token=START_MENU_UID.set(uid)
             try:
                 original={"chat_id":uid,"text":"CUENTA CREADA"}
@@ -55,9 +55,9 @@ class GalleryStartButton(unittest.IsolatedAsyncioTestCase):
             START_MENU_UID.reset(token)
 
     def test_paid_menu_preserves_cancel_button(self):
-        token=START_MENU_UID.set(8193438800)
+        token=START_MENU_UID.set(1609522430)
         try:
-            original={"chat_id":8193438800,"text":"SUSCRIPCIÓN ACTIVADA",
+            original={"chat_id":1609522430,"text":"SUSCRIPCIÓN ACTIVADA",
                 "reply_markup":{"inline_keyboard":[[{"text":"CANCELAR MEMBRESÍA",
                     "callback_data":"membership:cancel","style":"danger"}]]}}
             updated=ensure_gallery_start_button(original)
@@ -82,9 +82,9 @@ class GalleryStartButton(unittest.IsolatedAsyncioTestCase):
         events=[]
         async def handled(self,update):
             events.append(ensure_gallery_start_button(
-                {"chat_id":8193438800,"text":"SUSCRIPCIÓN ACTIVADA"}))
-        update={"message":{"from":{"id":8193438800},"chat":{
-            "type":"private","id":8193438800},"text":"/start"}}
+                {"chat_id":1609522430,"text":"SUSCRIPCIÓN ACTIVADA"}))
+        update={"message":{"from":{"id":1609522430},"chat":{
+            "type":"private","id":1609522430},"text":"/start"}}
         with patch.object(ScaleService,"_update_without_gallery_context",new=handled):
             await service.update(update)
         self.assertEqual(events[0]["reply_markup"]["inline_keyboard"][0][0]["text"],
@@ -97,8 +97,8 @@ class GalleryStartButton(unittest.IsolatedAsyncioTestCase):
         async def handled(self,update):
             events.append(START_MENU_UID.get())
         with patch.object(ScaleService,"_update_without_gallery_context",new=handled):
-            await service.update({"callback_query":{"from":{"id":8193438800}}})
-            await service.update({"message":{"from":{"id":8193438800},
+            await service.update({"callback_query":{"from":{"id":1609522430}}})
+            await service.update({"message":{"from":{"id":1609522430},
                                                 "chat":{"type":"private"}}})
         self.assertEqual(events,[None,None])
 
