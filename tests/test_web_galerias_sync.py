@@ -268,6 +268,45 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(item["max_files"]==1 and item["scan_size"]==30
                             for _,item in calls))
 
+    async def test_unknown_source_galleries_use_distinct_candidate_accounts(self):
+        g,_=gallery()
+        folders=[{"id":i+1,"source_uid":None} for i in range(50)]
+        active=set()
+        peak=0
+        visited=[]
+        async def choose(_g,folder):
+            return 100+(folder["id"]%3)
+        async def simulate(_g,folder,**kwargs):
+            nonlocal peak
+            account=await choose(_g,folder)
+            self.assertNotIn(account,active)
+            active.add(account)
+            peak=max(peak,len(active))
+            visited.append((folder["id"],kwargs["phase"]))
+            await asyncio.sleep(0.003)
+            active.remove(account)
+        with patch.dict(os.environ,{"GALERIAS_SYNC_PARALLEL_ACCOUNTS":"3",
+                                    "GALERIAS_SYNC_BETWEEN_FOLDERS":"0"}):
+            with patch("web_galerias.sync.choose_account",side_effect=choose) as chooser:
+                with patch("web_galerias.sync.sync_folder",side_effect=simulate):
+                    await fair_round(g,folders,phase="prime")
+        self.assertEqual(chooser.await_count,50)
+        self.assertEqual({x[0] for x in visited},set(range(1,51)))
+        self.assertEqual(set(x[1] for x in visited),{"prime"})
+        self.assertEqual(peak,3)
+
+    async def test_prime_phase_combines_index_and_preview_on_one_connection(self):
+        # El despachador debe enviar índice + miniatura en el mismo turno,
+        # para que 50 galerías no tengan que acabar su indexación primero.
+        g,_=gallery()
+        folder={"id":1,"source_uid":777}
+        with patch.dict(os.environ,{"GALERIAS_SYNC_PARALLEL_ACCOUNTS":"1",
+                                    "GALERIAS_SYNC_BETWEEN_FOLDERS":"0"}):
+            with patch("web_galerias.sync.sync_folder",new_callable=AsyncMock) as worker:
+                await fair_round(g,[folder],phase="prime")
+        worker.assert_awaited_once()
+        self.assertEqual(worker.await_args.kwargs["phase"],"prime")
+
     async def test_50_galleries_sharing_one_account_never_duplicate_session(self):
         g,_=gallery()
         folders=[{"id":i+1,"source_uid":111} for i in range(50)]
