@@ -2,6 +2,7 @@
 const $=id=>document.getElementById(id);
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
+const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
 const S={me:null,folders:[],folder:null,items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,epoch:0,toastTimer:null};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -29,11 +30,15 @@ function applyDesign(d){const r=document.documentElement.style;
 }
 async function api(op,data={}){
  const raw=tg?.initData||"";
- if(!raw)throw Error("Debes abrir Web Galerías desde el botón del bot en Telegram.");
- const r=await fetch(ENDPOINT,{method:"POST",cache:"no-store",
-  headers:{"Content-Type":"application/json","X-Telegram-Init-Data":raw},
-  body:JSON.stringify({op,...data})});
- if(!r.ok){let text=await r.text();text=text.replace(/<[^>]*>/g," ").trim();throw Error(text.slice(0,240)||"Servicio no disponible.");}
+ if(!raw&&!BROWSER_ADMIN)
+   throw Error("Debes abrir Web Galerías desde el botón del bot en Telegram.");
+ const headers={"Content-Type":"application/json"};
+ if(raw)headers["X-Telegram-Init-Data"]=raw;
+ else headers["X-Gallery-Web"]="1";
+ const r=await fetch(ENDPOINT,{method:"POST",cache:"no-store",credentials:"same-origin",
+  headers,body:JSON.stringify({op,...data})});
+ if(!r.ok){let text=await r.text();text=text.replace(/<[^>]*>/g," ").trim();
+  throw Error(text.slice(0,240)||"Servicio no disponible.");}
  return r.json();
 }
 async function refresh(){
@@ -301,7 +306,10 @@ stage.addEventListener("touchend",e=>{
  }
  if(e.touches.length===0){touchStart=null;lastDistance=0;}
 },{passive:true});
-$("admin-open").onclick=async()=>{populateEditor();show("admin");switchAdminTab("carpetas");await loadAdmin();};
+async function openAdminScreen(){
+ populateEditor();show("admin");switchAdminTab("carpetas");await loadAdmin();
+}
+$("admin-open").onclick=openAdminScreen;
 $("admin-back").onclick=()=>show("library");
 $("admin-refresh").onclick=loadAdmin;
 document.querySelectorAll(".admin-tabs button").forEach(b=>b.onclick=()=>switchAdminTab(b.dataset.tab));
@@ -319,6 +327,59 @@ $("load-permissions").onclick=loadPermissions;
 $("save-permissions").onclick=savePermissions;
 $("save-design").onclick=saveDesign;
 for(const key of ["logo","header","intro"])$("upload-"+key).onchange=e=>uploadAsset(key,e.target.files[0]);
-(async()=>{try{tg?.ready();tg?.expand();if(tg?.requestFullscreen)try{tg.requestFullscreen();}catch(_){}
- show("intro");await refresh();}
- catch(e){$("intro-notice").textContent=e.message;notice(e.message);}})();
+async function browserLogin(uid,password){
+ const response=await fetch("/web-galerias/admin/login",{
+  method:"POST",cache:"no-store",credentials:"same-origin",
+  headers:{"Content-Type":"application/json","X-Gallery-Web":"1"},
+  body:JSON.stringify({uid,password})});
+ if(!response.ok)throw Error((await response.text()).slice(0,230)||"Acceso incorrecto.");
+ return response.json();
+}
+$("browser-login-form").onsubmit=async event=>{
+ event.preventDefault();
+ if(!BROWSER_ADMIN)return;
+ const button=$("browser-login-button"),error=$("browser-login-error");
+ button.disabled=true;error.textContent="";
+ try{
+  const uid=$("browser-admin-id").value.trim();
+  const password=$("browser-admin-password").value;
+  await browserLogin(uid,password);
+  $("browser-admin-password").value=""; // La contraseña nunca se conserva en JS.
+  await refresh();
+  if(!S.me.admin)throw Error("Acceso restringido al administrador.");
+  $("browser-logout").classList.remove("hidden");
+  await openAdminScreen();
+ }catch(e){error.textContent=e.message;}
+ finally{button.disabled=false;}
+};
+$("browser-logout").onclick=async()=>{
+ if(!BROWSER_ADMIN)return;
+ try{
+  const r=await fetch("/web-galerias/admin/logout",{
+   method:"POST",credentials:"same-origin",cache:"no-store",
+   headers:{"X-Gallery-Web":"1"}});
+  if(!r.ok)throw Error("No se pudo cerrar la sesión. Intenta de nuevo.");
+  S.me=null;S.admin=null;S.folders=[];
+  $("browser-admin-password").value="";
+  $("browser-login-error").textContent="Sesión cerrada en este dispositivo.";
+  show("admin-login");
+ }catch(e){notice(e.message);}
+};
+(async()=>{
+ if(BROWSER_ADMIN){
+  try{
+   await refresh();
+   if(!S.me?.admin)throw Error("Acceso restringido a administradores.");
+   $("browser-logout").classList.remove("hidden");
+   await openAdminScreen();
+  }catch(e){
+   show("admin-login");
+   if(e.message.includes("GALERIAS_ADMIN_PASSWORD"))
+      $("browser-login-error").textContent=e.message;
+  }
+  return;
+ }
+ try{tg?.ready();tg?.expand();if(tg?.requestFullscreen)try{tg.requestFullscreen();}catch(_){}
+  show("intro");await refresh();}
+ catch(e){$("intro-notice").textContent=e.message;notice(e.message);}
+})();
