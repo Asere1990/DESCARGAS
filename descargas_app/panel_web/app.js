@@ -227,14 +227,87 @@ function restoreCachedAccounts(){
   return Math.min(25,Math.max(0,Number(saved.pages)||0));
  }catch{return 0;}
 }
+function accountMetadataMatches(a,mode,query){
+ const folded=value=>String(value??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('es').trim();
+ const term=folded(query);
+ if(!term)return false;
+ if(mode==='id'){const digits=term.replace(/\D/g,'');return !!digits&&String(a.id||'').includes(digits);}
+ if(mode==='username'){const username=term.replace(/^@/,'');return !!username&&folded(a.username).replace(/^@/,'').includes(username);}
+ if(mode==='phone'){const digits=term.replace(/\D/g,'');return !!digits&&String(a.phone||'').replace(/\D/g,'').includes(digits);}
+ if(mode==='country')return folded(a.country).includes(term)||folded(a.country_code).includes(term);
+ return false;
+}
 function cancelOverviewSearch(){overviewRun++;overviewSearching=false;$('cancel-account-search').hidden=true;}
 $('check-accounts').onclick=()=>{for(const a of overviewAccounts.values()){a.statusQueued=false;queueStatus(a);}pumpStatuses();};
 $('cancel-account-search').onclick=()=>{cancelOverviewSearch();$('accounts-progress').textContent='Búsqueda detenida. Los resultados son parciales.';$('continue-account-search').hidden=!overviewPending.length;pumpStatuses();};
 function accountSearchHit(a,hit){const button=el('button');button.className='account-search-hit';const kind=hit.chat.saved?'Mensajes guardados':({private:'Chat privado',group:'Grupo',channel:'Canal'}[hit.chat.type]||'Conversación');button.append(el('strong',a.name+' · '+a.id),el('span',kind+' · '+hit.chat.name));if(hit.message)button.append(el('span',hit.message.text||labels[hit.message.media?.type]||'Mensaje'),el('small',date(hit.message.date)+' '+time(hit.message.date)));else button.append(el('small','Coincidencia en el nombre'));button.onclick=async()=>{cancelOverviewSearch();try{await selectAccount(a);await openChat(hit.chat);if(hit.message)await jumpToMessage(hit.message.id,true);}catch(e){notice(e.message);}};$('accounts-results').append(button);}
 let overviewNeedle='',overviewSeen=new Set(),overviewSkipped=0,overviewComplete=0;
 async function runAccountSearch(continuing=false){const field=$('accounts-query'),needle=field.value.trim();if(!needle)return;if(operationBusy)return notice('Espera a que termine la operación.');cancelOverviewSearch();const run=overviewRun;overviewSearching=true;statusQueue=[];stopLive();$('cancel-account-search').hidden=false;$('continue-account-search').hidden=true;$('accounts-results').hidden=false;try{if(!continuing||needle!==overviewNeedle){overviewNeedle=needle;overviewSeen.clear();overviewSkipped=0;overviewComplete=0;$('accounts-results').replaceChildren();$('accounts-progress').textContent='Cargando la lista de cuentas autorizadas…';while(accountsNext&&run===overviewRun)await loadAccounts(true);if(run!==overviewRun)return;overviewPending=[...overviewAccounts.values()].filter(a=>!['revoked','invalid','expired'].includes(a.status?.state)).map(a=>({account:a,cursor:''}));}let pages=0;const total=overviewAccounts.size;while(overviewPending.length&&pages<30&&$('accounts-results').children.length<150&&run===overviewRun){if(document.hidden)break;const work=overviewPending.shift(),a=work.account;$('accounts-progress').textContent='Buscando en '+a.name+' · '+(panelReviewer?'Buscando…':overviewComplete+' cuentas terminadas de '+total)+' · '+$('accounts-results').children.length+' resultados';try{const result=await api('accounts-search?account='+a.id+'&q='+encodeURIComponent(overviewNeedle)+(work.cursor?'&cursor='+encodeURIComponent(work.cursor):''));if(run!==overviewRun)return;for(const hit of result.items){const key=a.id+':'+hit.chat.id+':'+(hit.message?.id||'title');if(overviewSeen.has(key))continue;overviewSeen.add(key);accountSearchHit(a,hit);}if(result.next)overviewPending.push({account:a,cursor:result.next});else overviewComplete++;}catch(e){if(run!==overviewRun)return;overviewSkipped++;const warning=el('p',a.name+' · No se pudo revisar: '+e.message);warning.className='account-search-warning';$('accounts-results').append(warning);}pages++;}if(run!==overviewRun)return;$('accounts-progress').textContent=(overviewPending.length?'Búsqueda parcial. Pulsa Seguir buscando.':'Búsqueda terminada en las cuentas consultables.')+(panelReviewer?'':' '+overviewComplete+' cuentas completas · '+overviewSkipped+' con error. Las sesiones no válidas no se consultan.');$('continue-account-search').hidden=!overviewPending.length;}catch(e){if(run===overviewRun)$('accounts-progress').textContent='Búsqueda incompleta: '+e.message;}finally{if(run===overviewRun){overviewSearching=false;$('cancel-account-search').hidden=true;pumpStatuses();}}}
-$('accounts-query').oninput=()=>{if(!$('accounts-query').value.trim()){cancelOverviewSearch();overviewPending=[];$('accounts-results').replaceChildren();$('accounts-results').hidden=true;$('continue-account-search').hidden=true;$('accounts-progress').textContent='Selecciona una cuenta vinculada';}};
-$('accounts-search-form').onsubmit=e=>{e.preventDefault();runAccountSearch(false);};
+function metadataSearchHit(a){
+ const button=el('button');button.className='account-search-hit';
+ button.append(el('strong',a.name+' · '+a.id));
+ button.append(el('span','@username: '+(a.username?'@'+a.username.replace(/^@/,''):'No disponible')));
+ button.append(el('span','Teléfono: '+(a.phone||'No disponible')));
+ button.append(el('span','País: '+(a.country||'No disponible')));
+ button.append(el('small','Estado: '+(accountStates[a.status?.state]||accountStates.unknown)));
+ button.onclick=()=>selectAccount(a).catch(e=>notice(e.message));
+ $('accounts-results').append(button);
+}
+async function runAccountMetadataSearch(){
+ const field=$('accounts-query'),needle=field.value.trim(),mode=$('accounts-search-mode').value;
+ if(!needle)return;
+ if(operationBusy)return notice('Espera a que termine la operación.');
+ cancelOverviewSearch();
+ const run=overviewRun,seen=new Set();
+ overviewSearching=true;statusQueue=[];overviewPending=[];
+ $('cancel-account-search').hidden=false;
+ $('continue-account-search').hidden=true;
+ $('accounts-results').hidden=false;
+ $('accounts-results').replaceChildren();
+ const addMatches=()=>{
+  for(const a of overviewAccounts.values()){
+   if(seen.has(a.id)||!accountMetadataMatches(a,mode,needle))continue;
+   seen.add(a.id);metadataSearchHit(a);
+  }
+ };
+ try{
+  addMatches();
+  while(accountsNext&&run===overviewRun){
+   if(document.hidden)break;
+   $('accounts-progress').textContent='Buscando por '+mode+' · '+overviewAccounts.size+' cuentas consultadas…';
+   await loadAccounts(true);
+   if(run!==overviewRun)return;
+   addMatches();
+  }
+  if(run!==overviewRun)return;
+  $('accounts-progress').textContent=seen.size+' cuenta(s) encontrada(s) · '+overviewAccounts.size+' cuentas consultadas'+(accountsNext?' · Búsqueda parcial. Vuelve a pulsar Buscar para continuar.':' · Búsqueda terminada.');
+  if(!seen.size)$('accounts-results').append(el('p',accountsNext?'No hay coincidencias en las cuentas consultadas.':'No se encontraron cuentas con esos datos.'));
+ }catch(e){
+  if(run===overviewRun)$('accounts-progress').textContent='Búsqueda incompleta: '+e.message;
+ }finally{
+  if(run===overviewRun){overviewSearching=false;$('cancel-account-search').hidden=true;pumpStatuses();}
+ }
+}
+function resetAccountSearch(){
+ cancelOverviewSearch();overviewPending=[];
+ $('accounts-results').replaceChildren();$('accounts-results').hidden=true;
+ $('continue-account-search').hidden=true;
+ $('accounts-progress').textContent='Selecciona una cuenta vinculada';
+}
+$('accounts-search-mode').onchange=()=>{
+ const fields={phrases:'Buscar frases',id:'Telegram ID',username:'@username',phone:'Número de teléfono',country:'País'};
+ const current=$('accounts-search-mode').value,field=$('accounts-query');
+ field.value='';field.placeholder=fields[current]||fields.phrases;
+ field.setAttribute('aria-label','Buscar por '+(fields[current]||'frases'));
+ field.inputMode=current==='id'||current==='phone'?'numeric':'search';
+ resetAccountSearch();
+};
+$('accounts-query').oninput=()=>{if(!$('accounts-query').value.trim())resetAccountSearch();};
+$('accounts-search-form').onsubmit=e=>{
+ e.preventDefault();
+ if($('accounts-search-mode').value==='phrases')runAccountSearch(false);
+ else runAccountMetadataSearch();
+};
 $('continue-account-search').onclick=()=>{if($('accounts-results').children.length>=150)$('accounts-results').replaceChildren();runAccountSearch(true);};
 
 
