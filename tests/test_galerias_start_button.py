@@ -80,7 +80,7 @@ class GalleryStartButton(unittest.IsolatedAsyncioTestCase):
     async def test_billing_interception_still_has_start_context_and_resets(self):
         service=object.__new__(ScaleService)
         events=[]
-        async def handled(update):
+        async def handled(self,update):
             events.append(ensure_gallery_start_button(
                 {"chat_id":8193438800,"text":"SUSCRIPCIÓN ACTIVADA"}))
         update={"message":{"from":{"id":8193438800},"chat":{
@@ -94,7 +94,7 @@ class GalleryStartButton(unittest.IsolatedAsyncioTestCase):
     async def test_no_text_or_callback_does_not_crash(self):
         service=object.__new__(ScaleService)
         events=[]
-        async def handled(update):
+        async def handled(self,update):
             events.append(START_MENU_UID.get())
         with patch.object(ScaleService,"_update_without_gallery_context",new=handled):
             await service.update({"callback_query":{"from":{"id":8193438800}}})
