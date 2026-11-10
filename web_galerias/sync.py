@@ -307,8 +307,10 @@ async def backup_one(g,folder,item,message,client,guard):
         thumb=tmp/"thumb.jpg"
         if kind=="photo" and not original_valid:
             image_path=tmp/"original.jpg"
+            async def progress(_, total):
+                await guard()
             await client.download_media(message,file=str(image_path),
-                                        progress_callback=lambda a,b:guard())
+                                        progress_callback=progress)
             if not image_path.is_file() or image_path.stat().st_size==0:
                 raise ValueError("Imagen incompleta")
             with Image.open(image_path) as photo:
@@ -330,8 +332,10 @@ async def backup_one(g,folder,item,message,client,guard):
         if kind=="photo" and not thumb.is_file() and not thumb_size:
             image_path=tmp/"source.jpg"
             await guard()
+            async def progress(_, total):
+                await guard()
             await client.download_media(message,file=str(image_path),
-                                        progress_callback=lambda a,b:guard())
+                                        progress_callback=progress)
             with Image.open(image_path) as photo:
                 photo=ImageOps.exif_transpose(photo)
                 photo.thumbnail((640,640))
@@ -377,25 +381,26 @@ async def run(g):
         try:
             log.warning("Gallery mass backup active; sources only selected folders")
             while not g.closed:
-                if os.getenv("GALERIAS_SYNC_ENABLED","0")!="1" or not g.storage.ready:
-                    await asyncio.sleep(10)
-                    continue
-                await checkpoint(g,phase="esperando_carpetas")
-                folders=await db.fetch("""SELECT * FROM wg_folders WHERE active
-                  ORDER BY last_check ASC,id ASC""")
-                if not folders:
-                    await asyncio.sleep(5)
-                    continue
-                for folder in folders:
-                    if g.closed:break
-                    if await folder_active(g,folder["id"]):
-                        await sync_folder(g,folder)
-                    await asyncio.sleep(max(5,min(120,int(
-                      os.getenv("GALERIAS_SYNC_DELAY_SECONDS","15")))))
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            log.warning("Gallery global supervisor interrupted (%s)",type(exc).__name__)
-            # The caller can restart the task from the next Render deploy.
+                try:
+                    if os.getenv("GALERIAS_SYNC_ENABLED","0")!="1" or not g.storage.ready:
+                        await asyncio.sleep(10)
+                        continue
+                    await checkpoint(g,phase="esperando_carpetas")
+                    folders=await db.fetch("""SELECT * FROM wg_folders WHERE active
+                      ORDER BY last_check ASC,id ASC""")
+                    if not folders:
+                        await asyncio.sleep(5)
+                        continue
+                    for folder in folders:
+                        if g.closed:break
+                        if await folder_active(g,folder["id"]):
+                            await sync_folder(g,folder)
+                        await asyncio.sleep(max(5,min(120,int(
+                          os.getenv("GALERIAS_SYNC_DELAY_SECONDS","15")))))
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    log.warning("Gallery supervisor retrying (%s)",type(exc).__name__)
+                    await asyncio.sleep(20)
         finally:
             await leader.execute("SELECT pg_advisory_unlock(784,19)")
