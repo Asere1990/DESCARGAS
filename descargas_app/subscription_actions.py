@@ -47,8 +47,20 @@ async def cancel(service,uid):
 async def menu(service,uid):
     info=await summary(service,uid)
     if not info['active']:return await service.billing.prompt(uid)
+    buttons=[[{'text':'CANCELAR MEMBRESÍA','callback_data':'membership:cancel','style':'danger'}]]
+    # Usuarios con membresía reciben este menú en /start, antes de Service.update.
+    # Incorporar la Mini App solo a admins.txt/acceso.txt sin cambiar la suscripción.
+    try:
+        from web_galerias.permissions import button_visible
+        if button_visible(uid):
+            buttons.append([{'text':'🖼 WEB GALERÍAS',
+                'web_app':{'url':os.environ.get('GALERIAS_URL','').strip() or
+                    (service.url.rstrip('/')+'/web-galerias')},
+                'style':'primary'}])
+    except Exception:
+        pass  # La interfaz original de membresía sigue funcionando si falla Galerías.
     await service.api('sendMessage',{'chat_id':uid,'text':'⭐️𝐒𝐔𝐒𝐂𝐑𝐈𝐏𝐂𝐈𝐎𝐍 𝐀𝐂𝐓𝐈𝐕𝐀𝐃𝐀\n\nTu membresía estará activa hasta el '+info['until']+'.\n\nYa puedes enviar enlaces para descargar contenido.',
-        'reply_markup':{'inline_keyboard':[[{'text':'CANCELAR MEMBRESÍA','callback_data':'membership:cancel','style':'danger'}]]}})
+        'reply_markup':{'inline_keyboard':buttons}})
 
 async def disputes(service):
     rows=await service.repo.pool.fetch("SELECT id,charge FROM descarga_disputes WHERE state='pending' AND available<=$1 LIMIT 10",time.time())

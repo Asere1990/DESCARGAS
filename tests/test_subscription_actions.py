@@ -3,12 +3,48 @@ from contextlib import asynccontextmanager
 from datetime import datetime,timezone
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock,patch
-from descargas_app.subscription_actions import expiry_date,cancel,disputes
+from descargas_app.subscription_actions import expiry_date,cancel,disputes,menu
 
 class SubscriptionActions(unittest.IsolatedAsyncioTestCase):
     def test_spanish_date(self):
         stamp=datetime(2026,10,20,12,tzinfo=timezone.utc).timestamp()
         self.assertEqual(expiry_date(stamp),'20-Octubre-2026')
+    async def test_paid_admin_start_adds_gallery_without_changing_cancel(self):
+        service=NS(url='https://descargas-eu1x.onrender.com',api=AsyncMock())
+        with patch('descargas_app.subscription_actions.summary',new=AsyncMock(
+                return_value={'active':True,'until':'20-Noviembre-2026'})):
+            with patch.dict('os.environ',{'GALERIAS_URL':'https://cloudflare-t2gf.onrender.com/web-galerias',
+                                           'GALERIAS_PUBLIC':'0'}):
+                await menu(service,7539025033)
+        payload=service.api.await_args.args[1]
+        buttons=payload['reply_markup']['inline_keyboard']
+        self.assertEqual(buttons[0][0],{
+            'text':'CANCELAR MEMBRESÍA','callback_data':'membership:cancel','style':'danger'})
+        self.assertEqual(buttons[1][0]['text'],'🖼 WEB GALERÍAS')
+        self.assertEqual(buttons[1][0]['web_app']['url'],
+                         'https://cloudflare-t2gf.onrender.com/web-galerias')
+        self.assertIn('Tu membresía estará activa hasta el 20-Noviembre-2026.',payload['text'])
+
+    async def test_paid_tester_start_adds_gallery(self):
+        service=NS(url='https://descargas-eu1x.onrender.com',api=AsyncMock())
+        with patch('descargas_app.subscription_actions.summary',new=AsyncMock(
+                return_value={'active':True,'until':'20-Noviembre-2026'})):
+            with patch.dict('os.environ',{'GALERIAS_PUBLIC':'0'}):
+                await menu(service,5662710947)
+        buttons=service.api.await_args.args[1]['reply_markup']['inline_keyboard']
+        self.assertEqual([row[0]['text'] for row in buttons],
+                         ['CANCELAR MEMBRESÍA','🖼 WEB GALERÍAS'])
+
+    async def test_paid_non_tester_preserves_only_cancel_button(self):
+        service=NS(url='https://descargas-eu1x.onrender.com',api=AsyncMock())
+        with patch('descargas_app.subscription_actions.summary',new=AsyncMock(
+                return_value={'active':True,'until':'20-Noviembre-2026'})):
+            with patch.dict('os.environ',{'GALERIAS_PUBLIC':'0'}):
+                await menu(service,999000222111)
+        buttons=service.api.await_args.args[1]['reply_markup']['inline_keyboard']
+        self.assertEqual(buttons,[[{
+            'text':'CANCELAR MEMBRESÍA','callback_data':'membership:cancel','style':'danger'}]])
+
     async def test_cancel_uses_authenticated_owner_and_keeps_paid_expiry(self):
         until=time.time()+86400
         pool=NS(fetch=AsyncMock(return_value=[{'provider':'stripe','subscription':'sub_owned','paid_until':until}]))
