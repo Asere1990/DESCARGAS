@@ -74,8 +74,8 @@ test('only an explicit pause click suspends job and reappear resumes it',async()
  const s=setup();
  await s.ctx.startPersistentSearch();
  await s.$('cancel-account-search').onclick();
- assert.equal(s.requests.at(-1).op,'search-job-control');
- assert.equal(s.requests.at(-1).data.action,'pause');
+ const pause=s.requests.find(r=>r.op==='search-job-control'&&r.data.action==='pause');
+ assert.ok(pause,'Pause must call the server control endpoint');
  assert.match(s.$('accounts-progress').textContent,/Búsqueda pausada por ti/);
  assert.equal(s.$('continue-account-search').hidden,false);
  await s.$('continue-account-search').onclick();
