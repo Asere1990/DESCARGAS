@@ -181,6 +181,11 @@ class GalleryCore:
           last_seen=$2,name=excluded.name""",uid,now,str(name)[:100])
         allowed=await self.entitled(uid)
         folders=await self.folder_list(uid) if allowed else []
+        if folders and not is_admin(uid):
+            # El estado del respaldo y sus errores solo se entregan al administrador.
+            for folder in folders:
+                for field in ("pending","complete","error"):
+                    folder.pop(field,None)
         if folders:
             from .downloads import temporary_link
             for folder in folders:
