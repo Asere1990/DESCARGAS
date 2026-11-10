@@ -24,6 +24,43 @@ LOG=logging.getLogger(__name__)
 class TelegramDeliveryError(RuntimeError):
     pass
 CURRENT_JOB=ContextVar('descargas_job',default=None)
+START_MENU_UID=ContextVar('descargas_gallery_start_uid',default=None)
+
+def ensure_gallery_start_button(payload):
+    """Última protección del menú: actúa en TODO /start autorizado.
+
+    No altera cancelación, membresía, sesiones ni menús de usuarios no autorizados.
+    Hace visible WEB GALERÍAS aunque un procesador de pagos responda antes que
+    el controlador normal del bot. Se ejecuta solo en la solicitud /start.
+    """
+    uid=START_MENU_UID.get()
+    if uid is None or payload.get('chat_id')!=uid:return payload
+    try:
+        from web_galerias.permissions import button_visible
+        if not button_visible(uid):return payload
+    except Exception as exc:
+        LOG.warning('Gallery button authorization unavailable (%s)',type(exc).__name__)
+        return payload
+    markup=payload.get('reply_markup')
+    if markup is None:
+        markup={'inline_keyboard':[]}
+        payload={**payload,'reply_markup':markup}
+    if not isinstance(markup,dict) or not isinstance(markup.get('inline_keyboard'),list):
+        return payload
+    for row in markup['inline_keyboard']:
+        if any(isinstance(b,dict) and b.get('text')=='🖼 WEB GALERÍAS' for b in row):
+            return payload
+    gallery_url=(os.environ.get('GALERIAS_URL') or '').strip()
+    if not gallery_url:
+        gallery_url=str(os.environ.get('RENDER_EXTERNAL_URL') or '').rstrip('/')+'/web-galerias'
+    if not gallery_url.startswith('https://'):return payload
+    buttons=[*markup['inline_keyboard'],[{
+        'text':'🖼 WEB GALERÍAS',
+        'web_app':{'url':gallery_url},
+        'style':'primary'}]]
+    # Copia superficial: nunca mutar el payload original ni sus otros botones.
+    return {**payload,'reply_markup':{**markup,'inline_keyboard':buttons}}
+
 
 class ScaleService(Service):
     def __init__(self,shared_lock=None):
@@ -52,6 +89,8 @@ class ScaleService(Service):
         return session
 
     async def api(self,method,payload,opportunistic=False):
+        if method=='sendMessage':
+            payload=ensure_gallery_start_button(payload)
         payload=format_bot_payload(method,payload)
         if method in ('sendMessage','copyMessages','editMessageCaption','editMessageText'):
             count=len(payload.get('message_ids',[])) if method=='copyMessages' else 1
@@ -194,6 +233,32 @@ class ScaleService(Service):
                 LOG.warning('Scale poll paused (%s)',type(exc).__name__);await asyncio.sleep(5)
 
     async def update(self,update):
+        # Distintos controladores responden a /start (membresía activa o cuenta).
+        # Establecer el contexto para que el botón se agregue a cualquiera de
+        # sus respuestas, y SIEMPRE restaurarlo tras procesar el update.
+        message=update.get('message') or {}
+        chat=message.get('chat') or {}
+        actor=message.get('from') or {}
+        uid=actor.get('id')
+        command=(message.get('text') or '').split(None,1)[0].split('@',1)[0]
+        if (command in ('/start','/mi_cuenta') and chat.get('type')=='private'
+                and isinstance(uid,int) and uid>0 and not actor.get('is_bot')):
+            token=START_MENU_UID.set(uid)
+            try:
+                from web_galerias.permissions import button_visible, file_ids, ROOT, ACCESS
+                eligible=button_visible(uid)
+                LOG.warning(
+                    'Gallery /start pilot gate uid_suffix=%s eligible=%s admin_count=%d test_count=%d',
+                    str(uid)[-4:],eligible,len(file_ids(ROOT/'admins.txt')),len(file_ids(ACCESS)))
+            except Exception as exc:
+                LOG.warning('Gallery /start pilot gate check failed (%s)',type(exc).__name__)
+            try:
+                return await self._update_without_gallery_context(update)
+            finally:
+                START_MENU_UID.reset(token)
+        return await self._update_without_gallery_context(update)
+
+    async def _update_without_gallery_context(self,update):
         message=update.get('message',{})
         query=update.get('callback_query',{})
         active_message=query.get('message',{}) if query else message
