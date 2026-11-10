@@ -177,6 +177,14 @@ class GalleryCore:
           last_seen=$2,name=excluded.name""",uid,now,str(name)[:100])
         allowed=await self.entitled(uid)
         folders=await self.folder_list(uid) if allowed else []
+        if folders:
+            from .downloads import temporary_link
+            for folder in folders:
+                cover=await self.db().fetchval("""SELECT id FROM wg_media
+                  WHERE folder=$1 AND state='ready' AND thumb_key IS NOT NULL
+                  ORDER BY date DESC LIMIT 1""",folder["id"])
+                folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
+                  temporary_link(self,uid,cover,"thumb")) if cover else None
         used=await self.db().fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0
         return {"admin":is_admin(uid),"tester":is_tester(uid),"allowed":allowed,
           "pilot":os.getenv("GALERIAS_PUBLIC","0")!="1","design":await self.design(),
