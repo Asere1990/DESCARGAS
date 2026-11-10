@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS wg_account_cooldown(
  uid BIGINT PRIMARY KEY,available_at DOUBLE PRECISION NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS wg_media_preview ON wg_media(folder,available,id)
  WHERE state='preview';
+CREATE INDEX IF NOT EXISTS wg_media_visible ON wg_media(folder,id DESC)
+ WHERE state IN ('preview','ready');
 """
 
 class PauseRequested(Exception):
