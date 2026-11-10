@@ -18,9 +18,10 @@ Las credenciales secretas se introducen SOLO en Render > CLOUDFLARE > Environmen
 ### Conexión privada con DESCARGAS — copiar sin cambiar el original
 - DATABASE_URL: copiar el valor original de DESCARGAS (Postgres DESCARGAS-DB, no DATOS)
 - DESCARGAS_SESSION_KEY: copiar exactamente la clave Fernet de DESCARGAS. NO regenerarla
-- GALERIAS_AUTH_BOT_TOKEN: copiar TOKEN del bot DESCARGAS. NO crear otro token
-- ID: copiar Telegram API ID de DESCARGAS
-- HASH: copiar Telegram API Hash de DESCARGAS
+**No hace falta copiar el token, el API ID ni el API Hash del bot de DESCARGAS.**
+Su servicio web guarda la configuración de Telegram cifrada bajo la clave runtime_config de su base de datos. CLOUDFLARE la lee al arrancar y verifica las firmas con el mismo bot, sin iniciar otro polling ni exponer los secretos.
+
+La variable GALERIAS_AUTH_BOT_TOKEN sigue disponible como alternativa opcional para un bot separado o recuperación manual, pero no es obligatoria al compartir DATABASE_URL y DESCARGAS_SESSION_KEY.
 
 CLOUDFLARE conecta a sesiones existentes exclusivamente bajo el account_lock compartido y nunca reescribe, desconecta ni revoca ninguna sesión. GalleryRepository.start NO ejecuta migraciones de DESCARGAS; solo comprueba lectura y crea tablas wg_* en el arranque de la galería.
 

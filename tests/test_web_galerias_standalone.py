@@ -3,6 +3,7 @@ import asyncio
 import os
 import unittest
 from contextlib import asynccontextmanager
+from cryptography.fernet import Fernet
 from unittest.mock import AsyncMock, patch
 from galerias_standalone import GalleryRepository, IsolatedGalleryService
 
@@ -26,6 +27,32 @@ class IsolatedDatabaseTests(unittest.IsolatedAsyncioTestCase):
         conn.fetchval.assert_awaited_once_with("SELECT count(*) FROM descarga_accounts WHERE FALSE")
         conn.execute.assert_not_awaited()
         await repo.close()
+
+    async def test_runtime_config_is_reused_without_duplicate_bot_secrets(self):
+        cipher_key=Fernet.generate_key().decode()
+        with patch.dict(os.environ,{
+            "DESCARGAS_SESSION_KEY":cipher_key,
+            "DATABASE_URL":"postgresql://user@database/descargas",
+            "GALERIAS_AUTH_BOT_TOKEN":"",
+            "ID":"","HASH":""
+        }):
+            service=IsolatedGalleryService()
+            encrypted=service.repo.encode({
+                "token":"123456:TEST_BOT_TOKEN", "api_id":"12345678",
+                "api_hash":"abcdef0123456789abcdef0123456789",
+            }).decode()
+            service.repo.start=AsyncMock()
+            service.repo.setting=AsyncMock(return_value=encrypted)
+            service.repo.close=AsyncMock()
+            with patch("galerias_standalone.verify_r2",new=AsyncMock()):
+                app={}
+                await service.start(app)
+                self.assertTrue(service.ready)
+                self.assertEqual(service.token,"123456:TEST_BOT_TOKEN")
+                self.assertEqual(service.api_id,"12345678")
+                self.assertEqual(service.api_hash,"abcdef0123456789abcdef0123456789")
+                service.repo.setting.assert_awaited_once_with("runtime_config")
+                await service.close(app)
 
     async def test_missing_secrets_fail_closed(self):
         with patch.dict(os.environ, {
