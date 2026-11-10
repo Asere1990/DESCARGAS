@@ -107,7 +107,7 @@ class BackgroundPanelSearch:
             self.task.cancel()
             try:await self.task
             except asyncio.CancelledError:pass
-        if getattr(self.s.repo,'pool',None):
+        if getattr(self.s.repo,'pool',None) and callable(getattr(self.s.repo.pool,'execute',None)):
             await self.s.repo.pool.execute(
                 """UPDATE descarga_panel_search_jobs
                    SET state='queued',owner=NULL,lease_until=0
