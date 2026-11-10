@@ -36,6 +36,8 @@ CREATE INDEX IF NOT EXISTS wg_media_pending ON wg_media(folder,available,id)
  WHERE state='pending';
 CREATE TABLE IF NOT EXISTS wg_account_cooldown(
  uid BIGINT PRIMARY KEY,available_at DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS wg_media_preview ON wg_media(folder,available,id)
+ WHERE state='preview';
 """
 
 class PauseRequested(Exception):
@@ -512,6 +514,8 @@ async def fair_round(g,folders,*,catalog_only=False,phase="combined"):
     if not folders or g.closed:
         return
     files,scan=sync_limits(len(folders))
+    if phase=="archive":
+        files=1  # Un original por galería: videos grandes no bloquean toda la ronda.
     try:
         max_accounts=max(1,min(4,int(os.getenv("GALERIAS_SYNC_PARALLEL_ACCOUNTS","3"))))
     except ValueError:
