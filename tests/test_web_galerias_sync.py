@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from web_galerias.sync import (
     PauseGuard, PauseRequested, backup_one, folder_active, source_free,
-    sync_folder, media_kind, find_dialog, fair_round, sync_limits
+    sync_folder, media_kind, find_dialog, fair_round, sync_limits, preview_one
 )
 from web_galerias.storage import PrivateStorage
 from web_galerias.admin import admin_op
@@ -173,6 +173,66 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         executed=[x.args[0] for x in db.execute.await_args_list]
         self.assertTrue(any("state='missing'" in x for x in executed))
         self.assertFalse(any("DELETE" in x for x in executed))
+
+    async def test_thumbnail_first_exposes_preview_before_original_backup(self):
+        from pathlib import Path
+        from PIL import Image
+        g,db=gallery()
+        g.storage.object_size.side_effect=[None,731]
+        async def fake_download(message,*,file,thumb):
+            image=Image.new("RGB",(20,20),(120,40,60))
+            image.save(str(file)+".jpg","JPEG")
+            return str(file)+".jpg"
+        client=SimpleNamespace(download_media=AsyncMock(side_effect=fake_download))
+        message=SimpleNamespace(id=202,photo=SimpleNamespace(
+            sizes=[SimpleNamespace(w=320)]))
+        # R2 HEAD returns the exact saved JPEG length.
+        async def object_size(key):
+            if object_size.calls==0:
+                object_size.calls+=1
+                return None
+            return object_size.upload_bytes
+        object_size.calls=0
+        object_size.upload_bytes=0
+        async def upload(path,key,mime):
+            object_size.upload_bytes=Path(path).stat().st_size
+        g.storage.object_size=AsyncMock(side_effect=object_size)
+        g.storage.upload=AsyncMock(side_effect=upload)
+        await preview_one(g,7,{"kind":"photo"},message,client,AsyncMock())
+        self.assertIn("state='preview'",db.execute.await_args.args[0])
+        self.assertEqual(db.execute.await_args.args[-1],"folders/7/202/thumb.jpg")
+        client.download_media.assert_awaited_once()
+        g.storage.upload.assert_awaited_once()
+
+    async def test_existing_preview_is_not_downloaded_again(self):
+        g,db=gallery()
+        g.storage.object_size.return_value=72
+        client=SimpleNamespace(download_media=AsyncMock())
+        await preview_one(g,7,{"kind":"video"},SimpleNamespace(id=202),
+                          client,AsyncMock())
+        client.download_media.assert_not_awaited()
+        self.assertEqual(db.execute.await_args.args[-1],"folders/7/202/thumb.jpg")
+
+    async def test_user_catalog_has_preview_without_original_view_link(self):
+        from web_galerias.core import GalleryCore
+        sample=[
+            {"id":101,"kind":"video","state":"preview","thumb_key":"thumb",
+             "mime":"video/mp4","filename":"demo.mp4","date":0,
+             "width":0,"height":0,"size":111},
+            {"id":102,"kind":"photo","state":"ready","thumb_key":"thumb",
+             "mime":"image/jpeg","filename":"demo.jpg","date":0,
+             "width":0,"height":0,"size":222}]
+        g=GalleryCore(SimpleNamespace())
+        g.db=lambda:SimpleNamespace(fetch=AsyncMock(return_value=sample))
+        g.permitted=AsyncMock(return_value=True)
+        result=await g.list_items(1234,7,token=lambda uid,item,kind:"safe")
+        self.assertEqual(len(result["items"]),2)
+        self.assertEqual(result["items"][0]["available"],False)
+        self.assertIsNone(result["items"][0]["view"])
+        self.assertIn("/thumb?",result["items"][0]["thumb"])
+        self.assertTrue(result["items"][1]["available"])
+        self.assertIn("/view?",result["items"][1]["view"])
+        self.assertNotIn("thumb_key",result["items"][0])
 
     def test_50_gallery_rounds_are_small_without_preventing_backups(self):
         with patch.dict(os.environ, {"GALERIAS_SYNC_BATCH_FILES": "5"}):
