@@ -43,7 +43,7 @@ function setup({accounts=[active(1)],pages=[],onApi=null,more=false}={}){
  };
  $('accounts-query').value='';$('accounts-search-mode').value='channels';
  vm.createContext(ctx);
- vm.runInContext(helper+'\n'+scan+'\nthis.entitySearchMatches=entitySearchMatches;this.runAccountEntitySearch=runAccountEntitySearch;this.getProgress=()=>({complete:overviewComplete,total:overviewTotal,matches:overviewResults.length,failures:overviewFailures.length});',ctx);
+ vm.runInContext(scan+'\nthis.entitySearchMatches=entitySearchMatches;this.runAccountEntitySearch=runAccountEntitySearch;this.getProgress=()=>({complete:overviewComplete,total:overviewTotal,matches:overviewResults.length,failures:overviewFailures.length});',ctx);
  return {ctx,$,calls,progress};
 }
 
