@@ -2,12 +2,37 @@
 <html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Web Galerías">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/web-galerias/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
+<link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=mobile-folder-1110-2">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=admin-home-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=mobile-folder-1110-2"></script>
+<script defer src="/web-galerias/static/app.js?v=admin-home-v1"></script>
 </head><body>
 <div id="app" class="app">
+ <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
+  <div class="admin-login-card">
+   <div class="admin-login-logo" aria-hidden="true">▦</div>
+   <h1>Web Galerías</h1>
+   <p>Acceso privado de administración desde tu teléfono</p>
+   <form id="browser-login-form" autocomplete="on">
+    <label for="browser-admin-id">Telegram ID del administrador
+     <input id="browser-admin-id" name="username" type="text" inputmode="numeric" autocomplete="username" required maxlength="18" placeholder="Tu Telegram ID">
+    </label>
+    <label for="browser-admin-password">Contraseña
+     <input id="browser-admin-password" name="password" type="password" autocomplete="current-password" required maxlength="256" placeholder="Tu contraseña">
+    </label>
+    <button class="primary" id="browser-login-button" type="submit">ENTRAR</button>
+   </form>
+   <p id="browser-login-error" class="admin-login-error" role="alert"></p>
+   <p class="admin-login-help">Después podrás entrar desde el icono de tu pantalla de inicio. La sesión se conserva en este dispositivo; no se almacena la contraseña.</p>
+  </div>
+ </section>
  <section id="intro" class="intro screen">
   <div class="intro-video-wrap"><video id="intro-video" controls playsinline preload="metadata" poster="" hidden></video>
    <div id="intro-placeholder" class="intro-placeholder"><span>✦</span><span>GALERÍAS PRIVADAS</span></div></div>
@@ -114,6 +139,7 @@
   <nav class="mobile-actions" aria-label="Navegación del panel administrativo">
    <button id="admin-back" type="button" class="mobile-action" aria-label="Volver a las galerías"><span aria-hidden="true">‹</span> Galerías</button>
    <button id="admin-refresh" type="button" class="mobile-action mobile-action-primary" aria-label="Actualizar información del panel"><span aria-hidden="true">↻</span> Actualizar</button>
+   <button id="browser-logout" type="button" class="mobile-action hidden" aria-label="Cerrar sesión de este dispositivo"><span aria-hidden="true">⇥</span> Salir</button>
   </nav>
  </section>
  <div id="toast" class="toast hidden" role="status"></div>
