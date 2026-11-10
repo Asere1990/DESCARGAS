@@ -76,6 +76,7 @@ class PauseGuard:
     """Comprueba frecuentemente el estado, sin consultar Postgres en cada chunk."""
     def __init__(self,g,uid,folder):
         self.g=g;self.uid=uid;self.folder=folder;self.last=0.0
+        self.last_heartbeat=0.0
 
     async def __call__(self):
         now=time.monotonic()
@@ -84,6 +85,10 @@ class PauseGuard:
         self.last=now
         if not await source_free(self.g,self.uid,self.folder):
             raise PauseRequested("Backup pausado sin modificar sesión Telegram")
+        # Un video grande puede tardar minutos; mantener el estado visible real.
+        if now-self.last_heartbeat>=30:
+            await checkpoint(self.g,self.folder,"respaldando")
+            self.last_heartbeat=now
 
 
 async def find_dialog(g,client,folder,uid,peer):
