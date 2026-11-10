@@ -8,6 +8,8 @@ app=web.Application(client_max_size=512*1024)
 service=mount(app,prefix='',service_factory=ScaleService)
 from descargas_app.web_panel import mount_panel
 mount_panel(app,service)
+from web_galerias.app import mount as mount_web_galerias
+mount_web_galerias(app,service)
 # Readiness is separate from the legacy informational health endpoint.
 async def ready(request):
     return web.json_response({'ready':service.ready},status=200 if service.ready else 503)
