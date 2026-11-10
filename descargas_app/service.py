@@ -137,7 +137,8 @@ class Service:
                 from web_galerias.permissions import button_visible
                 if button_visible(uid):
                     buttons.append([{'text':'🖼 WEB GALERÍAS',
-                        'web_app':{'url':self.url.rstrip('/')+'/web-galerias'},
+                        'web_app':{'url':os.environ.get('GALERIAS_URL', '').strip() or
+                            (self.url.rstrip('/')+'/web-galerias')},
                         'style':'primary'}])
             except Exception:
                 pass  # Jamás impedir el funcionamiento del menú original.
