@@ -48,7 +48,6 @@ class IsolatedGalleryService:
         required={
           "DESCARGAS_SESSION_KEY":bool(self.cipher),
           "DATABASE_URL":bool(self.repo and self.repo.url),
-          "GALERIAS_AUTH_BOT_TOKEN":bool(self.token),
         }
         missing=[name for name,ok in required.items() if not ok]
         if missing:
@@ -57,13 +56,27 @@ class IsolatedGalleryService:
             return
         try:
             await self.repo.start()
+            # DESCARGAS keeps this encrypted in its own database. Read it without
+            # requesting a second Telegram token, ID or HASH from the operator.
+            raw=await self.repo.setting("runtime_config")
+            if raw:
+                snapshot=self.repo.decode(raw.encode("utf-8"))
+                if not isinstance(snapshot,dict):
+                    raise ValueError("Invalid encrypted bot runtime configuration")
+                self.token=self.token or str(snapshot.get("token") or "")
+                self.api_id=self.api_id or str(snapshot.get("api_id") or "")
+                self.api_hash=self.api_hash or str(snapshot.get("api_hash") or "")
         except Exception as exc:
             logging.getLogger("web-galerias").error(
-                "Gallery private database unavailable (%s)",type(exc).__name__)
+                "Gallery private database/configuration unavailable (%s)",type(exc).__name__)
+            return
+        if not self.token:
+            logging.getLogger("web-galerias").warning(
+                "Gallery private setup pending: GALERIAS_AUTH_BOT_TOKEN or encrypted runtime_config")
             return
         self.ready=True
         logging.getLogger("web-galerias").warning(
-           "Gallery private database connected; source accounts remain unmodified")
+           "Gallery private database and Telegram signature verification ready")
 
     async def close(self,app):
         task=app.get("r2_verify_task")
