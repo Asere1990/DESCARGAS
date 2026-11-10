@@ -41,9 +41,9 @@ async function api(op,data={}){
   throw Error(text.slice(0,240)||"Servicio no disponible.");}
  return r.json();
 }
-async function refresh(){
+async function refresh(lite=false){
  S.me=await api("bootstrap",{name:tg?.initDataUnsafe?.user?.first_name||""});
- applyDesign(S.me.design);S.folders=S.me.folders;renderFolders();
+ if(!lite)applyDesign(S.me.design);S.folders=S.me.folders;renderFolders();
  $("admin-open").classList.toggle("hidden",!S.me.admin);
  $("stat-folders").textContent=pretty(S.folders.length);
  $("stat-photos").textContent=pretty(S.me.photos);
@@ -143,7 +143,7 @@ function showViewerMedia(){
 }
 function openViewer(index){
   S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
-  if(!S.items[index].available)notice("Vista previa disponible. El original se está preparando.");
+  if(!S.items[index].available)notice("El original se está preparando; la miniatura se muestra si está disponible.");
 }
 function closeViewer(){$("viewer").classList.add("hidden");$("view-video").pause();}
 function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
@@ -406,6 +406,6 @@ setInterval(()=>{
        &&$("viewer").classList.contains("hidden"))
       loadItems(false).catch(()=>{});
   }else if(!$("library").classList.contains("hidden")){
-    refresh().catch(()=>{});
+    refresh(true).catch(()=>{});
   }
 },20000);
