@@ -11,7 +11,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from telethon import errors
+from telethon import errors, types
 from PIL import Image, ImageOps
 from .core import normal
 
@@ -25,6 +25,9 @@ ALTER TABLE wg_discovery ADD COLUMN IF NOT EXISTS next_after DOUBLE PRECISION NO
 CREATE TABLE IF NOT EXISTS wg_replies(
  folder BIGINT NOT NULL,parent_message BIGINT NOT NULL,reply_message BIGINT NOT NULL,
  words TEXT NOT NULL,PRIMARY KEY(folder,reply_message));
+CREATE TABLE IF NOT EXISTS wg_source_peers(
+ folder BIGINT NOT NULL,uid BIGINT NOT NULL,handle BYTEA NOT NULL,
+ updated DOUBLE PRECISION NOT NULL,PRIMARY KEY(folder,uid));
 ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS source_total BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE wg_media ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE wg_media ADD COLUMN IF NOT EXISTS available DOUBLE PRECISION NOT NULL DEFAULT 0;
@@ -83,10 +86,35 @@ class PauseGuard:
             raise PauseRequested("Backup pausado sin modificar sesión Telegram")
 
 
-async def find_dialog(client,peer):
+async def find_dialog(g,client,folder,uid,peer):
+    """Cache cifrada del peer por cuenta para evitar recorrer todos los chats en cada ciclo."""
+    db=g.db()
+    snapshot=await db.fetchval("""SELECT handle FROM wg_source_peers
+      WHERE folder=$1 AND uid=$2""",folder,uid)
+    if snapshot:
+        try:
+            data=g.s.repo.decode(snapshot)
+            if data["kind"]=="channel":
+                return types.InputPeerChannel(int(data["id"]),int(data["hash"]))
+            if data["kind"]=="chat":
+                return types.InputPeerChat(int(data["id"]))
+        except Exception:
+            await db.execute("DELETE FROM wg_source_peers WHERE folder=$1 AND uid=$2",
+                             folder,uid)
     async for dialog in client.iter_dialogs():
-        if int(dialog.id)==int(peer):
-            return dialog.entity
+        if int(dialog.id)!=int(peer):continue
+        entity=dialog.entity
+        if isinstance(entity,types.Channel) and getattr(entity,"access_hash",None):
+            data={"kind":"channel","id":int(entity.id),"hash":int(entity.access_hash)}
+        elif isinstance(entity,types.Chat):
+            data={"kind":"chat","id":int(entity.id)}
+        else:
+            return None
+        await db.execute("""INSERT INTO wg_source_peers(folder,uid,handle,updated)
+          VALUES($1,$2,$3,$4) ON CONFLICT(folder,uid)
+          DO UPDATE SET handle=excluded.handle,updated=excluded.updated""",
+          folder,uid,g.s.repo.encode(data),time.time())
+        return entity
     return None
 
 
@@ -172,7 +200,7 @@ async def sync_folder(g,source):
         async with connected(g.s,uid) as client:
             guard=PauseGuard(g,uid,folder)
             await guard()
-            entity=await find_dialog(client,source["peer"])
+            entity=await find_dialog(g,client,folder,uid,source["peer"])
             await guard()
             if entity is None:
                 await mark_discovery(g,folder,uid,False,delay=600)
@@ -230,6 +258,9 @@ async def sync_folder(g,source):
               WHERE id=$1 AND source_uid=$2""",folder,uid)
     except (errors.RPCError,OSError,TimeoutError) as exc:
         log.warning("Gallery account deferred (%s)",type(exc).__name__)
+        # Retirar un access_hash antiguo; al intentar de nuevo se buscará uno válido.
+        await g.db().execute("DELETE FROM wg_source_peers WHERE folder=$1 AND uid=$2",
+                             folder,uid)
         await mark_discovery(g,folder,uid,False,delay=600)
         await g.db().execute("""UPDATE wg_folders SET source_uid=NULL,error=$3
           WHERE id=$1 AND source_uid=$2""",folder,uid,type(exc).__name__)
