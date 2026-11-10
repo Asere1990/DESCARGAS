@@ -6,6 +6,7 @@ untouched. Checkpoints and search hits are encrypted with the existing repo ciph
 import asyncio
 import hashlib
 import json
+import logging
 import time
 import uuid
 import unicodedata
@@ -43,6 +44,8 @@ CREATE INDEX IF NOT EXISTS descarga_panel_search_results
 
 class LeaseLost(Exception):
     """The browser paused or another worker owns the job; keep the scheduler alive."""
+
+LOG=logging.getLogger(__name__)
 
 MODES = frozenset(('phrases','name','id','username','phone','country',
                    'channels','channel_id','groups','group_id','bots'))
@@ -397,7 +400,8 @@ class BackgroundPanelSearch:
                 if row:await self.run_claimed(row)
                 else:await asyncio.sleep(2)
             except asyncio.CancelledError:raise
-            except Exception:
+            except Exception as exc:
                 # Preserve checkpoints and retry on the next scheduler pass;
-                # never let a search error crash the web service.
+                # never let a search error crash the web service or log query text.
+                LOG.warning('Panel background search scheduler retry: %s',type(exc).__name__)
                 await asyncio.sleep(4)
