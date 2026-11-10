@@ -175,7 +175,7 @@ class TelegramPanel:
                         async with asyncio.timeout(4):status=await self.overview.check(actor,row['uid'])
                     except (ValueError,TimeoutError,errors.RPCError,OSError):continue
                 if not status or status.get('state')!='active':continue
-            items.append({'id':str(row['uid']),'name':account_label(profile,directory),'username':profile.get('username') or '',
+            items.append({'id':str(row['uid']),'generation':row.get('generation',0),'name':account_label(profile,directory),'username':profile.get('username') or '',
                           **metadata(profile,directory,row.get('country','')), 'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
         return {'items':items,'next':str(rows[page_size-1]['uid']) if len(rows)>page_size else None,'reviewer':limited}
     async def account_profile(self,actor,uid):
