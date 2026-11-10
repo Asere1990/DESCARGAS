@@ -1,5 +1,5 @@
 # Telegram IDs de usuarios de prueba de Web Galerías (uno por línea)
 # El administrador se obtiene de admins.txt de DESCARGAS.
-8193438800
-8829300345
+1609522430
 5662710947
+7536216348

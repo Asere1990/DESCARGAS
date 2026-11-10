@@ -57,6 +57,16 @@ class AccessTests(unittest.TestCase):
         self.assertTrue(is_admin(7539025033))
         self.assertTrue(pilot_allowed(7539025033))
         self.assertTrue(button_visible(7539025033))
+    def test_exact_three_testers_are_authorized_and_wrong_ids_revoked(self):
+        for uid in (1609522430,5662710947,7536216348):
+            self.assertTrue(is_tester(uid))
+            self.assertTrue(pilot_allowed(uid))
+            self.assertTrue(button_visible(uid))
+        for uid in (8193438800,8829300345):
+            self.assertFalse(is_tester(uid))
+            self.assertFalse(pilot_allowed(uid))
+            self.assertFalse(button_visible(uid))
+
     def test_unlisted_user_is_not_pilot(self):
         self.assertFalse(is_admin(12345))
         self.assertFalse(is_tester(12345))
