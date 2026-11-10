@@ -38,7 +38,7 @@ def app_icon(size):
     return out.getvalue()
 HEADERS={
  "Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
- "Referrer-Policy":"no-referrer",
+ "Referrer-Policy":"no-referrer","X-Robots-Tag":"noindex, nofollow, noarchive",
  "Content-Security-Policy":"default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'none'; form-action 'self'"
 }
 
