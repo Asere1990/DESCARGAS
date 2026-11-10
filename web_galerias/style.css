@@ -83,3 +83,35 @@
 .viewer-action.viewer-save{background:var(--accent);border-color:var(--accent)}
 .viewer-action:active{transform:scale(.97)}
 @media(max-width:370px){.viewer-bottom{gap:5px;padding-left:8px;padding-right:8px}.viewer-action{font-size:12px}}
+
+
+/* Acceso privado desde pantalla de inicio de iPhone y Android. */
+.admin-login{
+ min-height:100dvh;display:flex;align-items:center;justify-content:center;
+ padding:calc(36px + env(safe-area-inset-top,0px)) 18px
+         calc(28px + env(safe-area-inset-bottom,0px));
+ background:radial-gradient(ellipse at 50% 2%,#1d355a 0%,var(--bg) 72%);
+}
+.admin-login-card{
+ width:100%;max-width:460px;background:#ffffff0c;border:1px solid var(--line);
+ border-radius:25px;padding:clamp(22px,6vw,35px);
+ box-shadow:0 15px 45px #0006;
+}
+.admin-login-logo{
+ height:65px;width:65px;display:grid;place-items:center;font-size:40px;
+ background:var(--accent);border-radius:18px;margin:0 0 18px;
+}
+.admin-login-card h1{margin:0 0 9px;font-size:30px;letter-spacing:-.045em}
+.admin-login-card>p{font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 23px}
+.admin-login-card form{display:grid;gap:16px}
+.admin-login-card label{display:grid;gap:9px;color:var(--text);font-size:13px;font-weight:650}
+.admin-login-card input{
+ display:block;width:100%;min-height:54px;background:#ffffff14;
+ border:1px solid var(--line);border-radius:13px;outline:none;
+ color:var(--text);font-size:16px;padding:11px 14px;
+}
+.admin-login-card input:focus{border-color:var(--accent)}
+.admin-login-card .primary{margin-top:7px}
+.admin-login-card .admin-login-error{color:#ffb6aa;font-size:13px;min-height:1.5em;margin:13px 0}
+.admin-login-card .admin-login-help{font-size:12px;line-height:1.5;color:var(--muted);margin:13px 0 0}
+@media (display-mode:standalone){.admin-login{min-height:100svh}}
