@@ -106,7 +106,7 @@ class GalleryMobileNavigation(unittest.TestCase):
 
     def test_button_events_preserved(self):
         for code in ('$("go-intro").onclick=()=>show("intro")',
-                     '$("admin-open").onclick=async()=>',
+                     '$("admin-open").onclick=openAdminScreen',
                      '$("admin-back").onclick=()=>show("library")',
                      '$("admin-refresh").onclick=loadAdmin'):
             self.assertIn(code,self.js)
