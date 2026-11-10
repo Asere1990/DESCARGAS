@@ -91,7 +91,7 @@ async function loadItems(older=false){
   S.items.push(...data.items);S.next=data.next;
   renderItems();$("load-more").classList.toggle("hidden",!S.next);
   $("empty-gallery").classList.toggle("hidden",S.items.length>0);
-  $("empty-gallery").textContent=S.search?"No se encontraron fotos o videos relacionados.":"Todavía no hay archivos respaldados en esta carpeta.";
+  $("empty-gallery").textContent=S.search?"No se encontraron fotos o videos relacionados.":"Todavía no hay fotos o videos disponibles en esta carpeta.";
  }catch(e){if(epoch===S.epoch)notice(e.message);}
 }
 function renderItems(){
@@ -121,16 +121,28 @@ function toggleSelection(id){
  updateSelection();renderItems();
 }
 function showViewerMedia(){
- if(!S.items.length)return;
- const m=S.items[S.viewer];$("viewer-counter").textContent=(S.viewer+1)+" / "+S.items.length;
- $("viewer-watermark").textContent="ID "+String(tg?.initDataUnsafe?.user?.id||"")+" · "+new Date().toISOString().slice(0,16)+" UTC";
- const img=$("view-image"),video=$("view-video");
- video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
- if(m.kind==="video"){img.hidden=true;video.hidden=false;video.src=m.view;}
- else{video.hidden=true;img.hidden=false;img.src=m.view;}
- $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
+  if(!S.items.length)return;
+  const m=S.items[S.viewer];$("viewer-counter").textContent=(S.viewer+1)+" / "+S.items.length;
+  $("viewer-watermark").textContent="ID "+String(tg?.initDataUnsafe?.user?.id||"")+" · "+new Date().toISOString().slice(0,16)+" UTC";
+  const img=$("view-image"),video=$("view-video");
+  video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
+  const full=!!m.available&&!!m.view;
+  if(m.kind==="video"&&full){
+    img.hidden=true;video.hidden=false;video.src=m.view;
+  }else{
+    video.hidden=true;img.hidden=false;
+    if(full||m.thumb)img.src=full?m.view:m.thumb;
+    else img.removeAttribute("src");
+    img.alt=full?"Vista completa":"Vista previa; original en preparación";
+  }
+  $("viewer-download").disabled=!full;
+  $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
+  $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
 }
-function openViewer(index){S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");}
+function openViewer(index){
+  S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
+  if(!S.items[index].available)notice("Vista previa disponible. El original se está preparando.");
+}
 function closeViewer(){$("viewer").classList.add("hidden");$("view-video").pause();}
 function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
 async function downloadIds(ids){
@@ -383,3 +395,15 @@ $("browser-logout").onclick=async()=>{
   show("intro");await refresh();}
  catch(e){$("intro-notice").textContent=e.message;notice(e.message);}
 })();
+/* Actualizar las vistas mientras llegan los originales. No interrumpir el visor,
+   la selección de fotos ni las páginas antiguas. */
+setInterval(()=>{
+  if(!S.me||document.hidden||BROWSER_ADMIN)return;
+  if(!$("album").classList.contains("hidden")){
+    if(S.folder&&!S.selection&&!S.search&&S.items.length<=60
+       &&$("viewer").classList.contains("hidden"))
+      loadItems(false).catch(()=>{});
+  }else if(!$("library").classList.contains("hidden")){
+    refresh().catch(()=>{});
+  }
+},20000);
