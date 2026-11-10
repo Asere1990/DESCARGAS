@@ -36,8 +36,11 @@ async def admin_op(g,uid,op,data):
     db=g.db()
     if op=="admin-overview":
         folders=await db.fetch("""SELECT f.id,f.peer,f.name,f.active,f.error,f.complete,f.scan_count,
-            f.last_check,f.source_uid,COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
-            COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending
+            f.last_check,f.source_uid,
+            COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
+            COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending,
+            COUNT(m.id) FILTER(WHERE m.state='missing')::int AS missing,
+            COUNT(m.id) FILTER(WHERE m.state='skipped')::int AS skipped
             FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
             GROUP BY f.id ORDER BY f.id DESC""")
         users=await db.fetch("""SELECT u.uid,u.name,u.first_seen,u.last_seen,
@@ -45,9 +48,17 @@ async def admin_op(g,uid,op,data):
             FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
             LEFT JOIN wg_user_prefs p ON p.uid=u.uid
             ORDER BY u.last_seen DESC LIMIT 500""")
+        remote=await db.fetchval("SELECT value FROM wg_config WHERE key='backup_status'")
+        if isinstance(remote,str):
+            remote=json.loads(remote)
+        if not isinstance(remote,dict):
+            remote={}
+        running=bool(remote.get("enabled") and time.time()-float(remote.get("updated") or 0)<150)
         return {"folders":[dict(x) for x in folders],
             "users":[{**dict(x),"admin":is_admin(x["uid"]),"tester":is_tester(x["uid"])} for x in users],
-            "storage_ready":g.storage.ready,"sync_enabled":__import__("os").getenv("GALERIAS_SYNC_ENABLED","0")=="1",
+            "storage_ready":g.storage.ready or bool(remote.get("storage") and running),
+            "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",
+            "sync_folder":remote.get("folder") if running else None,
             "last_error":g.last_error}
     if op=="admin-folder":
         try:peer=int(data.get("peer",0))
@@ -58,6 +69,10 @@ async def admin_op(g,uid,op,data):
         row=await db.fetchrow("""INSERT INTO wg_folders(peer,name,created) VALUES($1,$2,$3)
           ON CONFLICT(peer) DO UPDATE SET name=excluded.name,active=TRUE
           RETURNING id""",peer,name,time.time())
+        # Reactivación conserva todas las copias ready en R2 y los cursores.
+        # Solo los archivos antes no disponibles pueden volver a intentarse.
+        await db.execute("""UPDATE wg_media SET state='pending',
+            available=0,error='' WHERE folder=$1 AND state='missing'""",row["id"])
         await g.log(uid,op)
         return {"ok":True,"id":row["id"]}
     if op=="admin-folder-update":
