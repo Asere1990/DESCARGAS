@@ -139,6 +139,10 @@ async def choose_account(g,folder):
         AND COALESCE(c.available_at,0)<=$2
         AND (a.uid=$3 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
       ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
+               -- Nuevas carpetas sin origen: distribuir la exploración
+               -- entre las cuentas elegibles en vez de elegir siempre la primera.
+               CASE WHEN $3::bigint IS NULL AND d.tried_at IS NULL
+                    THEN md5(a.uid::text || ':' || $1::text) ELSE '' END,
                COALESCE(d.tried_at,0),a.uid LIMIT 1""",
        folder["id"],now,folder["source_uid"])
     return row["uid"] if row else None
@@ -269,7 +273,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
               source_uid=$2,last_check=$3,error='' WHERE id=$1 AND active""",
               folder,uid,time.time())
 
-            if phase in ("combined","index"):
+            if phase in ("combined","index","prime"):
                 await checkpoint(g,folder,"catalogando")
                 await catalog_batch(g,folder,client,entity,source,limit=scan_size)
             if catalog_only or phase=="index":
@@ -277,7 +281,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
                 return
             requested=max_files if max_files is not None else os.getenv("GALERIAS_SYNC_BATCH_FILES","5")
             batch=max(1,min(12,int(requested)))
-            if phase in ("combined","preview"):
+            if phase in ("combined","preview","prime"):
                 for _ in range(batch):
                     await guard()
                     item=await g.db().fetchrow("""SELECT message,kind,mime,size
@@ -529,7 +533,10 @@ async def fair_round(g,folders,*,catalog_only=False,phase="combined"):
     semaphore=asyncio.Semaphore(max_accounts)
     lanes={}
     for folder in folders:
-        lanes.setdefault(folder["source_uid"] or 0,[]).append(folder)
+        # Las galerías sin fuente conocida se agrupan por cuenta candidata.
+        # Sigue existiendo un único carril por sesión autorizada.
+        uid=folder["source_uid"] or await choose_account(g,folder)
+        lanes.setdefault(uid or 0,[]).append(folder)
 
     async def lane(group):
         async with semaphore:
@@ -566,12 +573,9 @@ async def run(g):
                     if not folders:
                         await asyncio.sleep(5)
                         continue
-                    # Las cuentas de los usuarios reciben primero el índice,
-                    # después miniaturas ligeras, y solo entonces los originales.
-                    await fair_round(g,folders,phase="index")
-                    folders=await db.fetch("""SELECT * FROM wg_folders WHERE active
-                      ORDER BY last_check ASC,id ASC""")
-                    await fair_round(g,folders,phase="preview")
+                    # Índice + miniatura en el mismo turno de cada galería:
+                    # el cliente no espera a que terminen 50 índices.
+                    await fair_round(g,folders,phase="prime")
                     # Archivar un número limitado por ronda evita que los videos
                     # grandes retrasen indefinidamente las otras 50 galerías.
                     if folders:
