@@ -56,12 +56,77 @@ class PrivateStorage:
         return self._client().generate_presigned_url(
             "get_object", Params=args, ExpiresIn=min(300,max(30,int(duration))))
 
-    async def exists(self,key):
-        key=self.safe_key(key)
-        def check():
+    async def object_size(self, key):
+        """Tamaño de un objeto ya publicado, para reanudar sin subirlo dos veces."""
+        from botocore.exceptions import ClientError
+        key = self.safe_key(key)
+        def head():
             try:
-                self._client().head_object(Bucket=self.bucket,Key=key)
-                return True
-            except self._client().exceptions.NoSuchKey:
-                return False
-        return await asyncio.to_thread(check)
+                data = self._client().head_object(Bucket=self.bucket, Key=key)
+                return int(data["ContentLength"])
+            except ClientError as exc:
+                if str(exc.response.get("Error", {}).get("Code", "")) in ("404", "NoSuchKey", "NotFound"):
+                    return None
+                raise
+        return await asyncio.to_thread(head)
+
+    async def exists(self, key):
+        return await self.object_size(key) is not None
+
+    async def upload_stream(self, chunks, key, mime, check=None):
+        """Video a R2 en multipart de 8 MiB, sin usar disco ni cargarlo en RAM."""
+        key = self.safe_key(key)
+        client = self._client()
+        create = await asyncio.to_thread(
+            client.create_multipart_upload, Bucket=self.bucket, Key=key,
+            ContentType=mime, CacheControl="private, max-age=3600")
+        upload_id = create["UploadId"]
+        parts = []
+        number = 1
+        buffer = bytearray()
+        total = 0
+        try:
+            async for chunk in chunks:
+                if check is not None:
+                    await check()
+                if not chunk:
+                    continue
+                buffer.extend(chunk)
+                total += len(chunk)
+                while len(buffer) >= 8 * 1024 * 1024:
+                    body = bytes(buffer[:8 * 1024 * 1024])
+                    del buffer[:8 * 1024 * 1024]
+                    if check is not None:
+                        await check()
+                    result = await asyncio.to_thread(
+                        client.upload_part, Bucket=self.bucket, Key=key,
+                        UploadId=upload_id, PartNumber=number, Body=body)
+                    parts.append({"ETag": result["ETag"], "PartNumber": number})
+                    number += 1
+            if buffer:
+                if check is not None:
+                    await check()
+                result = await asyncio.to_thread(
+                    client.upload_part, Bucket=self.bucket, Key=key,
+                    UploadId=upload_id, PartNumber=number, Body=bytes(buffer))
+                parts.append({"ETag": result["ETag"], "PartNumber": number})
+            if not parts:
+                raise ValueError("El video llegó vacío desde Telegram.")
+            if check is not None:
+                await check()
+            await asyncio.to_thread(
+                client.complete_multipart_upload, Bucket=self.bucket, Key=key,
+                UploadId=upload_id, MultipartUpload={"Parts": parts})
+            remote = await self.object_size(key)
+            if remote != total:
+                raise ValueError("La copia guardada no coincide con el tamaño descargado.")
+            return total
+        except BaseException:
+            # Nunca dejar deliberadamente una subida multipart incompleta facturando.
+            try:
+                await asyncio.shield(asyncio.to_thread(
+                    client.abort_multipart_upload, Bucket=self.bucket, Key=key,
+                    UploadId=upload_id))
+            except Exception:
+                pass
+            raise
