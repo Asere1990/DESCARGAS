@@ -115,6 +115,8 @@ function updateSelection(){
  $("selection-download").disabled=!S.selected.size;
 }
 function toggleSelection(id){
+ const media=S.items.find(m=>m.id===id);
+ if(!media?.available)return notice("El archivo original aún se está preparando.");
  if(S.selected.has(id))S.selected.delete(id);
  else if(S.selected.size<10)S.selected.add(id);
  else return notice("Puedes seleccionar hasta 10 archivos por operación.");
