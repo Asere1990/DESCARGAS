@@ -131,6 +131,8 @@ test('reviewers cannot switch to inactive accounts',()=>{
 test('account metadata matches ID, @username, formatted phone and accent-insensitive country',()=>{
  const {ctx}=setup(),a={id:'718024794',username:'Ejemplo_ABC',phone:'+1 (305) 497-4151',country:'España',country_code:'ES'};
  assert.equal(ctx.accountMetadataMatches(a,'id','718024794'),true);
+ assert.equal(ctx.accountMetadataMatches({...a,name:'José García'},'name','JOSE GARCIA'),true);
+ assert.equal(ctx.accountMetadataMatches({...a,name:'José García'},'name','otro'),false);
  assert.equal(ctx.accountMetadataMatches(a,'id','779'),false);
  assert.equal(ctx.accountMetadataMatches(a,'id','abcdef'),false);
  assert.equal(ctx.accountMetadataMatches(a,'username','@ejemplo_abc'),true);
@@ -155,7 +157,8 @@ test('the header, account tabs and search remain inside the same sticky containe
  assert.ok(sticky.trimEnd().endsWith('</div>'));
  assert.match(css,/\.accounts-sticky\{position:sticky;top:0/);
  assert.match(css,/#accounts-search-form\{position:static/);
- for(const value of ['phrases','id','username','phone','country'])
+ assert.match(sticky,/id="logout"[^>]* hidden>/);
+ for(const value of ['phrases','name','id','username','phone','country'])
   assert.ok(sticky.includes('value="'+value+'"'));
 });
 
