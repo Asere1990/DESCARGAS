@@ -370,39 +370,50 @@ function metadataSearchHit(a){
  button.onclick=()=>selectAccount(a).catch(e=>notice(e.message));
  $('accounts-results').append(button);
 }
-async function runAccountMetadataSearch(){
- const field=$('accounts-query'),needle=field.value.trim(),mode=$('accounts-search-mode').value;
+async function runAccountMetadataSearch(continuing=false){
+ const needle=$('accounts-query').value.trim(),mode=$('accounts-search-mode').value;
  if(!needle)return;
  if(operationBusy)return notice('Espera a que termine la operación.');
  cancelOverviewSearch();
- const run=overviewRun,seen=new Set();
- overviewSearching=true;statusQueue=[];overviewPending=[];
+ const run=overviewRun;overviewSearching=true;statusQueue=[];
  $('cancel-account-search').hidden=false;
  $('continue-account-search').hidden=true;
  $('accounts-results').hidden=false;
- $('accounts-results').replaceChildren();
- const addMatches=()=>{
-  for(const a of overviewAccounts.values()){
-   if(seen.has(a.id)||!accountMetadataMatches(a,mode,needle))continue;
-   seen.add(a.id);metadataSearchHit(a);
-  }
- };
  try{
-  addMatches();
-  while(accountsNext&&run===overviewRun){
-   if(document.hidden)break;
-   $('accounts-progress').textContent='Buscando por '+({name:'nombre de Telegram',id:'Telegram ID',username:'@username',phone:'teléfono',country:'país'}[mode]||mode)+' · '+overviewAccounts.size+' cuentas consultadas…';
-   await loadAccounts(true);
+  if(!continuing||mode!==overviewMode||needle!==overviewNeedle){
+   overviewNeedle=needle;overviewMode=mode;overviewSeen.clear();
+   overviewResults=[];overviewPending=[];overviewFailures=[];overviewSkipped=0;overviewComplete=0;overviewTotal=0;
+   $('accounts-results').replaceChildren();
+   const active=await loadActiveSearchScope(run);
    if(run!==overviewRun)return;
-   addMatches();
+   if(!active){
+    $('accounts-progress').textContent='Búsqueda pausada mientras se completa la lista de cuentas. Vuelve a pulsar Buscar.';
+    return;
+   }
+   overviewTotal=active.length;
+   overviewPending=active.map(a=>({account:a}));
+  }
+  searchProgress();
+  while(overviewPending.length&&run===overviewRun){
+   if(document.hidden)break;
+   const a=overviewPending.shift().account;
+   if(accountMetadataMatches(a,mode,needle))overviewResults.push({account:a});
+   overviewComplete++;
+   searchProgress(a.name);
+   // Give iOS a chance to paint each increment without opening Telegram sessions.
+   await new Promise(resolve=>setTimeout(resolve,0));
   }
   if(run!==overviewRun)return;
-  $('accounts-progress').textContent=seen.size+' cuenta(s) encontrada(s) · '+overviewAccounts.size+' cuentas consultadas'+(accountsNext?' · Búsqueda parcial. Vuelve a pulsar Buscar para continuar.':' · Búsqueda terminada.');
-  if(!seen.size)$('accounts-results').append(el('p',accountsNext?'No hay coincidencias en las cuentas consultadas.':'No se encontraron cuentas con esos datos.'));
+  finishOverviewResults();
+  if(overviewPending.length)$('accounts-progress').textContent='Búsqueda pausada · '+overviewComplete+'/'+overviewTotal+' cuentas activas revisadas · '+overviewResults.length+' coincidencias parciales.';
+  else $('accounts-progress').textContent='Búsqueda terminada · '+overviewComplete+'/'+overviewTotal+' cuentas activas revisadas · '+overviewResults.length+' coincidencias.';
  }catch(e){
-  if(run===overviewRun)$('accounts-progress').textContent='Búsqueda incompleta: '+e.message;
+  if(run===overviewRun)$('accounts-progress').textContent='Búsqueda incompleta · '+overviewComplete+'/'+overviewTotal+': '+e.message;
  }finally{
-  if(run===overviewRun){overviewSearching=false;$('cancel-account-search').hidden=true;pumpStatuses();}
+  if(run===overviewRun){
+   overviewSearching=false;$('cancel-account-search').hidden=true;
+   $('continue-account-search').hidden=!overviewPending.length;pumpStatuses();
+  }
  }
 }
 function resetAccountSearch(){
@@ -419,13 +430,13 @@ $('accounts-search-mode').onchange=()=>{
  field.inputMode=current==='id'?'numeric':current==='phone'?'tel':'search';
  resetAccountSearch();
 };
-$('accounts-query').oninput=()=>{if(!$('accounts-query').value.trim()||($('accounts-search-mode').value!=='phrases'&&overviewSearching))resetAccountSearch();};
+$('accounts-query').oninput=()=>{if(overviewSearching||!$('accounts-query').value.trim())resetAccountSearch();};
 $('accounts-search-form').onsubmit=e=>{
  e.preventDefault();
  if($('accounts-search-mode').value==='phrases')runAccountSearch(false);
  else runAccountMetadataSearch();
 };
-$('continue-account-search').onclick=()=>{if($('accounts-results').children.length>=150)$('accounts-results').replaceChildren();runAccountSearch(true);};
+$('continue-account-search').onclick=()=>{if(overviewMode==='phrases')runAccountSearch(true);else runAccountMetadataSearch(true);};
 
 
 // Panel-only continuity. No credentials, drafts, protected content or Telegram sessions are stored.
