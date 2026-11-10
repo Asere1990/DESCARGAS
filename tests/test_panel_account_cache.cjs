@@ -39,7 +39,7 @@ test('exactly two visible lists distinguish active, invalid and unverified accou
  ctx.addAccount(account(2,'revoked',Date.now()/1000));
  ctx.addAccount(account(3,'expired',Date.now()/1000));
  ctx.addAccount(account(4,'unknown',0));
- assert.deepEqual(Array.from(ctx.groupSizes()),[['active',1],['inactive',3]]);
+ assert.deepEqual(JSON.parse(JSON.stringify(ctx.groupSizes())),[['active',1],['inactive',3]]);
 });
 
 test('authorized administrator sees an immediate bounded display snapshot without credentials',()=>{
@@ -51,7 +51,7 @@ test('authorized administrator sees an immediate bounded display snapshot withou
  assert.equal(JSON.parse(raw).pages,2);
  ctx.resetLists();
  assert.equal(ctx.restoreCachedAccounts(),2);
- assert.deepEqual(Array.from(ctx.groupSizes()),[['active',1],['inactive',1]]);
+ assert.deepEqual(JSON.parse(JSON.stringify(ctx.groupSizes())),[['active',1],['inactive',1]]);
  assert.equal(ctx.getAccount('1').session,undefined);
 });
 
@@ -60,7 +60,7 @@ test('expired verification never presents an account as currently active',()=>{
  ctx.addAccount(account(1,'active',(Date.now()-360000)/1000));ctx.saveAccounts();ctx.resetLists();
  assert.equal(ctx.restoreCachedAccounts(),2);
  assert.equal(ctx.getAccount('1').status.state,'unknown');
- assert.deepEqual(Array.from(ctx.groupSizes()),[['active',0],['inactive',1]]);
+ assert.deepEqual(JSON.parse(JSON.stringify(ctx.groupSizes())),[['active',0],['inactive',1]]);
 });
 
 test('cache expiration and storage restrictions fall back safely to server loading',()=>{
