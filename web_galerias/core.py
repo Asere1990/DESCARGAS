@@ -10,6 +10,7 @@ from pathlib import Path
 from aiohttp import web
 from .permissions import is_admin,pilot_allowed
 from .storage import PrivateStorage
+from .admin_browser import SCHEMA as BROWSER_SCHEMA,authenticate as authenticate_browser
 
 SCHEMA="""
 CREATE TABLE IF NOT EXISTS wg_folders(
@@ -110,6 +111,7 @@ class GalleryCore:
             if getattr(self.s,"ready",False) and getattr(self.s.repo,"pool",None):
                 try:
                     await self.s.repo.pool.execute(SCHEMA)
+                    await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     self.ready=True
                     log.warning("Gallery schema ready; storage=%s",self.storage.ready)
                     if os.getenv("GALERIAS_SYNC_ENABLED","0")=="1" and self.storage.ready:
@@ -122,10 +124,13 @@ class GalleryCore:
                     log.warning("Gallery schema pending (%s)",self.last_error)
             await asyncio.sleep(5)
 
-    def auth(self,request):
+    async def auth(self,request):
         from descargas_app.security import validate_init_data
         raw=request.headers.get("X-Telegram-Init-Data","")
-        if not raw or len(raw)>12000:raise web.HTTPUnauthorized(text="Abre la Mini App desde Telegram.")
+        if not raw:
+            # Solo sesiones de administrador creadas tras contraseña válida.
+            return await authenticate_browser(self,request)
+        if len(raw)>12000:raise web.HTTPUnauthorized(text="Datos Telegram inválidos.")
         tokens=[self.s.token]
         # Tokens secundarios se utilizan solo para validar firmas; nunca toman sesiones.
         for token in os.getenv("GALERIAS_BOT_TOKENS","").split(","):
