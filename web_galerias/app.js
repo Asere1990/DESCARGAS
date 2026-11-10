@@ -61,7 +61,7 @@ function renderFolders(){
   const title=document.createElement("h3");title.textContent=folder.name;
   const stats=document.createElement("p");
   stats.textContent=pretty(folder.photos)+" fotos · "+pretty(folder.videos)+" videos"+
-   (folder.pending?" · respaldando…":"");
+   (S.me?.admin && folder.pending?" · respaldando…":"");
   card.append(cover,title,stats);
   card.onclick=()=>openFolder(folder);
   card.onkeydown=e=>{if(e.key==="Enter")openFolder(folder);};
@@ -104,6 +104,7 @@ function renderItems(){
 function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"?"▶":"▧";b.prepend(p);}
 function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
+ $("album-actions").classList.toggle("hidden",S.selection);
  $("selection-count").textContent=S.selected.size+" de 10";
  $("select-mode").textContent=S.selection?"Listo":"Seleccionar";
  $("selection-download").disabled=!S.selected.size;
@@ -145,10 +146,10 @@ function previewAdmin(){
  const root=$("admin-folders");root.replaceChildren();
  for(const f of S.admin.folders){
   const card=document.createElement("div");card.className="admin-row";
-  const title=document.createElement("h3");title.textContent=f.name+(f.active?"":" (oculta)");
+  const title=document.createElement("h3");title.textContent=(f.name||"Sin nombre interno")+(f.active?"":" (oculta)");
   const info=document.createElement("p");
   const state=!f.active?"Pausada":S.admin.sync_enabled?"Respaldo activo":"Esperando sincronizador";
-  info.textContent="Origen: "+f.peer+" · "+state+" · "+
+  info.textContent="Nombre público: "+(f.public_name||("Galería "+f.id))+" · Origen: "+f.peer+" · "+state+" · "+
     pretty(f.ready)+" archivos respaldados · "+pretty(f.pending)+" pendientes · "+
     pretty(f.scan_count)+" mensajes revisados · "+
     (f.complete?"Historial catalogado":"Catalogación en progreso")+
@@ -156,10 +157,16 @@ function previewAdmin(){
     (f.skipped?" · "+pretty(f.skipped)+" omitidos":"")+
     (f.error?" · "+f.error:"");
   const buttons=document.createElement("div");buttons.className="row-actions";
-  const edit=document.createElement("button");edit.className="small-btn";edit.textContent="Renombrar";
-  edit.onclick=async()=>{const value=prompt("Nuevo nombre",f.name);
+  const edit=document.createElement("button");edit.className="small-btn";edit.textContent="Nombre interno";
+  edit.onclick=async()=>{const value=prompt("Nombre que solo ve el administrador",f.name);
     if(!value||value===f.name)return;
-    try{await api("admin-folder-update",{folder:f.id,name:value});await loadAdmin();}catch(e){notice(e.message);}};
+    try{await api("admin-folder-update",{folder:f.id,field:"name",name:value});await loadAdmin();}catch(e){notice(e.message);}};
+  const publicEdit=document.createElement("button");publicEdit.className="small-btn";publicEdit.textContent="Nombre público";
+  publicEdit.onclick=async()=>{const value=prompt("Nombre visible para los clientes",f.public_name||("Galería "+f.id));
+    if(!value||value===f.public_name)return;
+    try{await api("admin-folder-update",{folder:f.id,field:"public_name",name:value});
+        await loadAdmin();await refresh();
+    }catch(e){notice(e.message);}};
   const remove=document.createElement("button");remove.className="small-btn";
   remove.textContent=f.active?"Ocultar":"Restaurar";
   remove.onclick=async()=>{
@@ -171,7 +178,7 @@ function previewAdmin(){
   };
   const reset=document.createElement("button");reset.className="small-btn";reset.textContent="Revisar origen";
   reset.onclick=async()=>{try{await api("admin-sync-reset",{folder:f.id});notice("Revisión solicitada");await loadAdmin();}catch(e){notice(e.message);}};
-  buttons.append(edit,remove,reset);card.append(title,info,buttons);root.append(card);
+  buttons.append(edit,publicEdit,remove,reset);card.append(title,info,buttons);root.append(card);
  }
  const users=$("admin-users");users.replaceChildren();
  for(const u of S.admin.users){
@@ -299,9 +306,12 @@ $("admin-back").onclick=()=>show("library");
 $("admin-refresh").onclick=loadAdmin;
 document.querySelectorAll(".admin-tabs button").forEach(b=>b.onclick=()=>switchAdminTab(b.dataset.tab));
 $("add-folder").onclick=async()=>{
- const peer=$("new-peer").value.trim(),name=$("new-name").value.trim();
- if(!/^-[0-9]{3,19}$/.test(peer)||!name)return notice("Escribe un ID negativo y el nombre.");
- try{await api("admin-folder",{peer,name});$("new-peer").value="";$("new-name").value="";
+ const peer=$("new-peer").value.trim(),name=$("new-name").value.trim(),
+  public_name=$("new-public-name").value.trim();
+ if(!/^-[0-9]{3,19}$/.test(peer)||!name||!public_name)
+   return notice("Escribe el ID, el nombre interno y el nombre público por separado.");
+ try{await api("admin-folder",{peer,name,public_name});$("new-peer").value="";
+   $("new-name").value="";$("new-public-name").value="";
   notice("Carpeta agregada: el respaldo se iniciará automáticamente si el sincronizador está conectado.");await loadAdmin();await refresh();}
  catch(e){notice(e.message);}
 };
