@@ -184,10 +184,53 @@ async def catalog_batch(g,folder,client,entity,source,limit=90):
     return len(rows)
 
 
+async def preview_one(g,folder,item,message,client,guard):
+    """Mostrar primero una miniatura: el original aún no está respaldado."""
+    await guard()
+    key=f"folders/{folder}/{message.id}/thumb.jpg"
+    remote=await g.storage.object_size(key)
+    saved=key if remote and remote>0 else None
+    if saved is None:
+        with tempfile.TemporaryDirectory(prefix="wg-preview-") as temporary:
+            temporary=Path(temporary)
+            thumb=temporary/"thumb.jpg"
+            try:
+                source=getattr(message,"photo",None) or getattr(message,"document",None)
+                sizes=getattr(source,"sizes",None) or getattr(source,"thumbs",None) or []
+                selected=next((i for i,size in enumerate(sizes)
+                               if int(getattr(size,"w",0) or 0)>=320),None)
+                index=selected if selected is not None else (len(sizes)-1 if sizes else 0)
+                result=await client.download_media(message,
+                    file=str(temporary/"preview"),thumb=index)
+                await guard()
+                if result and Path(result).is_file():
+                    with Image.open(result) as photo:
+                        photo=ImageOps.exif_transpose(photo)
+                        photo.thumbnail((640,640))
+                        if photo.mode!="RGB":photo=photo.convert("RGB")
+                        photo.save(thumb,format="JPEG",quality=84,optimize=True)
+            except (PauseRequested,asyncio.CancelledError,errors.FloodWaitError):
+                raise
+            except (OSError,ValueError,TypeError) as exc:
+                # Algunos videos no tienen miniatura. Su ficha sigue visible.
+                log.info("Gallery thumbnail not available (%s)",type(exc).__name__)
+            if thumb.is_file():
+                await guard()
+                await g.storage.upload(thumb,key,"image/jpeg")
+                actual=await g.storage.object_size(key)
+                if actual!=thumb.stat().st_size:
+                    raise ValueError("La miniatura R2 no coincide con la enviada.")
+                saved=key
+    await guard()
+    await g.db().execute("""UPDATE wg_media SET state='preview',
+      thumb_key=$3,error='' WHERE folder=$1 AND message=$2 AND state='pending'""",
+      folder,message.id,saved)
+
+
 async def media_retry(g,folder,message,exc):
     await g.db().execute("""UPDATE wg_media SET
       attempts=attempts+1,available=$3,error=$4
-      WHERE folder=$1 AND message=$2 AND state='pending'""",
+      WHERE folder=$1 AND message=$2 AND state IN ('pending','preview')""",
       folder,message,
       time.time()+min(3600,30*2**min(7,int(await g.db().fetchval(
          "SELECT COALESCE(attempts,0) FROM wg_media WHERE folder=$1 AND message=$2",
@@ -195,7 +238,7 @@ async def media_retry(g,folder,message,exc):
       type(exc).__name__)
 
 
-async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False):
+async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,phase="combined"):
     """Un turno de lectura + copia, con lock exclusivo de cuenta ya existente."""
     from descargas_app.account_chat import connected
     folder=source["id"]
@@ -222,40 +265,63 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False)
               source_uid=$2,last_check=$3,error='' WHERE id=$1 AND active""",
               folder,uid,time.time())
 
-            # Construir el índice y a la vez subir originales, en lugar de
-            # completar la exploración antes de poner las primeras fotos en R2.
-            await checkpoint(g,folder,"catalogando")
-            await catalog_batch(g,folder,client,entity,source,limit=scan_size)
-            if catalog_only:
+            if phase in ("combined","index"):
+                await checkpoint(g,folder,"catalogando")
+                await catalog_batch(g,folder,client,entity,source,limit=scan_size)
+            if catalog_only or phase=="index":
                 await checkpoint(g,folder,"en_espera")
                 return
             requested=max_files if max_files is not None else os.getenv("GALERIAS_SYNC_BATCH_FILES","5")
             batch=max(1,min(12,int(requested)))
-            for _ in range(batch):
-                await guard()
-                item=await g.db().fetchrow("""SELECT message,kind,mime,size
-                   FROM wg_media WHERE folder=$1 AND state='pending'
-                    AND available<=$2
-                     ORDER BY CASE WHEN kind='photo' THEN 0 ELSE 1 END,
-                              id DESC LIMIT 1""",
-                    folder,time.time())
-                if not item:break
-                m=await client.get_messages(entity,ids=item["message"])
-                await guard()
-                if not m or media_kind(m)[0]!=item["kind"] or getattr(m,"noforwards",False):
-                    await g.db().execute("""UPDATE wg_media
-                      SET state='missing',error='no_disponible_en_origen'
-                      WHERE folder=$1 AND message=$2 AND state='pending'""",
-                      folder,item["message"])
-                    continue
-                await checkpoint(g,folder,"respaldando")
-                try:
-                    await backup_one(g,folder,item,m,client,guard)
-                except (PauseRequested,asyncio.CancelledError,errors.FloodWaitError):
-                    raise
-                except Exception as exc:
-                    log.warning("Gallery file retry (%s)",type(exc).__name__)
-                    await media_retry(g,folder,item["message"],exc)
+            if phase in ("combined","preview"):
+                for _ in range(batch):
+                    await guard()
+                    item=await g.db().fetchrow("""SELECT message,kind,mime,size
+                       FROM wg_media WHERE folder=$1 AND state='pending'
+                         AND available<=$2 ORDER BY id DESC LIMIT 1""",
+                         folder,time.time())
+                    if not item:break
+                    m=await client.get_messages(entity,ids=item["message"])
+                    await guard()
+                    if not m or media_kind(m)[0]!=item["kind"] or getattr(m,"noforwards",False):
+                        await g.db().execute("""UPDATE wg_media SET state='missing',
+                           error='no_disponible_en_origen'
+                           WHERE folder=$1 AND message=$2 AND state='pending'""",
+                           folder,item["message"])
+                        continue
+                    await checkpoint(g,folder,"preparando_vistas_previas")
+                    try:
+                        await preview_one(g,folder,item,m,client,guard)
+                    except (PauseRequested,asyncio.CancelledError,errors.FloodWaitError):
+                        raise
+                    except Exception as exc:
+                        log.warning("Gallery preview retry (%s)",type(exc).__name__)
+                        await media_retry(g,folder,item["message"],exc)
+            if phase in ("combined","archive"):
+                for _ in range(batch):
+                    await guard()
+                    item=await g.db().fetchrow("""SELECT message,kind,mime,size
+                       FROM wg_media WHERE folder=$1 AND state='preview'
+                         AND available<=$2
+                         ORDER BY CASE WHEN kind='photo' THEN 0 ELSE 1 END,
+                                  id DESC LIMIT 1""",folder,time.time())
+                    if not item:break
+                    m=await client.get_messages(entity,ids=item["message"])
+                    await guard()
+                    if not m or media_kind(m)[0]!=item["kind"] or getattr(m,"noforwards",False):
+                        await g.db().execute("""UPDATE wg_media SET state='missing',
+                           error='no_disponible_en_origen'
+                           WHERE folder=$1 AND message=$2 AND state='preview'""",
+                           folder,item["message"])
+                        continue
+                    await checkpoint(g,folder,"respaldando")
+                    try:
+                        await backup_one(g,folder,item,m,client,guard)
+                    except (PauseRequested,asyncio.CancelledError,errors.FloodWaitError):
+                        raise
+                    except Exception as exc:
+                        log.warning("Gallery file retry (%s)",type(exc).__name__)
+                        await media_retry(g,folder,item["message"],exc)
             await checkpoint(g,folder,"en_espera")
     except (PauseRequested,asyncio.CancelledError):
         if g.closed:raise asyncio.CancelledError()
@@ -354,7 +420,7 @@ async def backup_one(g,folder,item,message,client,guard):
     if original_valid and thumb_size:
         await g.db().execute("""UPDATE wg_media SET state='ready',
           file_key=$3,thumb_key=$4,size=$5,error=''
-          WHERE folder=$1 AND message=$2 AND state='pending'""",
+          WHERE folder=$1 AND message=$2 AND state IN ('preview','pending')""",
           folder,message.id,key,thumb_key,original_size)
         return
 
@@ -423,7 +489,7 @@ async def backup_one(g,folder,item,message,client,guard):
     # Las copias ya terminadas permanecen en R2 aunque después se oculte la carpeta.
     await g.db().execute("""UPDATE wg_media SET state='ready',file_key=$3,
       thumb_key=$4,size=$5,error='' WHERE folder=$1 AND message=$2
-      AND state='pending'""",folder,message.id,key,
+      AND state IN ('preview','pending')""",folder,message.id,key,
       thumb_key if thumb_size else None,original_size or 0)
 
 
@@ -437,7 +503,7 @@ def sync_limits(total):
     return min(default,max(1,24//count)), (90 if count<=5 else 60 if count<20 else 30)
 
 
-async def fair_round(g,folders,*,catalog_only=False):
+async def fair_round(g,folders,*,catalog_only=False,phase="combined"):
     """Avanza todas las galerías en rondas, con cuentas distintas en paralelo.
 
     Una cuenta conserva su lock exclusivo para proteger las sesiones de
@@ -465,7 +531,7 @@ async def fair_round(g,folders,*,catalog_only=False):
                 if g.closed:
                     return
                 await sync_folder(g,folder,max_files=files,scan_size=scan,
-                                  catalog_only=catalog_only)
+                                  catalog_only=catalog_only,phase=phase)
                 if spacing:
                     await asyncio.sleep(spacing)
 
@@ -494,12 +560,19 @@ async def run(g):
                     if not folders:
                         await asyncio.sleep(5)
                         continue
-                    # Registrar todas las nuevas antes de la primera subida
-                    # larga; después índice y backup avanzan por rondas.
-                    fresh=[x for x in folders if not x["scan_count"]]
-                    if fresh:
-                        await fair_round(g,fresh,catalog_only=True)
-                    await fair_round(g,folders)
+                    # Las cuentas de los usuarios reciben primero el índice,
+                    # después miniaturas ligeras, y solo entonces los originales.
+                    await fair_round(g,folders,phase="index")
+                    folders=await db.fetch("""SELECT * FROM wg_folders WHERE active
+                      ORDER BY last_check ASC,id ASC""")
+                    await fair_round(g,folders,phase="preview")
+                    # Archivar un número limitado por ronda evita que los videos
+                    # grandes retrasen indefinidamente las otras 50 galerías.
+                    if folders:
+                        offset=getattr(g,"archive_offset",0)%len(folders)
+                        selected=(folders[offset:]+folders[:offset])[:max(1,min(3,len(folders)))]
+                        g.archive_offset=(offset+len(selected))%len(folders)
+                        await fair_round(g,selected,phase="archive")
                     await asyncio.sleep(3)
                 except asyncio.CancelledError:
                     raise
