@@ -164,16 +164,16 @@ test('the header, account tabs and search remain inside the same sticky containe
 
 test('account lookup searches authorized paginated metadata without starting Telegram sessions',async()=>{
  const matchBlock=source.slice(source.indexOf('function accountMetadataMatches('),source.indexOf('function cancelOverviewSearch()'));
- const searchBlock=source.slice(source.indexOf('function metadataSearchHit('),source.indexOf('function resetAccountSearch()'));
+ const searchBlock=source.slice(source.indexOf("let overviewNeedle='"),source.indexOf('function resetAccountSearch()'));
  const nodes=new Map(),accountData=new Map();
  const $=id=>{
-  if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',hidden:false,children:[],append(...a){this.children.push(...a);},replaceChildren(){this.children=[];}});
+  if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',hidden:false,children:[],append(...a){this.children.push(...a);},replaceChildren(){this.children=[];},querySelector(){return null;}});
   return nodes.get(id);
  };
  const el=(tag,value='')=>({tagName:tag.toUpperCase(),textContent:value,children:[],append(...a){this.children.push(...a);}});
  $('accounts-query').value='Mexico';$('accounts-search-mode').value='country';
  const ctx={$,el,overviewAccounts:accountData,accountsNext:'first',overviewRun:0,overviewSearching:false,statusQueue:[],overviewPending:[],
-  operationBusy:false,document:{hidden:false},accountStates:{active:'Activa',unknown:'Sin verificar'},
+  operationBusy:false,document:{hidden:false},setTimeout:fn=>{fn();return 1;},accountStates:{active:'Activa',unknown:'Sin verificar'},
   notice(){},selectAccount(){},pumpStatuses(){},cancelOverviewSearch(){ctx.overviewRun++;ctx.overviewSearching=false;},loadAccounts:async()=>{
    ctx.pages++;
    if(ctx.pages===1){accountData.set('11',{id:'11',name:'A',country:'México',username:'a',phone:'123',status:{state:'active'}});ctx.accountsNext='second';}
@@ -185,6 +185,6 @@ test('account lookup searches authorized paginated metadata without starting Tel
  assert.equal(ctx.pages,2);
  assert.equal($('accounts-results').children.length,1);
  assert.match($('accounts-results').children[0].children[0].textContent,/A · 11/);
- assert.match($('accounts-progress').textContent,/1 cuenta/);
+ assert.match($('accounts-progress').textContent,/2\/2 cuentas activas revisadas/);
  assert.equal($('cancel-account-search').hidden,true);
 });
