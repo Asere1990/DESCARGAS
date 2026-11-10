@@ -37,7 +37,11 @@ class AccountOverview:
     def __init__(self,panel):self.p=panel;self.s=panel.s;self.slots=asyncio.Semaphore(1)
     def key(self,uid):return f'panel-account-status:{self.s.bot_id}:{uid}'
     async def cached(self,uid,generation,session_tag):
-        raw=await self.s.repo.setting(self.key(uid))
+        return self.cached_value(await self.s.repo.setting(self.key(uid)),generation,session_tag)
+    @staticmethod
+    def cached_value(raw,generation,session_tag):
+        # The account list can read all cached states in one indexed SQL join.
+        # Require the exact session fingerprint and generation; never trust stale states.
         try:data=json.loads(raw or '{}')
         except (ValueError,TypeError):return None
         if data.get('generation')!=generation or data.get('session_tag')!=session_tag:return None
