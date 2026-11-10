@@ -28,14 +28,18 @@ async def checkout(g,uid):
     db=g.db()
     await db.execute("INSERT INTO wg_checkouts(nonce,uid,created) VALUES($1,$2,$3)",
                      nonce,uid,time.time())
-    url=g.s.url.rstrip("/")+"/web-galerias"
+    # Devolver al DM del bot después del pago, no a una web sin initData de Telegram.
+    bot=os.getenv("GALERIAS_RETURN_BOT","Descargas_Robot").lstrip("@")
+    if not bot.replace("_","").isalnum():
+        raise web.HTTPServiceUnavailable(text="El bot de retorno no está configurado.")
+    url="https://t.me/"+bot+"?start=galerias"
     try:
         session=await asyncio.to_thread(stripe.checkout.Session.create,
            mode="subscription",
            line_items=[{"price":os.environ["GALERIAS_STRIPE_PRICE_ID"],"quantity":1}],
            client_reference_id=str(uid),metadata={"gallery_nonce":nonce},
            subscription_data={"metadata":{"gallery_uid":str(uid)}},
-           success_url=url+"?pago=confirmado",cancel_url=url+"?pago=cancelado")
+           success_url=url,cancel_url=url)
     except Exception:
         raise web.HTTPServiceUnavailable(text="No se pudo crear el pago. Inténtalo después.") from None
     await db.execute("UPDATE wg_checkouts SET session=$2 WHERE nonce=$1",nonce,session.id)
