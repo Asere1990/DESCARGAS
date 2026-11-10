@@ -9,27 +9,61 @@ import secrets
 from aiohttp import web
 from web_galerias.storage import PrivateStorage
 from cryptography.fernet import Fernet
-from telethon import TelegramClient
-from telethon.sessions import StringSession
+import asyncpg
+from descargas_app.service import Service
 from descargas_app.pg_store import Repository
+
+
+class GalleryRepository(Repository):
+    """Reuse source locks and read methods, but NEVER migrate DESCARGAS tables."""
+    async def start(self):
+        self.pool=await asyncpg.create_pool(self.url,min_size=1,max_size=self.pool_size,
+           command_timeout=20,max_inactive_connection_lifetime=60)
+        try:
+            # Only a read-only existence check against the original account table.
+            async with self.pool.acquire() as conn:
+                await conn.fetchval("SELECT count(*) FROM descarga_accounts WHERE FALSE")
+        except Exception:
+            await self.pool.close()
+            self.pool=None
+            raise
 from web_galerias.app import mount
 
 class IsolatedGalleryService:
     def __init__(self):
         self.token=os.getenv("GALERIAS_AUTH_BOT_TOKEN","")
         self.url=os.getenv("RENDER_EXTERNAL_URL","https://localhost").rstrip("/")
-        self.cipher=Fernet(os.environ["DESCARGAS_SESSION_KEY"].encode()) if os.getenv("DESCARGAS_SESSION_KEY") else None
-        self.repo=Repository(os.getenv("DATABASE_URL",""),self.cipher,pool_size=3) if self.cipher else None
+        try:
+            self.cipher=Fernet(os.environ["DESCARGAS_SESSION_KEY"].encode()) if os.getenv("DESCARGAS_SESSION_KEY") else None
+        except (ValueError,TypeError):
+            logging.getLogger("web-galerias").error("Invalid session cipher configuration")
+            self.cipher=None
+        self.repo=GalleryRepository(os.getenv("DATABASE_URL",""),self.cipher,pool_size=3) if self.cipher else None
         self.api_id=os.getenv("ID","")
         self.api_hash=os.getenv("HASH","")
         self.ready=False
 
     async def start(self,app):
         app["r2_verify_task"]=asyncio.create_task(verify_r2())
-        if not self.cipher or not self.repo or not self.repo.url or not self.token:
-            return  # Fail closed; UI visible but no one can access private data.
-        await self.repo.start()
+        required={
+          "DESCARGAS_SESSION_KEY":bool(self.cipher),
+          "DATABASE_URL":bool(self.repo and self.repo.url),
+          "GALERIAS_AUTH_BOT_TOKEN":bool(self.token),
+        }
+        missing=[name for name,ok in required.items() if not ok]
+        if missing:
+            logging.getLogger("web-galerias").warning(
+                "Gallery private setup pending: %s",",".join(missing))
+            return
+        try:
+            await self.repo.start()
+        except Exception as exc:
+            logging.getLogger("web-galerias").error(
+                "Gallery private database unavailable (%s)",type(exc).__name__)
+            return
         self.ready=True
+        logging.getLogger("web-galerias").warning(
+           "Gallery private database connected; source accounts remain unmodified")
 
     async def close(self,app):
         task=app.get("r2_verify_task")
@@ -44,13 +78,11 @@ class IsolatedGalleryService:
         return self.cipher.decrypt(bytes(row["session"])).decode() if row and row["session"] else ""
 
     def client(self,session):
-        # Solo acceso autorizado: NO se guarda ni renueva ninguna StringSession.
+        # Retain the exact client fingerprint/connection policy used by DESCARGAS.
+        # No polling, no session mutation, no login or logout.
         if not self.api_id.isdigit() or not self.api_hash:
             raise ValueError("Credenciales de lectura Telegram no configuradas.")
-        return TelegramClient(StringSession(session),int(self.api_id),self.api_hash,
-            receive_updates=False,flood_sleep_threshold=0,request_retries=2,
-            connection_retries=1,raise_last_call_error=True,
-            device_model="Web Galerías · lectura autorizada")
+        return Service.client(self,session)
 
 
 
