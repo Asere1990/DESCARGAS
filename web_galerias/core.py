@@ -170,7 +170,7 @@ class GalleryCore:
           f.complete,f.error,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='photo')::int AS photos,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='video')::int AS videos,
-          COUNT(m.id) FILTER(WHERE m.state='pending')::int AS pending
+          COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending
         FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
         LEFT JOIN wg_user_prefs p ON p.uid=$1
         WHERE f.active AND ($2 OR COALESCE(p.mode,'all')='all' OR EXISTS(
