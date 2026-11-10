@@ -35,4 +35,5 @@ jobs:
       - run: node --test tests/test_panel_account_cache.cjs
       - run: node --test tests/test_panel_complete_search.cjs
       - run: node --test tests/test_panel_entity_search.cjs
+      - run: node --test tests/test_panel_background_client.cjs
       - run: python -m unittest discover -s tests -v
