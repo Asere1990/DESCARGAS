@@ -3,7 +3,7 @@
 ## Requisito (una sola vez en Render)
 En el servicio **CLOUDFLARE** → **Environment**, agrega:
 
-- `GALERIAS_ADMIN_PASSWORD`: contraseña privada que el administrador elige y escribe personalmente en Render. Nunca enviarla al chat ni ponerla en el repositorio.
+- `PASSWORD`: contraseña privada que el administrador elige y escribe personalmente en Render. Nunca enviarla al chat ni ponerla en el repositorio.
 
 **No hay contraseña predeterminada.** Si la variable no existe, el login de navegador falla de forma cerrada. Se recomienda una contraseña larga y exclusiva (Render no impone su longitud). Para cambiarla, cambia solo esta variable; las sesiones de navegador antiguas quedan invalidadas automáticamente.
 
