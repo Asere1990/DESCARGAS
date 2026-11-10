@@ -41,6 +41,9 @@ CREATE INDEX IF NOT EXISTS descarga_panel_search_results
  ON descarga_panel_search_hits(job_id,seq);
 """
 
+class LeaseLost(Exception):
+    """The browser paused or another worker owns the job; keep the scheduler alive."""
+
 MODES = frozenset(('phrases','name','id','username','phone','country',
                    'channels','channel_id','groups','group_id','bots'))
 ENTITIES = frozenset(('channels','channel_id','groups','group_id','bots'))
@@ -156,13 +159,13 @@ class BackgroundPanelSearch:
         if row and row['state'] in ('queued','running','waiting'):
             old=self.checkpoint(row)
             if row['mode']==mode and old.get('query')==query:
-                return self.summary(row)
+                return {'job':self.summary(row)}
             raise ValueError('Hay una búsqueda en curso. Entra al panel y pulsa Pausar antes de iniciar otra.')
         accounts=await self.active_accounts(actor)
         if not authorized(actor):raise web.HTTPForbidden()
         now=time.time()
         job_id=uuid.uuid4().hex
-        data={'query':query,'accounts':accounts,'index':0,'cursor':'','cursors':[],
+        data={'query':query,'accounts':accounts,'index':0,'completed':0,'cursor':'','cursors':[],
               'attempts':0,'errors':[]}
         async with self.s.repo.pool.acquire() as conn,conn.transaction():
             # Only one unpaused job per administrator. This also resolves races
@@ -293,7 +296,7 @@ class BackgroundPanelSearch:
             hashes.append(self.cursor_hash(mode,next_cursor))
             data['cursors']=hashes[-1000:]
         else:
-            data['index']+=1;data['cursor']='';data['cursors']=[];data['attempts']=0
+            data['index']+=1;data['completed']=data.get('completed',0)+1;data['cursor']='';data['cursors']=[];data['attempts']=0
         async with self.s.repo.pool.acquire() as conn,conn.transaction():
             inserted=0
             for hit in hits:
@@ -315,9 +318,9 @@ class BackgroundPanelSearch:
                    WHERE id=$1 AND owner=$2 AND state='running'
                    RETURNING state""",
                 row['id'],self.owner,self.s.repo.encode(data),
-                data['index']-len(data['errors']),inserted,len(data['errors']),
+                data.get('completed',0),inserted,len(data['errors']),
                 time.time(),time.time()+120)
-            if not updated:raise asyncio.CancelledError()
+            if not updated:raise LeaseLost()
         return inserted
 
     async def checkpoint_error(self,row,data,exc):
@@ -340,7 +343,7 @@ class BackgroundPanelSearch:
                        state=$6,next_at=$7,updated=$8,owner=NULL,lease_until=0
                    WHERE id=$1 AND owner=$2 AND state='running'""",
                 row['id'],self.owner,self.s.repo.encode(data),
-                data['index']-len(data['errors']),len(data['errors']),state,next_at,now)
+                data.get('completed',0),len(data['errors']),state,next_at,now)
         return state
 
     async def claim(self):
@@ -378,6 +381,7 @@ class BackgroundPanelSearch:
                 hits,next_cursor=await self.scan_page(row,data)
                 await self.checkpoint_page(row,data,hits,next_cursor)
             except asyncio.CancelledError:raise
+            except LeaseLost:return
             except Exception as exc:
                 next_state=await self.checkpoint_error(row,data,exc)
                 if next_state=='waiting':return
