@@ -57,7 +57,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertEqual(set(self.doc.nav_classes[0]),{"go-intro","admin-open"})
         self.assertEqual(set(self.doc.nav_classes[1]),{"back-library","select-mode"})
         self.assertEqual(set(self.doc.nav_classes[2]),{"selection-cancel","selection-download"})
-        self.assertEqual(set(self.doc.nav_classes[3]),{"admin-back","admin-refresh"})
+        self.assertEqual(set(self.doc.nav_classes[3]),{"admin-back","admin-refresh","browser-logout"})
         headers=re.findall(r"<header\b[^>]*>.*?</header>",self.html,re.DOTALL)
         for header in headers:
             for identifier in ("go-intro","admin-open","admin-back","admin-refresh",
@@ -94,6 +94,15 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('S.me?.admin && folder.pending',self.js)
         self.assertIn('textContent="Nombre público:',self.js)
         self.assertIn('id="new-public-name"',self.html)
+
+    def test_browser_admin_logout_is_hidden_from_telegram_clients(self):
+        self.assertIn('id="browser-logout" type="button" class="mobile-action hidden"',self.html)
+        self.assertIn('if(BROWSER_ADMIN)',self.js)
+        self.assertIn('credentials:"same-origin"',self.js)
+        self.assertIn('id="browser-admin-id"',self.html)
+        self.assertIn('id="browser-admin-password"',self.html)
+        self.assertIn('rel="manifest"',self.html)
+        self.assertIn('rel="apple-touch-icon"',self.html)
 
     def test_button_events_preserved(self):
         for code in ('$("go-intro").onclick=()=>show("intro")',
