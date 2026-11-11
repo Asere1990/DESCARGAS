@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS wg_r2_deletion_queue(
  last_error TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS wg_r2_delete_due ON
  wg_r2_deletion_queue(next_attempt) WHERE completed_at=0;
+-- Short-lived heartbeat from visible customer gallery pages only.
+CREATE TABLE IF NOT EXISTS wg_gallery_presence(
+ uid BIGINT PRIMARY KEY, updated DOUBLE PRECISION NOT NULL,
+ view TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS wg_gallery_presence_updated
+ ON wg_gallery_presence(updated DESC);
 """
 
 
@@ -150,6 +156,155 @@ async def operation(g, uid, op, data):
           } for row in rows[:200]],
           "next":int(rows[199]["uid"]) if len(rows)>200 else None
         }
+
+    if op == "admin-users-page":
+        # A bounded page, never a thousand customer profiles in the DOM.
+        query=data.get("query","")
+        if not isinstance(query,str) or len(query)>100:
+            raise web.HTTPBadRequest(text="Búsqueda de usuarios inválida.")
+        query=query.strip().lower()
+        after=data.get("after")
+        if after is None:
+            last_seen=None
+            after_uid=0
+        else:
+            if not isinstance(after,dict) or type(after.get("seen")) not in (int,float):
+                raise web.HTTPBadRequest(text="Página de usuarios inválida.")
+            last_seen=float(after["seen"])
+            if not 0<=last_seen<=time.time()+86400:
+                raise web.HTTPBadRequest(text="Página de usuarios inválida.")
+            after_uid=identifier(after.get("uid"))
+        now=time.time()
+        rows=await db.fetch("""
+          SELECT u.uid,u.name,u.last_seen,
+                 COALESCE(s.state IN ('active','trialing') AND s.paid_until>$1,FALSE) AS paid,
+                 COALESCE(b.blocked,FALSE) AS blocked,
+                 COALESCE(p.updated>$2 AND p.view IN ('library','album','viewer'),FALSE) AS online
+          FROM wg_users u
+          LEFT JOIN wg_subscriptions s ON s.uid=u.uid
+          LEFT JOIN wg_access_blocks b ON b.uid=u.uid
+          LEFT JOIN wg_gallery_presence p ON p.uid=u.uid
+          WHERE ($3::text='' OR POSITION($3 IN LOWER(u.name))>0
+                        OR POSITION($3 IN u.uid::text)>0)
+            AND ($4::double precision IS NULL
+              OR (u.last_seen,u.uid)<($4,$5::bigint))
+          ORDER BY u.last_seen DESC,u.uid DESC LIMIT 41
+        """,now,now-75,query,last_seen,after_uid)
+        page=rows[:40]
+        return {"users":[{
+            "telegram_id":int(r["uid"]),"name":str(r["name"] or "Usuario"),
+            "paid":bool(r["paid"]),"blocked":bool(r["blocked"]),
+            "online":bool(r["online"]),"last_seen":r["last_seen"],
+        } for r in page],
+            "next":{"seen":float(page[-1]["last_seen"]),"uid":int(page[-1]["uid"])}
+              if len(rows)>40 else None}
+
+    if op == "admin-user-access-status":
+        target=identifier(data.get("telegram_id"))
+        row=await db.fetchrow("""
+            SELECT u.uid,u.name,u.first_seen,u.last_seen,
+              s.state,s.paid_until,COALESCE(b.blocked,FALSE) AS blocked
+            FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
+            LEFT JOIN wg_access_blocks b ON b.uid=u.uid WHERE u.uid=$1""",target)
+        if not row:raise web.HTTPNotFound(text="Usuario no registrado.")
+        return {**dict(row),"telegram_id":target}
+
+    if op == "admin-user-access-change":
+        target=identifier(data.get("telegram_id"))
+        blocked=data.get("blocked")
+        if type(blocked) is not bool or data.get("confirm")!="CAMBIAR_ACCESO_GALERIAS":
+            raise web.HTTPBadRequest(text="Confirma el cambio de acceso.")
+        if is_admin(target) or target==uid:
+            raise web.HTTPForbidden(text="No se puede retirar una cuenta administradora.")
+        if not await db.fetchval("SELECT 1 FROM wg_users WHERE uid=$1",target):
+            raise web.HTTPNotFound(text="Usuario no registrado.")
+        now=time.time()
+        async with db.acquire() as conn,conn.transaction():
+            await conn.execute("""
+              INSERT INTO wg_access_blocks(uid,blocked,updated)
+              VALUES($1,$2,$3) ON CONFLICT(uid) DO UPDATE
+                SET blocked=excluded.blocked,updated=excluded.updated""",
+              target,blocked,now)
+            if blocked:
+                await conn.execute("DELETE FROM wg_gallery_presence WHERE uid=$1",target)
+                await conn.execute("UPDATE wg_download_tickets SET expires=$2 WHERE uid=$1 AND expires>$2",target,now)
+        await g.log(uid,"admin-user-retired" if blocked else "admin-user-restored")
+        return {"ok":True,"blocked":blocked}
+
+    if op == "admin-user-personal-folders":
+        target=identifier(data.get("telegram_id"))
+        rows=await db.fetch("""
+            SELECT p.id,p.name,p.created,
+              count(i.media)::int AS total,
+              count(m.id) FILTER(WHERE m.state IN ('preview','ready'))::int AS visible
+            FROM wg_personal_folders p
+            LEFT JOIN wg_personal_items i ON i.folder=p.id AND i.uid=p.uid
+            LEFT JOIN wg_media m ON m.id=i.media
+            WHERE p.uid=$1 GROUP BY p.id
+            ORDER BY p.created DESC,p.id DESC LIMIT 101""",target)
+        return {"folders":[dict(row) for row in rows[:100]]}
+
+    if op == "admin-user-personal-items":
+        target=identifier(data.get("telegram_id"))
+        folder=identifier(data.get("personal_folder"))
+        cursor=identifier(data.get("cursor",0),0)
+        exists=await db.fetchval("SELECT 1 FROM wg_personal_folders WHERE uid=$1 AND id=$2",target,folder)
+        if not exists:raise web.HTTPNotFound(text="Carpeta de usuario no encontrada.")
+        rows=await db.fetch("""
+          SELECT m.id,m.kind,m.filename,m.state,m.thumb_key,m.file_key
+          FROM wg_personal_items i JOIN wg_media m ON m.id=i.media
+          WHERE i.uid=$1 AND i.folder=$2 AND m.state IN ('preview','ready')
+            AND m.id<$3 ORDER BY m.id DESC LIMIT 41
+        """,target,folder,cursor or 2**63-1)
+        return {"items":[{
+            "id":int(r["id"]),"kind":r["kind"],"filename":r["filename"],
+            "thumb":("/web-galerias/media/"+str(r["id"])+"/thumb?t="+
+                     temporary_link(g,uid,r["id"],"thumb")) if r["thumb_key"] else None,
+            "view":("/web-galerias/media/"+str(r["id"])+"/view?t="+
+                    temporary_link(g,uid,r["id"],"view"))
+                    if r["state"]=="ready" and r["file_key"] else None
+        } for r in rows[:40]],
+          "next":int(rows[39]["id"]) if len(rows)>40 else None}
+
+    if op == "admin-user-personal-remove":
+        target=identifier(data.get("telegram_id"))
+        folder=identifier(data.get("personal_folder"))
+        ids=data.get("ids")
+        if (not isinstance(ids,list) or not 1<=len(ids)<=100
+              or data.get("confirm")!="QUITAR_DE_CARPETA"):
+            raise web.HTTPBadRequest(text="Confirma los archivos a retirar.")
+        ids=list(dict.fromkeys(identifier(v) for v in ids))
+        async with db.acquire() as conn,conn.transaction():
+            owned=await conn.fetchval("""
+                SELECT 1 FROM wg_personal_folders
+                WHERE uid=$1 AND id=$2 FOR UPDATE""",target,folder)
+            if not owned:raise web.HTTPNotFound(text="Carpeta de usuario no encontrada.")
+            matches=await conn.fetchval("""
+                SELECT count(*) FROM wg_personal_items
+                WHERE uid=$1 AND folder=$2 AND media=ANY($3::bigint[])""",
+                target,folder,ids)
+            if matches!=len(ids):
+                raise web.HTTPConflict(text="La carpeta cambió; actualiza su contenido.")
+            await conn.execute("""
+              DELETE FROM wg_personal_items WHERE uid=$1 AND folder=$2
+              AND media=ANY($3::bigint[])""",target,folder,ids)
+            await conn.execute("""
+              UPDATE wg_personal_folders SET cover_media=NULL
+              WHERE uid=$1 AND id=$2 AND cover_media=ANY($3::bigint[])""",target,folder,ids)
+        await g.log(uid,"admin-personal-remove")
+        return {"ok":True,"removed":len(ids)}
+
+    if op == "admin-user-personal-delete":
+        target=identifier(data.get("telegram_id"))
+        folder=identifier(data.get("personal_folder"))
+        if data.get("confirm")!="ELIMINAR_CARPETA_PERSONAL":
+            raise web.HTTPBadRequest(text="Confirma la eliminación de esta carpeta.")
+        result=await db.execute("""
+            DELETE FROM wg_personal_folders WHERE uid=$1 AND id=$2""",target,folder)
+        if result!="DELETE 1":
+            raise web.HTTPNotFound(text="Carpeta no encontrada.")
+        await g.log(uid,"admin-personal-folder-delete")
+        return {"ok":True}
 
     if op == "admin-user-profile":
         target=identifier(data.get("telegram_id"))
