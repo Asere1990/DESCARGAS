@@ -36,7 +36,7 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(button_visible(USER))
 
     async def test_unpaid_test_user_is_denied_until_verified_subscription(self):
-        db=SimpleNamespace(fetchrow=AsyncMock(return_value=None))
+        db=SimpleNamespace(fetchrow=AsyncMock(return_value=None),fetchval=AsyncMock(return_value=False))
         g=SimpleNamespace(db=lambda:db)
         with patch.dict(os.environ,ENV):
             self.assertFalse(await GalleryCore.entitled(g,USER))
