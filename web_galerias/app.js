@@ -442,15 +442,36 @@ function previewAdmin(){
   const cover=f.cover?document.createElement("img"):null;
   if(cover){cover.src=f.cover;cover.className="admin-folder-cover";
     cover.alt="Foto de presentación de "+(f.public_name||f.name);cover.loading="lazy";}
-  const info=document.createElement("p");
+  const info=document.createElement("div");info.className="admin-folder-data";
   const state=!f.active?"Pausada":S.admin.sync_enabled?"Respaldo activo":"Esperando sincronizador";
-  info.textContent="Nombre público: "+(f.public_name||("Galería "+f.id))+" · Origen: "+f.peer+" · "+state+" · "+
-    pretty(f.ready)+" archivos respaldados · "+pretty(f.pending)+" pendientes · "+
-    pretty(f.scan_count)+" mensajes revisados · "+
-    (f.complete?"Historial catalogado":"Catalogación en progreso")+
-    (f.missing?" · "+pretty(f.missing)+" no disponibles":"")+
-    (f.skipped?" · "+pretty(f.skipped)+" omitidos":"")+
-    (f.error?" · "+f.error:"");
+  function addAdminDatum(label,value,description=""){
+    const row=document.createElement("div");row.className="admin-data-row";
+    const name=document.createElement("span");name.className="admin-data-label";
+    name.textContent=label;
+    const result=document.createElement("strong");result.className="admin-data-value";
+    result.textContent=String(value);
+    row.append(name,result);
+    if(description){
+      const help=document.createElement("small");help.className="admin-data-help";
+      help.textContent=description;row.append(help);
+    }
+    info.append(row);
+  }
+  addAdminDatum("Nombre público",f.public_name||("Galería "+f.id));
+  addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal del que se obtiene el contenido.");
+  addAdminDatum("Estado del respaldo",state,
+    "Indica el estado del sincronizador, no que esta galería esté transfiriendo un archivo en este instante.");
+  addAdminDatum("Archivos respaldados",pretty(f.ready),"Originales guardados en Cloudflare R2.");
+  addAdminDatum("Archivos pendientes",pretty(f.pending),
+    "Todavía sin respaldo completo; algunos ya pueden tener vista previa.");
+  addAdminDatum("Mensajes revisados",pretty(f.scan_count),
+    "Mensajes examinados durante la catalogación; no todos son fotos o videos.");
+  addAdminDatum("Historial",f.complete?"Catalogado":"Catalogación en progreso",
+    "Catalogado no significa que todos los archivos estén respaldados.");
+  addAdminDatum("Archivos no disponibles",pretty(f.missing),
+    "El sistema no pudo recuperar estos archivos de Telegram.");
+  if(f.skipped)addAdminDatum("Archivos omitidos",pretty(f.skipped));
+  if(f.error)addAdminDatum("Última incidencia",f.error);
   const buttons=document.createElement("div");buttons.className="row-actions";
   const edit=document.createElement("button");edit.className="small-btn";edit.textContent="Nombre interno";
   edit.onclick=async()=>{const value=prompt("Nombre que solo ve el administrador",f.name);
