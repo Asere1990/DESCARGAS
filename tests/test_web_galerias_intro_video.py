@@ -119,6 +119,45 @@ class IntroVideoTests(unittest.IsolatedAsyncioTestCase):
                     await intro_video.stream(g,SimpleNamespace(headers={"Range":invalid}),
                                              metadata)
 
+    async def test_low_memory_blocks_processing_without_touching_r2(self):
+        g,db,storage,request,written=self.build()
+        with patch("web_galerias.permissions.is_admin",return_value=True):
+            with patch.object(intro_video,"available_memory_bytes",return_value=250*1024*1024):
+                with self.assertRaises(web.HTTPServiceUnavailable) as error:
+                    await intro_video.upload(g,request)
+        self.assertIn("reservar memoria",error.exception.text)
+        storage.upload.assert_not_awaited()
+        db.execute.assert_not_awaited()
+
+    async def test_memory_check_runs_again_after_upload_before_transcode(self):
+        g,db,storage,request,written=self.build()
+        with patch("web_galerias.permissions.is_admin",return_value=True):
+            with patch.object(intro_video,"available_memory_bytes",
+                              side_effect=[2*1024*1024*1024,300*1024*1024]):
+                with patch.object(intro_video,"transcode_intro") as convert:
+                    with self.assertRaises(web.HTTPServiceUnavailable):
+                        await intro_video.upload(g,request)
+        convert.assert_not_called()
+        storage.upload.assert_not_awaited()
+        db.execute.assert_not_awaited()
+
+    def test_ffmpeg_decoder_filters_encoder_are_all_bounded(self):
+        with tempfile.TemporaryDirectory(prefix="test-bounded-video-") as dirname:
+            source=Path(dirname)/"upload.mov"
+            target=Path(dirname)/"output.mp4"
+            source.write_bytes(b"placeholder")
+            def fake_process(command,**options):
+                self.assertIn("1",command)
+                self.assertEqual(command.count("-threads"),2)
+                self.assertIn("-filter_threads",command)
+                self.assertIn("-max_muxing_queue_size",command)
+                self.assertLessEqual(int(command[command.index("-max_muxing_queue_size")+1]),256)
+                target.write_bytes(b"\\x00\\x00\\x00\\x18ftypisom"+b"payload")
+                return SimpleNamespace(returncode=0)
+            with patch.object(intro_video.subprocess,"run",side_effect=fake_process):
+                intro_video.transcode_intro(source,target)
+            self.assertTrue(target.exists())
+
     def test_mov_transcodes_to_browser_compatible_h264_mp4(self):
         from imageio_ffmpeg import get_ffmpeg_exe
         exe=get_ffmpeg_exe()
