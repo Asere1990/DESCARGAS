@@ -468,9 +468,17 @@ function previewAdmin(){
   // En la tarjeta, mostrar exactamente lo que ve el usuario.
   // El inventario histórico completo permanece dentro de los detalles.
   count.textContent=pretty(f.visible_photos)+" fotos · "+pretty(f.visible_videos)+" videos";
+  // El origen declara mucho más contenido que el catálogo actual.
+  // Nunca presentar un dato aún no consultado como cero.
+  const hasTelegramTotals=f.telegram_photos_total!==null&&f.telegram_photos_total!==undefined
+    &&f.telegram_videos_total!==null&&f.telegram_videos_total!==undefined;
+  const originCount=document.createElement("p");originCount.className="admin-origin-count";
+  originCount.textContent=hasTelegramTotals?
+    "En Telegram: "+pretty(f.telegram_photos_total)+" fotos · "+pretty(f.telegram_videos_total)+" videos":
+    "En Telegram: consultando totales…";
   const chevron=document.createElement("span");chevron.className="admin-gallery-chevron";
   chevron.textContent="Detalles ▾";
-  trigger.append(cover,title,count,chevron);
+  trigger.append(cover,title,count,originCount,chevron);
   const details=document.createElement("div");details.className="admin-gallery-detail hidden";
   details.id="admin-folder-details-"+f.id;
   trigger.setAttribute("aria-controls",details.id);
@@ -492,6 +500,21 @@ function previewAdmin(){
   addAdminDatum("Nombre público",f.public_name||("Galería "+f.id));
   addAdminDatum("Nombre interno",f.name||"Sin nombre");
   addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal de origen.");
+  addAdminDatum("Fotos totales en Telegram",
+    hasTelegramTotals?pretty(f.telegram_photos_total):"Pendiente de consulta",
+    "Cantidad reportada por Telegram, sin descargar archivos ni esperar la catalogación.");
+  addAdminDatum("Videos totales en Telegram",
+    hasTelegramTotals?pretty(f.telegram_videos_total):"Pendiente de consulta",
+    "Cantidad reportada por Telegram, independiente de los videos ya respaldados.");
+  addAdminDatum("Fotos + videos en Telegram",
+    hasTelegramTotals?pretty(Number(f.telegram_photos_total)+Number(f.telegram_videos_total)):"Pendiente de consulta",
+    "Total de los filtros de fotos y videos. Los GIF y archivos enviados como documentos pueden contabilizarse aparte.");
+  addAdminDatum("Totales consultados",
+    f.telegram_counts_at?new Date(Number(f.telegram_counts_at)*1000).toLocaleString("es-US"):"Todavía sin consultar",
+    "Se actualizan periódicamente usando una cuenta que ya tiene acceso al grupo.");
+  if(f.telegram_counts_error)
+    addAdminDatum("Último error al consultar Telegram",f.telegram_counts_error,
+      "Se conserva el último total conocido; la consulta se reintentará.");
   addAdminDatum("Fotos normales",pretty(f.photo_native),"Incluye registros antiguos aún sin clasificar.");
   addAdminDatum("Videos normales",pretty(f.video_native),"Incluye registros antiguos aún sin clasificar.");
   addAdminDatum("GIF",pretty(f.gifs),"Se incluyen en la galería de videos.");
@@ -927,3 +950,13 @@ setInterval(()=>{
     refresh(true).catch(()=>{});
   }
 },20000);
+
+
+/* Actualización automática del panel admin: consulta solo nuestra base de datos.
+   Los totales remotos se consultan en el sincronizador con su cadencia propia.
+   No perder valores que el administrador está editando. */
+setInterval(()=>{
+  if(!S.me?.admin||document.hidden||$("admin").classList.contains("hidden"))return;
+  if(document.querySelector("#admin input:focus,#admin textarea:focus,#admin select:focus"))return;
+  loadAdmin().catch(()=>{});
+},60000);
