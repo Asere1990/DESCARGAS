@@ -806,3 +806,24 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  #admin .admin-user-list-row{gap:7px}
  #admin .admin-user-recent{max-width:90px;font-size:10px}
 }
+
+
+/* The uploaded image replaces only the label; the real CTA keeps its exact
+   existing background, dimensions, border radius, focus and click behavior. */
+#intro #enter.enter-image-label,
+#intro.has-intro-video .intro-bottom #enter.enter-image-label{
+ display:flex;align-items:center;justify-content:center;
+}
+#intro #enter .enter-label-image{
+ display:block;
+ max-width:100%;
+ max-height:30px;
+ width:auto;height:auto;
+ object-fit:contain;
+ pointer-events:none;
+}
+#tab-diseno #edit-title-image-wrap small,
+#tab-diseno #edit-button-image-wrap small{
+ display:block;color:var(--muted);font-size:11px;line-height:1.45;
+ margin-top:5px;font-weight:450;
+}

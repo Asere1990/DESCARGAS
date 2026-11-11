@@ -15,7 +15,8 @@ TEXTS={"title","button_label","intro_caption","intro_label"}
 WATERMARK_TEXTS={"wm_line1","wm_line2"}
 WATERMARK_KEYS={"wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity","wm_size","wm_color"}
 COLORS={"button_color","accent","background","text_color","wm_color"}
-CHOICES={"header_mode":{"text","image"},"tile_shape":{"square","rectangle"},
+CHOICES={"header_mode":{"text","image"},"button_mode":{"text","image"},
+         "tile_shape":{"square","rectangle"},
          "intro_fit":{"cover","contain"},
          "intro_media":{"video","photo","gif"},
          "wm_position":{"center","top","bottom"}}
@@ -318,6 +319,21 @@ async def admin_op(g,uid,op,data):
             # Una versión anterior del editor no debe borrar la marca de agua guardada.
             saved={k:current.get(k,DEFAULTS[k]) for k in WATERMARK_KEYS}
             design=cleaned_design({**saved,**changes})
+        if op=="admin-design":
+            # Switching the visible title/label to an image is permitted only
+            # when a verified admin asset already exists. Failed changes must
+            # never blank the existing paid gallery entrance.
+            for mode_key,asset_key,label in (
+                ("header_mode","header","título"),
+                ("button_mode","button-label-image","botón"),
+            ):
+                if design.get(mode_key)=="image":
+                    found=await db.fetchval(
+                        "SELECT 1 FROM wg_assets WHERE key=$1 AND mime IN "
+                        "('image/png','image/jpeg','image/webp')",asset_key)
+                    if not found:
+                        raise web.HTTPBadRequest(
+                            text=f"Primero sube la imagen del {label} y confirma los cambios.")
         if op=="admin-design" and design.get("intro_media") in ("photo","gif"):
             required=design["intro_media"]
             exists=await db.fetchval(

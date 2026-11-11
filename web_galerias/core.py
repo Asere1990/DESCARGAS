@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS wg_access_blocks(
 SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
 DEFAULTS={
- "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA",
+ "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
  "intro_caption":"Explora nuestras galerías privadas","button_color":"#198ee8",
  "accent":"#2196f3","background":"#0b0d12","text_color":"#ffffff",
  "tile_shape":"square","daily_limit":100,"intro_label":"Descubre nuestras galerías",
@@ -110,9 +110,11 @@ DEFAULTS={
 ASSET_MIME={
  "logo":{"image/png","image/jpeg","image/webp"},
  "header":{"image/png","image/jpeg","image/webp"},
+ "button-label-image":{"image/png","image/jpeg","image/webp"},
  "intro-photo":{"image/png","image/jpeg","image/webp","image/gif"},
  "intro":{"video/mp4","video/quicktime","video/webm"}}
-MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro-photo":5_000_000,"intro":25_000_000}
+MAX_ASSET={"logo":3_000_000,"header":5_000_000,
+           "button-label-image":3_000_000,"intro-photo":5_000_000,"intro":25_000_000}
 
 # Request-scoped proof from CUSTOMER-SERVICE; never trust the bare Telegram ID.
 _CUSTOMER_BOT_UID=ContextVar("wg_customer_bot_verified_uid",default=0)
