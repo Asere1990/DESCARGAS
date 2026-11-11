@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from web_galerias.sync import (
     PauseGuard, PauseRequested, backup_one, folder_active, source_free,
     sync_folder, media_kind, find_dialog, fair_round, sync_limits, preview_one,
-    inspect_source, catalog
+    inspect_source, catalog, refresh_telegram_counts
 )
 from web_galerias.storage import PrivateStorage
 from web_galerias.admin import admin_op
@@ -371,6 +371,81 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         self.assertIn("folders/7/202/original.png",original)
         self.assertIn("folders/7/202/thumb.jpg",original)
         self.assertIn("state='ready'",db.execute.await_args.args[0])
+
+    async def test_telegram_totals_use_server_filters_without_downloading_messages(self):
+        from telethon import types
+        g,db=gallery()
+        db.fetchval.return_value=7
+        client=SimpleNamespace(
+            get_messages=AsyncMock(side_effect=[
+                SimpleNamespace(total=51443),SimpleNamespace(total=35572)]),
+            iter_messages=MagicMock(),download_media=AsyncMock())
+        guard=AsyncMock()
+        started=__import__("time").time()
+        with patch.dict(os.environ,{"GALERIAS_TELEGRAM_TOTALS_INTERVAL":"1800"}):
+            result=await refresh_telegram_counts(g,7,client,"telegram_group",guard)
+        self.assertTrue(result)
+        self.assertEqual(client.get_messages.await_count,2)
+        args=client.get_messages.await_args_list
+        self.assertEqual(args[0].args,("telegram_group",0))
+        self.assertEqual(args[1].args,("telegram_group",0))
+        self.assertIs(args[0].kwargs["filter"],types.InputMessagesFilterPhotos)
+        self.assertIs(args[1].kwargs["filter"],types.InputMessagesFilterVideo)
+        client.iter_messages.assert_not_called()
+        client.download_media.assert_not_awaited()
+        record=db.execute.await_args.args
+        self.assertIn("telegram_photos_total=$2",record[0])
+        self.assertEqual(record[1:4],(7,51443,35572))
+        self.assertGreaterEqual(record[4],started)
+        self.assertGreaterEqual(record[5],started+1800)
+        self.assertLess(record[5],started+1800+190)
+        self.assertEqual(guard.await_count,3)
+
+    async def test_zero_telegram_totals_are_valid_and_differ_from_unknown(self):
+        g,db=gallery()
+        db.fetchval.return_value=5
+        client=SimpleNamespace(get_messages=AsyncMock(
+            side_effect=[SimpleNamespace(total=0),SimpleNamespace(total=0)]))
+        self.assertTrue(await refresh_telegram_counts(g,5,client,"empty",AsyncMock()))
+        self.assertEqual(db.execute.await_args.args[2:4],(0,0))
+
+    async def test_counts_skip_before_interval_without_any_rpc_calls(self):
+        g,db=gallery()
+        db.fetchval.return_value=None
+        client=SimpleNamespace(get_messages=AsyncMock())
+        self.assertFalse(await refresh_telegram_counts(g,7,client,"peer",AsyncMock()))
+        client.get_messages.assert_not_awaited()
+        db.execute.assert_not_awaited()
+
+    async def test_counter_errors_keep_previous_totals_and_retry_later(self):
+        g,db=gallery()
+        db.fetchval.return_value=7
+        client=SimpleNamespace(get_messages=AsyncMock(side_effect=TimeoutError()))
+        self.assertFalse(await refresh_telegram_counts(g,7,client,"peer",AsyncMock()))
+        sql=db.execute.await_args.args[0]
+        self.assertIn("telegram_counts_error=$2",sql)
+        self.assertIn("telegram_counts_next_attempt=$3",sql)
+        self.assertNotIn("telegram_photos_total",sql)
+        self.assertEqual(db.execute.await_args.args[2],"TimeoutError")
+
+    async def test_counts_paused_for_main_download_do_not_reset_old_totals(self):
+        g,db=gallery()
+        db.fetchval.return_value=7
+        with self.assertRaises(PauseRequested):
+            await refresh_telegram_counts(g,7,SimpleNamespace(get_messages=AsyncMock()),
+                                          "peer",AsyncMock(side_effect=PauseRequested()))
+        self.assertNotIn("telegram_photos_total",db.execute.await_args.args[0])
+
+    def test_supervisor_queries_only_a_few_due_folders_after_priority_previews(self):
+        from pathlib import Path
+        text=(Path(__file__).resolve().parents[1]/"web_galerias"/"sync.py").read_text()
+        prime=text.index('await fair_round(g,folders,phase="prime")')
+        counter=text.index('await fair_round(g,due,phase="counts")')
+        archive=text.index('await fair_round(g,selected,phase="archive")')
+        self.assertLess(prime,counter)
+        self.assertLess(counter,archive)
+        self.assertIn("telegram_counts_next_attempt<=$1",text)
+        self.assertIn("ORDER BY f.telegram_counts_at ASC,f.id ASC LIMIT 3",text)
 
     def test_50_gallery_rounds_are_small_without_preventing_backups(self):
         with patch.dict(os.environ, {"GALERIAS_SYNC_BATCH_FILES": "5"}):
