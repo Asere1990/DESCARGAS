@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS wg_media(
  reply_to BIGINT,grouped TEXT,thumb_key TEXT,file_key TEXT,
  state TEXT NOT NULL DEFAULT 'pending',created DOUBLE PRECISION NOT NULL DEFAULT 0,
  UNIQUE(folder,message));
+ALTER TABLE wg_media ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT '';
+ALTER TABLE wg_media ADD COLUMN IF NOT EXISTS source_checks INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS wg_media_folder ON wg_media(folder,state,date DESC,id DESC);
 CREATE INDEX IF NOT EXISTS wg_media_text ON wg_media USING GIN(to_tsvector('simple',search_text));
 CREATE TABLE IF NOT EXISTS wg_user_prefs(
