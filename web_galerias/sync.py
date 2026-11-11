@@ -289,8 +289,9 @@ async def inspect_source(g,folder,item,message):
            WHERE folder=$1 AND message=$2 AND state=$3""",
            folder,item["message"],state,kind,mime,source_type)
         return False
-    if item.get("source_type","")!=source_type:
-        await g.db().execute("""UPDATE wg_media SET source_type=$3,source_checks=0
+    if item["source_type"]!=source_type or item["source_checks"]:
+        await g.db().execute("""UPDATE wg_media SET source_type=$3,
+           source_checks=0,error=CASE WHEN source_checks>0 THEN '' ELSE error END
            WHERE folder=$1 AND message=$2""",folder,item["message"],source_type)
     return True
 
