@@ -534,6 +534,10 @@ function previewAdmin(){
   }
   addAdminDatum("Estado del respaldo",state,
      "Estado general del sincronizador; no necesariamente una transferencia activa de este grupo.");
+  addAdminDatum("Archivos visibles solo con vista previa",pretty(f.preview_only),
+    "Aparecen en la galería antes de que se guarde su original en Cloudflare.");
+  addAdminDatum("Vistas previas con miniatura",pretty(f.previews_with_images),
+    "Archivos con imagen de muestra, pero todavía sin respaldo completo.");
   addAdminDatum("Archivos respaldados",pretty(f.ready),"Originales guardados en Cloudflare R2.");
   addAdminDatum("Archivos pendientes",pretty(f.pending),
      "Falta respaldar el original; algunos ya tienen miniatura.");
