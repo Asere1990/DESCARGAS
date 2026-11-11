@@ -78,20 +78,59 @@ function applyDesign(d){const r=document.documentElement.style;
      $("intro-headline").append(image);};
    image.src="/web-galerias/assets/header?t="+Date.now();}
  const video=$("intro-video"),placeholder=$("intro-placeholder");
- const intro=$("intro"),sound=$("intro-sound");
+ const intro=$("intro"),sound=$("intro-sound"),poster=$("intro-hero-poster");
+ const mode=d.intro_media==="photo"?"photo":"video";
+ const fit=d.intro_fit==="contain"?"contain":"cover";
+ video.style.objectFit=fit;poster.style.objectFit=fit;
+ const posterReady=()=>poster.complete&&poster.naturalWidth>0;
+ poster.onload=()=>{
+  poster.hidden=false;placeholder.hidden=true;
+  intro.classList.add("has-intro-video");
+ };
+ poster.onerror=()=>{
+  poster.hidden=true;
+  // While a video is still loading, keep its full-screen background.
+  if(mode==="photo"||video.error){
+   intro.classList.remove("has-intro-video");
+   placeholder.hidden=false;
+  }
+ };
+ const revision=S.heroNeedsReload?"?v="+Date.now():"";
+ S.heroNeedsReload=false;
+ if(revision)poster.src="/web-galerias/assets/intro-poster"+revision;
+ if(posterReady()){poster.hidden=false;placeholder.hidden=true;}
+ else if(mode==="photo"){poster.hidden=false;placeholder.hidden=true;}
+ intro.classList.add("has-intro-video");
+ video.pause();video.classList.remove("intro-playing");
+ video.onloadedmetadata=null;video.onplaying=null;video.onerror=null;
+ if(mode==="photo"){
+  video.hidden=true;
+  video.removeAttribute("src");video.load();
+  sound.classList.add("hidden");
+  return;
+ }
  video.muted=true;video.autoplay=true;video.loop=true;video.playsInline=true;
- video.style.objectFit=d.intro_fit==="contain"?"contain":"cover";
+ video.preload="auto";
  video.onloadedmetadata=()=>{
   video.hidden=false;placeholder.hidden=true;
-  intro.classList.add("has-intro-video");sound.classList.remove("hidden");
+  sound.classList.remove("hidden");
   sound.textContent="🔊 Activar sonido";
   video.play().catch(()=>{sound.textContent="▶ Reproducir video";});
  };
- video.onerror=()=>{
-  video.hidden=true;placeholder.hidden=false;
-  intro.classList.remove("has-intro-video");sound.classList.add("hidden");
+ video.onplaying=()=>{
+  // The real video draws only after its first frame is ready. Until then
+  // the already-preloaded JPEG stays visible, with no black flash.
+  video.hidden=false;video.classList.add("intro-playing");
  };
- video.src="/web-galerias/assets/intro?t="+Date.now();
+ video.onerror=()=>{
+  video.hidden=true;video.classList.remove("intro-playing");
+  sound.classList.add("hidden");
+  if(!posterReady()){
+   intro.classList.remove("has-intro-video");
+   placeholder.hidden=false;
+  }
+ };
+ video.src="/web-galerias/assets/intro"+revision;
 }
 async function api(op,data={}){
  const raw=tg?.initData||"";
@@ -937,13 +976,13 @@ function switchAdminTab(tab){
 function populateEditor(){
  const d=S.me.design;
  for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
-                 "intro_fit","button_color","accent","background","text_color"])
+                 "intro_fit","intro_media","button_color","accent","background","text_color"])
   $("edit-"+k).value=d[k]||"";
  populateWatermarkEditor(d);
 }
 async function saveDesign(){
  const design={};for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
-               "intro_fit","button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
+               "intro_fit","intro_media","button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
  design.daily_limit=100;
  try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
 }
@@ -971,7 +1010,7 @@ async function savePermissions(){
 async function uploadAsset(key,file,folder=null){
  if(!file)return false;
  const allowed=key==="intro"?25_000_000:
-   (key==="header"||key==="folder-cover")?5_000_000:3_000_000;
+   (key==="header"||key==="folder-cover"||key==="intro-photo")?5_000_000:3_000_000;
  const progress=key==="folder-cover"?$("new-cover-status"):$("upload-progress");
  if(!file.size||file.size>allowed){
   progress.textContent="Archivo demasiado grande. Límite: "+(allowed/1_000_000)+" MB.";
@@ -1052,7 +1091,7 @@ async function uploadIntroVideo(file){
  });
 }
 function pendingEditorFiles(){
- return ["logo","header","intro"]
+ return ["logo","header","intro-photo","intro"]
   .map(key=>({key,file:$("upload-"+key).files?.[0]}))
   .filter(entry=>!!entry.file);
 }
@@ -1079,14 +1118,15 @@ async function confirmEditorChanges(){
   }
   const design={};
   for(const key of ["title","intro_label","intro_caption","button_label",
-                    "header_mode","tile_shape","intro_fit","button_color",
+                    "header_mode","tile_shape","intro_fit","intro_media","button_color",
                     "accent","background","text_color"])
    design[key]=$("edit-"+key).value;
   design.daily_limit=100;
   status.textContent="Guardando identidad y marca de agua…";
   await api("admin-design",{design});
   await api("admin-watermark",{watermark:watermarkFromEditor()});
-  for(const key of ["logo","header","intro"])$("upload-"+key).value="";
+  for(const key of ["logo","header","intro","intro-photo"])$("upload-"+key).value="";
+  S.heroNeedsReload=files.some(({key})=>key==="intro"||key==="intro-photo");
   await refresh();
   populateEditor();
   status.textContent="✓ Cambios confirmados. La portada ya está publicada.";
@@ -1267,8 +1307,18 @@ for(const key of ["enabled","line1","line2","position","opacity","size","color"]
  input.addEventListener("input",previewWatermark);
  input.addEventListener("change",previewWatermark);
 }
-for(const key of ["logo","header","intro"])
- $("upload-"+key).onchange=editorPendingFilesMessage;
+for(const key of ["logo","header","intro","intro-photo"])
+ $("upload-"+key).onchange=()=>{
+  if(key==="intro"&&$("upload-intro").files?.length){
+   $("upload-intro-photo").value="";
+   $("edit-intro_media").value="video";
+  }
+  if(key==="intro-photo"&&$("upload-intro-photo").files?.length){
+   $("upload-intro").value="";
+   $("edit-intro_media").value="photo";
+  }
+  editorPendingFilesMessage();
+ };
 async function browserLogin(uid,password){
  const response=await fetch("/web-galerias/admin/login",{
   method:"POST",cache:"no-store",credentials:"same-origin",
