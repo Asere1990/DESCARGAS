@@ -73,6 +73,9 @@ class FavoritesDatabaseTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_reconnected_account_has_to_refresh_chat_before_open(self):
         await self.favorite.toggle(111,self.request())
+        # The real disconnect/reconnect flow invalidates the old generation.
+        await self.repo.cancel_user(22)
+        await self.repo.erase_session(22)
         await self.repo.save_account(22,'another-session',{'name':'Nueva sesión'})
         item=(await self.favorite.listing(111))['items'][0]
         self.assertFalse(item['available'])
