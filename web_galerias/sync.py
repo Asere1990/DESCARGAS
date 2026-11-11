@@ -637,6 +637,24 @@ async def backup_one(g,folder,item,message,client,guard):
       folder,message.id,key,thumb_key if thumb_size else None,original_size or 0)
 
 
+def archive_candidates(folders,counts,round_no):
+    """No permitir que originales sigan a la misma velocidad que previews.
+
+    Cuando aún falta contenido por mostrar, se crea antes un colchón visible.
+    La quinta ronda permite respaldo de todos modos para que R2 no se estanque.
+    """
+    progress={int(x["folder"]):x for x in counts}
+    eligible=[]
+    goal=24 if len(folders)<=20 else 12
+    for folder in folders:
+        row=progress.get(int(folder["id"]),{})
+        preview=int(row.get("preview") or 0)
+        pending=int(row.get("pending") or 0)
+        if preview and (preview>=goal or pending==0 or round_no%5==0):
+            eligible.append(folder)
+    return eligible
+
+
 def sync_limits(total):
     """Turnos cortos para no monopolizar las demás galerías."""
     try:
@@ -656,6 +674,10 @@ async def fair_round(g,folders,*,catalog_only=False,phase="combined"):
     if not folders or g.closed:
         return
     files,scan=sync_limits(len(folders))
+    if phase=="prime":
+        # Previews tienen prioridad sobre originales: 8 por carpeta para
+        # grupos pequeños y, como mínimo, 2 para 50 galerías simultáneas.
+        files=max(files,8 if len(folders)<=5 else 4 if len(folders)<=20 else 2)
     if phase=="archive":
         files=1  # Un original por galería: videos grandes no bloquean toda la ronda.
     try:
@@ -724,12 +746,21 @@ async def run(g):
                       ORDER BY f.telegram_counts_at ASC,f.id ASC LIMIT 3""",time.time())
                     if due:
                         await fair_round(g,due,phase="counts")
-                    # Archivar un número limitado por ronda evita que los videos
-                    # grandes retrasen indefinidamente las otras 50 galerías.
-                    if folders:
-                        offset=getattr(g,"archive_offset",0)%len(folders)
-                        selected=(folders[offset:]+folders[:offset])[:max(1,min(3,len(folders)))]
-                        g.archive_offset=(offset+len(selected))%len(folders)
+                    # Prioridad REAL a las galerías visibles: una reserva de
+                    # archivos preview debe adelantarse al respaldo. Las copias
+                    # originales continúan después con turnos equitativos.
+                    round_no=getattr(g,"priority_round",0)+1
+                    g.priority_round=round_no
+                    progress=await db.fetch("""SELECT folder,
+                      COUNT(*) FILTER(WHERE state='pending')::int AS pending,
+                      COUNT(*) FILTER(WHERE state='preview')::int AS preview
+                      FROM wg_media WHERE state IN ('pending','preview')
+                      GROUP BY folder""")
+                    eligible=archive_candidates(folders,progress,round_no)
+                    if eligible:
+                        offset=getattr(g,"archive_offset",0)%len(eligible)
+                        selected=(eligible[offset:]+eligible[:offset])[:max(1,min(3,len(eligible)))]
+                        g.archive_offset=(offset+len(selected))%len(eligible)
                         await fair_round(g,selected,phase="archive")
                     await asyncio.sleep(3)
                 except asyncio.CancelledError:
