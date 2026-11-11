@@ -11,7 +11,7 @@ from aiohttp import web
 from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
-from . import admin,admin_browser,downloads,payments,personal,covers
+from . import admin,admin_browser,downloads,payments,personal,covers,intro_video
 
 log=logging.getLogger("web-galerias")
 ROOT=Path(__file__).resolve().parent
@@ -121,6 +121,15 @@ def mount(app,service):
                    "X-Content-Type-Options":"nosniff"})
     async def asset(request):
         return await admin.asset(g,request)
+    async def intro_video_upload(request):
+        try:
+            result=await intro_video.upload(g,request)
+            return web.json_response(result,headers={"Cache-Control":"no-store"})
+        except web.HTTPException:raise
+        except Exception as exc:
+            log.error("Intro video upload failed (%s)",type(exc).__name__)
+            raise web.HTTPServiceUnavailable(
+                text="No se pudo procesar el video. El anterior permanece intacto.") from None
     async def media(request):
         return await downloads.media(g,request)
     async def cover(request):
@@ -143,6 +152,7 @@ def mount(app,service):
     app.router.add_get("/web-galerias/icon/{size:\\d+}.png",icon)
     app.router.add_get("/web-galerias/static/{name}",static)
     app.router.add_get("/web-galerias/assets/{key}",asset)
+    app.router.add_post("/web-galerias/admin/intro-video",intro_video_upload)
     app.router.add_post("/web-galerias/api",api)
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
     app.router.add_get("/web-galerias/cover/{folder}",cover)
