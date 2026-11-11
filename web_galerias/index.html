@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=preferred-origin-priority-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=personal-menu-ghost-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=preferred-origin-priority-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=personal-menu-ghost-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -54,9 +54,18 @@
    <div class="section-heading"><h2>Álbumes</h2><span id="folder-counter" class="muted"></span></div>
    <div id="folders" class="folders"></div>
    <div id="personal-section" class="personal-section hidden">
-    <div class="section-heading"><h2>Mis carpetas personales</h2>
-      <button id="create-personal-folder" type="button" class="small-btn">＋ Crear carpeta</button></div>
-    <div id="personal-folders" class="folders personal-folders"></div>
+    <button id="personal-folders-toggle" type="button" class="personal-folder-toggle"
+      aria-expanded="false" aria-controls="personal-folders" aria-label="Abrir mis carpetas personales">
+      <span>📁 Mis carpetas</span><span id="personal-folder-count" class="personal-menu-count"></span>
+      <span class="folder-menu-arrow" aria-hidden="true">▾</span>
+    </button>
+    <div id="personal-folders" class="personal-folders-menu hidden" role="menu">
+      <button id="create-personal-folder" type="button" class="personal-menu-row personal-menu-create"
+       role="menuitem">＋ Crear carpeta personalizada</button>
+      <div id="personal-folder-entries"></div>
+    </div>
+    <input id="personal-cover-file" type="file" accept="image/jpeg,image/png,image/webp"
+      class="hidden" aria-label="Seleccionar portada de carpeta personal">
    </div>
    <div class="quota"><span>Descargas disponibles hoy</span><strong id="quota-count">100 de 100</strong>
     <div class="quota-track"><div id="quota-fill"></div></div></div>
@@ -82,9 +91,19 @@
     </div>
   </div>
   <div id="folder-drop-tray" class="folder-drop-tray hidden">
-   <span>Mantén pulsada una foto o video y arrástralo a tu carpeta:</span>
-   <div id="folder-drop-targets" class="folder-drop-targets"></div>
-   <button id="album-create-folder" type="button" class="small-btn">＋ Nueva carpeta</button>
+    <button id="folder-drop-toggle" type="button" class="folder-drop-toggle"
+      data-folder-drop-trigger="true" aria-haspopup="menu" aria-controls="folder-drop-menu"
+      aria-expanded="false" aria-label="Desplegar mis carpetas para guardar fotos y videos">
+      <span>📁 Mis carpetas</span><span id="folder-drop-count" class="personal-menu-count"></span>
+      <span class="folder-menu-arrow" aria-hidden="true">▾</span>
+    </button>
+    <span id="folder-drag-help" class="visually-hidden">Mantén pulsada una foto o video y arrástralo a Mis carpetas.</span>
+    <div id="folder-drop-menu" class="folder-drop-menu hidden" role="menu"
+      aria-label="Carpetas personales para guardar archivos">
+      <button id="album-create-folder" type="button" class="folder-drop-option folder-drop-create"
+        role="menuitem" data-folder-drop="new">＋ Crear carpeta personalizada</button>
+      <div id="folder-drop-targets" class="folder-drop-targets"></div>
+    </div>
   </div>
   <div id="album-grid" class="media-grid"></div>
   <button id="load-more" class="load-more hidden">Cargar más</button>
@@ -107,6 +126,7 @@
     <button id="close-viewer" class="viewer-action" type="button" aria-label="Cerrar visor">✕ Cerrar</button>
     <button id="viewer-prev" class="viewer-action" type="button" aria-label="Foto anterior">‹</button>
     <button id="viewer-next" class="viewer-action" type="button" aria-label="Foto siguiente">›</button>
+    <button id="viewer-set-cover" class="viewer-action hidden" type="button" aria-label="Usar esta foto como portada de mi carpeta">★ Portada</button>
     <button id="viewer-download" class="viewer-action viewer-save" type="button" aria-label="Descargar imagen o video">↓ Guardar</button>
    </nav>
  </section>
@@ -225,6 +245,11 @@
    <button id="save-native" type="button" class="small-btn">Guardar en Archivos de Telegram</button>
    <button id="save-cancel" type="button" class="small-btn">Cancelar</button>
   </div>
+ </div>
+ <div id="drag-preview" class="drag-preview hidden" aria-hidden="true">
+  <img id="drag-preview-image" alt="">
+  <span id="drag-preview-fallback" class="drag-preview-fallback">▧</span>
+  <span id="drag-preview-count" class="drag-preview-count">1</span>
  </div>
  <div id="toast" class="toast hidden" role="status"></div>
 </div></body></html>

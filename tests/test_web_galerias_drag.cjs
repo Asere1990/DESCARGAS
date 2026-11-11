@@ -47,3 +47,50 @@ test("gestos táctiles y de mouse usan el mismo grupo seleccionado",()=>{
  assert.match(source,/b\.setPointerCapture\(e\.pointerId\)/);
  assert.match(source,/if\(unique\.length>10\)return notice/);
 });
+
+
+test("miniatura flotante semitransparente conserva foto y contador 5/10",()=>{
+ const elements={};
+ function element(id){
+  if(!elements[id]){
+   const classes=new Set(["hidden"]);
+   elements[id]={
+    style:{},classList:{
+     add(x){classes.add(x)},remove(x){classes.delete(x)},
+     toggle(x,flag){if(flag)classes.add(x);else classes.delete(x)},
+     contains(x){return classes.has(x)}
+    },textContent:"",src:""
+   };
+  }
+  return elements[id];
+ }
+ const widgetContext=vm.createContext({$:(id)=>element(id)});
+ const a=source.indexOf("function showDragPreview(m,ids,x,y){");
+ const b=source.indexOf("\nfunction dragMenuScroll(){",a);
+ assert.ok(a>=0&&b>a);
+ vm.runInContext(source.slice(a,b),widgetContext);
+ widgetContext.media={thumb:"/web-galerias/media/9/thumb",kind:"photo"};
+ widgetContext.group=[1,2,3,4,5];
+ vm.runInContext("showDragPreview(media,group,160,280)",widgetContext);
+ assert.equal(element("drag-preview-count").textContent,"5");
+ assert.equal(element("drag-preview-image").src,"/web-galerias/media/9/thumb");
+ assert.equal(element("drag-preview").style.left,"160px");
+ assert.equal(element("drag-preview").style.top,"280px");
+ assert.equal(element("drag-preview").classList.contains("hidden"),false);
+ widgetContext.group=[1,2,3,4,5,6,7,8,9,10];
+ vm.runInContext("showDragPreview(media,group,175,210)",widgetContext);
+ assert.equal(element("drag-preview-count").textContent,"10");
+ vm.runInContext("hideDragPreview()",widgetContext);
+ assert.equal(element("drag-preview").classList.contains("hidden"),true);
+});
+
+test("arrastre tiene menú desplegable y opción crear carpeta como primer destino",()=>{
+ const html=fs.readFileSync(path.join(__dirname,"../web_galerias/index.html"),"utf8");
+ const segment=html.split('id="folder-drop-tray"',2)[1].split('id="album-grid"')[0];
+ assert.ok(segment.indexOf('id="album-create-folder"')<segment.indexOf('id="folder-drop-targets"'));
+ assert.match(segment,/data-folder-drop="new"/);
+ assert.match(source,/function dragMenuScroll\(\)/);
+ assert.match(source,/menu\.scrollTop\+=delta/);
+ assert.match(source,/next\.classList\.add\("drag-target"\)/);
+ assert.match(source,/createPersonalFolder\(ids\)/);
+});

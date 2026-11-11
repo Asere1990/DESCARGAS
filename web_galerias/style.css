@@ -351,3 +351,167 @@
   font-variant-numeric:tabular-nums;
   overflow-wrap:anywhere;
 }
+
+
+/* Menús personales compactos: cerrados no desplazan la galería ni ocupan una cuadrícula. */
+#library #personal-section{margin-top:26px;border-top:1px solid var(--line);padding-top:18px}
+.personal-folder-toggle,.folder-drop-toggle{
+  display:flex;align-items:center;gap:11px;justify-content:space-between;
+  width:100%;min-height:54px;padding:12px 15px;
+  border:1px solid var(--line);border-radius:15px;
+  background:#ffffff15;color:var(--text);font-weight:750;font-size:15px;
+  text-align:left;touch-action:manipulation;
+}
+.personal-folder-toggle>span:first-child,.folder-drop-toggle>span:first-child{flex:1}
+.folder-menu-arrow{font-size:18px;flex:none;transition:transform .15s;line-height:1}
+.personal-folder-toggle[aria-expanded=true] .folder-menu-arrow,
+.folder-drop-toggle[aria-expanded=true] .folder-menu-arrow{transform:rotate(180deg)}
+.personal-menu-count{font-size:11px;color:var(--muted);font-weight:650;white-space:nowrap}
+#library .personal-folders-menu{
+  display:block;margin-top:7px;background:#151d2a;border:1px solid var(--line);
+  border-radius:15px;padding:6px;max-height:min(48dvh,460px);
+  overflow-y:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+}
+#library .personal-menu-row{
+  width:100%;min-height:51px;padding:11px 12px;border:0;
+  border-radius:11px;color:var(--text);background:none;text-align:left;font-weight:650;
+}
+#library .personal-menu-create{color:#9cd5ff;background:#ffffff0a}
+#library .personal-folder-entry{
+  display:flex;align-items:center;min-height:64px;
+  gap:9px;border-bottom:1px solid var(--line);padding:7px 3px;
+}
+#library .personal-folder-entry:last-child{border-bottom:0}
+#library .personal-folder-open{
+  flex:1;min-width:0;display:flex;align-items:center;gap:11px;
+  border:0;background:none;color:var(--text);text-align:left;padding:2px;
+  min-height:53px;
+}
+#library .personal-folder-thumb{
+  width:52px;height:52px;flex:none;overflow:hidden;
+  border-radius:11px;background:linear-gradient(145deg,#263e57,#0f1b2c);
+  display:grid;place-items:center;font-size:26px;
+}
+#library .personal-folder-thumb img{width:100%;height:100%;object-fit:cover}
+#library .personal-folder-open-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+#library .personal-folder-open-text strong{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#library .personal-folder-open-text small{font-size:11px;color:var(--muted)}
+#library .personal-folder-tools{position:static;display:flex;flex:none;gap:4px;align-items:center}
+#library .personal-folder-tools button{
+  width:34px;height:40px;border:1px solid var(--line);
+  border-radius:10px;color:#fff;background:#ffffff11;
+  touch-action:manipulation;font-size:15px;
+}
+#library .personal-folder-tools button:focus-visible,
+#library .personal-folder-open:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Mis carpetas dentro del álbum: solo un botón mientras está cerrado. */
+#album #folder-drop-tray{
+  position:relative;z-index:24;top:auto;
+  background:transparent;border:0;border-radius:0;
+  margin:0 17px 12px;padding:0;backdrop-filter:none;
+  box-shadow:none;
+}
+#album .folder-drop-toggle{
+  width:auto;min-width:170px;max-width:100%;
+  padding:10px 15px;min-height:48px;font-size:13px;
+  border-radius:14px;
+}
+#album .folder-drop-toggle.drag-menu-armed{
+  border-color:var(--accent);background:#166bbd4d;
+}
+#album .folder-drop-menu{
+  position:absolute;top:calc(100% + 6px);left:0;
+  width:min(100%,470px);max-height:min(49dvh,420px);
+  border:1px solid var(--line);border-radius:15px;
+  padding:7px;background:#161f2f;z-index:30;
+  overflow-y:auto;overscroll-behavior:contain;
+  -webkit-overflow-scrolling:touch;
+  box-shadow:0 20px 45px #000a;
+}
+#album .folder-drop-option{
+  width:100%;min-height:53px;padding:12px 13px;
+  border:1px solid transparent;border-radius:10px;
+  background:#ffffff0a;color:var(--text);font-size:13px;font-weight:600;
+  text-align:left;display:flex;align-items:center;gap:10px;
+  touch-action:manipulation;
+}
+#album .folder-drop-create{color:#a4ddff;margin:0 0 5px}
+#album .folder-drop-option .folder-target-cover{
+  display:grid;place-items:center;flex:none;
+  width:39px;height:39px;border-radius:9px;overflow:hidden;
+  background:#ffffff15;font-size:19px;
+}
+#album .folder-drop-option .folder-target-cover img{
+  width:100%;height:100%;object-fit:cover;
+}
+#album .folder-drop-option .folder-target-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+#album .folder-drop-option:focus-visible,#album .folder-drop-option.drag-target{
+  outline:2px solid #9dcfff;outline-offset:-2px;
+  background:#197cdf;color:#fff;border-color:#8accff;
+}
+#album .folder-drop-targets{
+  display:flex;flex-direction:column;gap:3px;
+  overflow:visible;padding:0;scrollbar-width:auto;
+}
+#album .folder-drop-targets button{
+  display:flex;width:100%;max-width:none;
+  overflow:visible;white-space:normal;
+  border:1px solid transparent;border-radius:10px;
+  font-size:13px;padding:9px 12px;min-height:51px;
+}
+#album .folder-drop-targets button.drag-target{background:#197cdf;border-color:#9dcfff}
+#album #album-create-folder{margin-top:0}
+.visually-hidden{
+  position:absolute!important;width:1px;height:1px;
+  clip:rect(0,0,0,0);clip-path:inset(50%);
+  white-space:nowrap;overflow:hidden;pointer-events:none;
+}
+
+/* Miniatura semitransparente + contador: visible solo durante arrastre real. */
+.drag-preview{
+  position:fixed;z-index:2000;left:0;top:0;
+  width:90px;height:90px;border:2px solid #a4d8ff;border-radius:14px;
+  background:#182537;box-shadow:0 12px 27px #0009;
+  overflow:visible;pointer-events:none;
+  transform:translate(-50%,-115%);opacity:.85;
+  will-change:left,top;
+}
+.drag-preview>img{
+  display:block;width:100%;height:100%;object-fit:cover;
+  border-radius:12px;opacity:.68;
+}
+.drag-preview .drag-preview-fallback{
+  display:grid;place-items:center;height:100%;
+  color:#fff;font-size:34px;opacity:.7;
+}
+.drag-preview .drag-preview-count{
+  position:absolute;right:-10px;top:-10px;
+  min-width:30px;height:30px;padding:3px 7px;
+  display:grid;place-items:center;
+  border-radius:999px;color:#fff;background:#147bdf;
+  border:2px solid #a4d8ff;font-size:16px;font-weight:850;
+  line-height:1;font-variant-numeric:tabular-nums;
+}
+@media(max-width:360px){
+ #library .personal-folder-tools{gap:2px}
+ #library .personal-folder-tools button{width:30px}
+ #album #folder-drop-tray{margin-left:12px;margin-right:12px}
+}
+
+
+/* El visor de una carpeta personal mantiene los cinco botones abajo,
+   sin cortar títulos en iPhone compacto ni superponer controles Telegram. */
+#viewer .viewer-bottom.with-cover{
+  gap:5px;
+  padding-left:8px;padding-right:8px;
+}
+#viewer .viewer-bottom.with-cover .viewer-action{
+  min-height:52px;min-width:0;
+  padding:9px 3px;font-size:11px;letter-spacing:-.02em;
+}
+@media(max-width:365px){
+  #viewer .viewer-bottom.with-cover{gap:3px;padding-left:5px;padding-right:5px}
+  #viewer .viewer-bottom.with-cover .viewer-action{font-size:10px;padding-left:2px;padding-right:2px}
+}

@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
-const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null};
+const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);};
@@ -130,33 +130,127 @@ function renderFolders(){
  if(!S.folders.length)root.innerHTML='<div class="empty">El administrador todavía no ha publicado carpetas.</div>';
  renderPersonalFolders();
 }
+function setPersonalMenuOpen(open){
+ S.personalMenuOpen=!!open;
+ $("personal-folders").classList.toggle("hidden",!open);
+ $("personal-folders-toggle").setAttribute("aria-expanded",String(!!open));
+}
+function setDropMenuOpen(open){
+ S.dropMenuOpen=!!open;
+ $("folder-drop-menu").classList.toggle("hidden",!open);
+ $("folder-drop-toggle").setAttribute("aria-expanded",String(!!open));
+}
+function makeFolderThumbnail(url){
+ const wrap=document.createElement("span");wrap.className="personal-folder-thumb";
+ if(url){
+  const img=document.createElement("img");img.src=url;img.alt="";
+  img.loading="lazy";img.decoding="async";
+  img.onerror=()=>{img.remove();wrap.textContent="📁";};
+  wrap.append(img);
+ }else wrap.textContent="📁";
+ return wrap;
+}
 function renderPersonalFolders(){
  $("personal-section").classList.toggle("hidden",!S.me?.allowed);
- const root=$("personal-folders");root.replaceChildren();
+ $("personal-folder-count").textContent=pretty(S.personal.length);
+ $("folder-drop-count").textContent=pretty(S.personal.length);
+ const root=$("personal-folder-entries");root.replaceChildren();
  for(const folder of S.personal){
-  const card=document.createElement("article");card.className="folder-card personal-folder-card";
-  const cover=document.createElement("div");cover.className="folder-cover";
-  const icon=document.createElement("span");icon.className="folder-icon";icon.textContent="📁";cover.append(icon);
-  const title=document.createElement("h3");title.textContent=folder.name;
-  const count=document.createElement("p");count.textContent=pretty(folder.count)+" archivos";
+  const line=document.createElement("div");line.className="personal-folder-entry";
+  const main=document.createElement("button");main.type="button";
+  main.className="personal-folder-open";
+  main.append(makeFolderThumbnail(folder.cover));
+  const text=document.createElement("span");text.className="personal-folder-open-text";
+  const title=document.createElement("strong");title.textContent=folder.name;
+  const count=document.createElement("small");count.textContent=pretty(folder.count)+" archivos";
+  text.append(title,count);main.append(text);
+  main.onclick=()=>{setPersonalMenuOpen(false);openFolder({...folder,personal:true});};
   const tools=document.createElement("div");tools.className="personal-folder-tools";
-  const rename=document.createElement("button");rename.textContent="✎";rename.type="button";rename.title="Cambiar nombre";
-  rename.onclick=e=>{e.stopPropagation();renamePersonalFolder(folder);};
-  const erase=document.createElement("button");erase.textContent="×";erase.type="button";erase.title="Eliminar carpeta personal";
-  erase.onclick=e=>{e.stopPropagation();deletePersonalFolder(folder);};
-  tools.append(rename,erase);card.append(cover,tools,title,count);
-  card.onclick=()=>openFolder({...folder,personal:true});
-  root.append(card);
+  const change=document.createElement("button");change.type="button";
+  change.textContent="▧";change.title="Cambiar portada";change.setAttribute("aria-label","Cambiar portada de "+folder.name);
+  change.onclick=()=>{S.coverFolder=folder;$("personal-cover-file").click();};
+  const rename=document.createElement("button");rename.type="button";rename.textContent="✎";
+  rename.title="Renombrar";rename.setAttribute("aria-label","Cambiar nombre de "+folder.name);
+  rename.onclick=()=>renamePersonalFolder(folder);
+  const erase=document.createElement("button");erase.type="button";erase.textContent="×";
+  erase.title="Eliminar";erase.setAttribute("aria-label","Eliminar "+folder.name);
+  erase.onclick=()=>deletePersonalFolder(folder);
+  tools.append(change,rename);
+  if(folder.has_custom_cover){
+   const reset=document.createElement("button");reset.type="button";
+   reset.textContent="↺";reset.title="Portada automática";
+   reset.setAttribute("aria-label","Restablecer portada automática de "+folder.name);
+   reset.onclick=()=>resetPersonalCover(folder);
+   tools.append(reset);
+  }
+  tools.append(erase);line.append(main,tools);root.append(line);
  }
+ setPersonalMenuOpen(S.personalMenuOpen);
  renderDropTargets();
 }
-async function createPersonalFolder(){
- const name=prompt("Nombre de tu nueva carpeta:");
+async function createPersonalFolder(ids=[]){
+ const selected=Array.isArray(ids)?[...new Set(ids)]:[];
+ if(selected.length>10)return notice("Puedes agregar hasta 10 archivos.");
+ if(S.personalSaving)return;
+ const name=prompt(selected.length?"Nombre de la carpeta para estos "+selected.length+" archivos:":
+                            "Nombre de tu nueva carpeta:");
  if(!name)return;
+ S.personalSaving=true;
  try{
-  const data=await api("personal-create",{name});
-  await refresh(true);notice("Carpeta creada: "+data.name);
+  const data=await api("personal-create",{name,ids:selected});
+  if(selected.length){
+   S.selection=false;S.selected.clear();updateSelection();renderItems();
+  }
+  await refresh(true);
+  setDropMenuOpen(false);
+  notice(selected.length?data.name+": "+selected.length+" archivos guardados.":
+                        "Carpeta creada: "+data.name);
+  return data;
  }catch(e){notice(e.message);}
+ finally{S.personalSaving=false;}
+}
+async function resetPersonalCover(folder){
+ try{
+  await api("personal-cover-reset",{personal_folder:folder.id});
+  await refresh(true);notice("Restablecida la miniatura automática.");
+ }catch(e){notice(e.message);}
+}
+async function imageToCoverBase64(file){
+ if(!file||!["image/jpeg","image/png","image/webp"].includes(file.type)||file.size>15*1024*1024)
+  throw Error("Elige una foto JPG, PNG o WebP de hasta 15 MB.");
+ const url=URL.createObjectURL(file);
+ try{
+  const image=new Image();
+  await new Promise((resolve,reject)=>{
+   image.onload=resolve;image.onerror=()=>reject(Error("No se puede abrir la foto."));
+   image.src=url;
+  });
+  if(!image.naturalWidth||!image.naturalHeight||image.naturalWidth*image.naturalHeight>45e6)
+   throw Error("La foto tiene dimensiones demasiado grandes.");
+  const scale=Math.min(1,900/Math.max(image.naturalWidth,image.naturalHeight));
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));
+  canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+  const ctx=canvas.getContext("2d",{alpha:false});
+  if(!ctx)throw Error("No se pudo preparar la portada.");
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  for(const quality of [.82,.70,.55,.42]){
+   const jpg=canvas.toDataURL("image/jpeg",quality).split(",")[1];
+   if(jpg&&jpg.length<=340000)return jpg;
+  }
+  throw Error("Esta foto es demasiado grande incluso después de reducirla.");
+ }finally{URL.revokeObjectURL(url);}
+}
+async function uploadPersonalCover(file){
+ const folder=S.coverFolder;if(!folder||!file)return;
+ try{
+  const image=await imageToCoverBase64(file);
+  await api("personal-cover-upload",{personal_folder:folder.id,image});
+  await refresh(true);
+  notice("Foto de presentación actualizada.");
+ }catch(e){notice(e.message);}
+ finally{$("personal-cover-file").value="";S.coverFolder=null;}
 }
 async function renamePersonalFolder(folder){
  const name=prompt("Nuevo nombre de la carpeta:",folder.name);
@@ -176,9 +270,20 @@ function renderDropTargets(){
  const tray=$("folder-drop-tray"),root=$("folder-drop-targets");
  root.replaceChildren();
  tray.classList.toggle("hidden",!S.me?.allowed);
+ $("folder-drop-count").textContent=pretty(S.personal.length);
  for(const folder of S.personal){
-  const b=document.createElement("button");b.type="button";b.textContent="📁 "+folder.name;
+  const b=document.createElement("button");b.type="button";
+  b.className="folder-drop-option";b.setAttribute("role","menuitem");
   b.dataset.folderDrop=String(folder.id);
+  const thumb=document.createElement("span");thumb.className="folder-target-cover";
+  if(folder.cover){
+   const img=document.createElement("img");img.src=folder.cover;img.alt="";
+   img.loading="lazy";img.onerror=()=>{img.remove();thumb.textContent="📁";};
+   thumb.append(img);
+  }else thumb.textContent="📁";
+  const title=document.createElement("span");title.className="folder-target-name";
+  title.textContent=folder.name;
+  b.append(thumb,title);
   b.ondragover=e=>{e.preventDefault();b.classList.add("drag-target");};
   b.ondragleave=()=>b.classList.remove("drag-target");
   b.ondrop=e=>{e.preventDefault();b.classList.remove("drag-target");
@@ -186,9 +291,13 @@ function renderDropTargets(){
    const ids=selectedDragIds(id);
    if(ids.length)addToPersonalFolder(folder.id,ids);
   };
-  b.onclick=()=>{if(S.selected.size)addToPersonalFolder(folder.id,[...S.selected]);};
+  b.onclick=()=>{
+   if(S.selected.size)addToPersonalFolder(folder.id,[...S.selected]);
+   else {setDropMenuOpen(false);openFolder({...folder,personal:true});}
+  };
   root.append(b);
  }
+ setDropMenuOpen(S.dropMenuOpen);
 }
 function selectedDragIds(id){
  // Arrastrar cualquiera de los elementos seleccionados mueve la selección
@@ -208,12 +317,16 @@ async function addToPersonalFolder(folder,ids){
   await api("personal-add",{personal_folder:folder,ids:unique});
   S.selection=false;S.selected.clear();updateSelection();renderItems();
   await refresh(true);
+  setDropMenuOpen(false);
   notice(unique.length===1?"Archivo guardado en tu carpeta personal.":
      unique.length+" archivos guardados en tu carpeta personal.");
  }catch(e){notice(e.message);}
  finally{S.personalSaving=false;}
 }
+
 async function openFolder(folder){
+ finishDrag();
+ setDropMenuOpen(false);
  S.folder=folder;S.items=[];S.next=null;S.search="";S.filter="all";
  S.selection=false;S.selected.clear();
  $("query").value="";$("album-title").textContent=folder.name;
@@ -256,20 +369,99 @@ function renderItems(){
   grid.append(b);
  });
 }
+function showDragPreview(m,ids,x,y){
+ const host=$("drag-preview"),img=$("drag-preview-image");
+ const fallback=$("drag-preview-fallback");
+ img.classList.toggle("hidden",!m.thumb);
+ fallback.classList.toggle("hidden",!!m.thumb);
+ if(m.thumb)img.src=m.thumb;
+ fallback.textContent=m.kind==="video"?"▶":"▧";
+ $("drag-preview-count").textContent=String(ids.length);
+ host.classList.remove("hidden");
+ moveDragPreview(x,y);
+}
+function moveDragPreview(x,y){
+ const ghost=$("drag-preview");
+ ghost.style.left=x+"px";ghost.style.top=y+"px";
+}
+function hideDragPreview(){
+ $("drag-preview").classList.add("hidden");
+ $("folder-drop-toggle").classList.remove("drag-menu-armed");
+}
+function dragMenuScroll(){
+ if(!S.drag)return;
+ const menu=$("folder-drop-menu");
+ const x=S.drag.x,y=S.drag.y;
+ let insideMenu=false;
+ if(S.dropMenuOpen&&!menu.classList.contains("hidden")){
+  const rect=menu.getBoundingClientRect();
+  insideMenu=x>=rect.left-12&&x<=rect.right+12&&y>=rect.top-30&&y<=rect.bottom+30;
+  if(insideMenu){
+   const zone=57;
+   let delta=0;
+   if(y<rect.top+zone)delta=-Math.min(16,Math.ceil((rect.top+zone-y)/3));
+   else if(y>rect.bottom-zone)delta=Math.min(16,Math.ceil((y-(rect.bottom-zone))/3));
+   if(delta){menu.scrollTop+=delta;dragHoverAt(x,y);}
+  }
+ }
+ if(!insideMenu){
+  // Mantener el dedo cerca del borde desplaza la galería para poder llevar
+  // una selección de fotos lejanas hasta el menú sin soltarla.
+  const edge=65;
+  if(y<edge)window.scrollBy(0,-13);
+  else if(y>window.innerHeight-edge)window.scrollBy(0,13);
+  dragHoverAt(x,y);
+ }
+ S.drag.raf=requestAnimationFrame(dragMenuScroll);
+}
+function dragHoverAt(x,y){
+ if(!S.drag)return;
+ S.drag.x=x;S.drag.y=y;
+ const element=document.elementFromPoint(x,y);
+ const toggle=element?.closest("[data-folder-drop-trigger]");
+ if(toggle){
+  setDropMenuOpen(true);
+  $("folder-drop-toggle").classList.add("drag-menu-armed");
+ }else $("folder-drop-toggle").classList.remove("drag-menu-armed");
+ const option=element?.closest("[data-folder-drop]");
+ const next=option&&$("folder-drop-menu").contains(option)?option:null;
+ if(S.drag.hover!==next){
+  if(S.drag.hover)S.drag.hover.classList.remove("drag-target");
+  S.drag.hover=next;
+  if(next)next.classList.add("drag-target");
+ }
+}
+function finishDrag(){
+ if(S.drag){
+  if(S.drag.raf)cancelAnimationFrame(S.drag.raf);
+  if(S.drag.hover)S.drag.hover.classList.remove("drag-target");
+  S.drag=null;
+ }
+ hideDragPreview();
+}
 function attachLongPress(b,m,index){
- let timer=null,held=false,active=false,startX=0,startY=0,hover=null;
- const clear=()=>{clearTimeout(timer);timer=null;if(hover){hover.classList.remove("drag-target");hover=null;}};
+ let timer=null,held=false,active=false,startX=0,startY=0;
+ const clear=()=>{clearTimeout(timer);timer=null;};
  b.addEventListener("contextmenu",e=>e.preventDefault());
  b.addEventListener("dragstart",e=>{
-  // HTML5 drag en Android/desktop: la carpeta resuelve el grupo seleccionado.
+  // Escritorio: el elemento arrastrado representa la selección completa.
   active=false;held=false;clear();
-  e.dataTransfer.setData("text/plain",String(m.id));e.dataTransfer.effectAllowed="copy";
+  const ids=selectedDragIds(m.id);
+  if(!ids.length){e.preventDefault();return;}
+  e.dataTransfer.setData("text/plain",String(m.id));
+  e.dataTransfer.effectAllowed="copy";
+  showDragPreview(m,ids,60,60);
+  e.dataTransfer.setDragImage?.($("drag-preview"),43,43);
+  setTimeout(()=>hideDragPreview(),0);
  });
- b.addEventListener("dragend",()=>{active=false;held=false;clear();b.classList.remove("dragging");});
+ b.addEventListener("dragend",()=>{
+  active=false;held=false;clear();b.classList.remove("dragging");
+  finishDrag();
+ });
  b.addEventListener("pointerdown",e=>{
   if(e.pointerType==="mouse"&&e.button!==0)return;
   startX=e.clientX;startY=e.clientY;held=false;active=true;
-  clearTimeout(timer);
+  clear();
   timer=setTimeout(()=>{
    if(!active)return;
    if(!S.selected.has(m.id)&&S.selected.size>=10){
@@ -277,47 +469,54 @@ function attachLongPress(b,m,index){
    }
    held=true;S.selection=true;
    S.selected.add(m.id);
-   // Capturar el gesto táctil para seguir recibiendo pointerup aunque el
-   // dedo salga de la foto y llegue a una carpeta de destino.
    if(e.pointerType!=="mouse"){try{b.setPointerCapture(e.pointerId);}catch(_){}}
    updateSelection();b.classList.add("selected","dragging");
+   const ids=selectedDragIds(m.id);
+   S.drag={hover:null,x:startX,y:startY,raf:0};
+   showDragPreview(m,ids,startX,startY);
+   S.drag.raf=requestAnimationFrame(dragMenuScroll);
    tg?.HapticFeedback?.selectionChanged?.();
   },450);
  });
  b.addEventListener("pointermove",e=>{
   if(!active)return;
-  if(!held&&Math.hypot(e.clientX-startX,e.clientY-startY)>12){clearTimeout(timer);return;}
+  if(!held&&Math.hypot(e.clientX-startX,e.clientY-startY)>12){
+   clear();return;
+  }
   if(held){
-   const el=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-folder-drop]");
-   if(hover!==el){if(hover)hover.classList.remove("drag-target");
-    hover=el;if(hover)hover.classList.add("drag-target");}
+   moveDragPreview(e.clientX,e.clientY);
+   dragHoverAt(e.clientX,e.clientY);
   }
  });
  b.addEventListener("touchmove",e=>{
-  // En iPhone mantener el dedo pulsado permite arrastrar en vez de
-  // desplazarse por la página cuando ya se activó la selección.
+  // Evitar scroll de la página solo durante arrastre; la lista de carpetas
+  // tiene desplazamiento automático hacia arriba y abajo.
   if(held)e.preventDefault();
  },{passive:false});
  b.addEventListener("pointerup",e=>{
-  if(!active)return;active=false;clearTimeout(timer);
+  if(!active)return;active=false;clear();
   if(!held)return;
   const destination=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-folder-drop]");
   S.suppressClick=m.id;setTimeout(()=>{if(S.suppressClick===m.id)S.suppressClick=null;},450);
-  if(destination){
-   const ids=selectedDragIds(m.id);
-   if(ids.length)addToPersonalFolder(Number(destination.dataset.folderDrop),ids);
-  }else{b.classList.remove("dragging");renderItems();}
-  clear();
+  const ids=selectedDragIds(m.id);
+  finishDrag();
+  b.classList.remove("dragging");
+  if(destination&&$("folder-drop-menu").contains(destination)&&ids.length){
+   if(destination.dataset.folderDrop==="new")createPersonalFolder(ids);
+   else addToPersonalFolder(Number(destination.dataset.folderDrop),ids);
+  }else renderItems();
  });
- b.addEventListener("pointercancel",()=>{active=false;clear();b.classList.remove("dragging");});
- b.addEventListener("pointerleave",()=>{if(!held){clearTimeout(timer);}});
+ b.addEventListener("pointercancel",()=>{
+  active=false;held=false;clear();finishDrag();b.classList.remove("dragging");
+ });
+ b.addEventListener("pointerleave",()=>{if(!held)clear();});
 }
 function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"?"▶":"▧";b.prepend(p);}
 function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
  $("selection-count").textContent=S.selected.size+" de 10";
- const trayText=$("folder-drop-tray").querySelector("span");
+ const trayText=$("folder-drag-help");
  if(trayText)trayText.textContent=S.selected.size>1?
     "Arrastra cualquiera de los "+S.selected.size+" archivos seleccionados a una carpeta:":
     "Mantén pulsada una foto o video y arrástralo a tu carpeta:";
@@ -349,6 +548,9 @@ function showViewerMedia(){
     else img.removeAttribute("src");
     img.alt=full?"Vista completa":"Vista previa; original en preparación";
   }
+  const canCover=!!(S.folder?.personal&&m.kind==="photo"&&m.thumb);
+  $("viewer-set-cover").classList.toggle("hidden",!canCover);
+  document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
@@ -420,7 +622,7 @@ function openFolderPicker(){
  const root=$("folder-picker-list");root.replaceChildren();
  const newFolder=document.createElement("button");newFolder.type="button";
  newFolder.textContent="＋ Crear carpeta nueva";
- newFolder.onclick=async()=>{$("folder-picker").classList.add("hidden");await createPersonalFolder();openFolderPicker();};
+ newFolder.onclick=async()=>{$("folder-picker").classList.add("hidden");await createPersonalFolder([...S.selected]);};
  root.append(newFolder);
  for(const folder of S.personal){
   const b=document.createElement("button");b.type="button";b.textContent="📁 "+folder.name;
@@ -800,8 +1002,35 @@ $("enter").onclick=async()=>{
  catch(e){notice(e.message);}
 };
 $("go-intro").onclick=()=>show("intro");
-$("create-personal-folder").onclick=createPersonalFolder;
-$("album-create-folder").onclick=createPersonalFolder;
+$("personal-folders-toggle").onclick=()=>setPersonalMenuOpen(!S.personalMenuOpen);
+$("create-personal-folder").onclick=()=>createPersonalFolder();
+$("personal-cover-file").onchange=()=>{
+ const file=$("personal-cover-file").files?.[0];
+ if(file)uploadPersonalCover(file);
+};
+$("folder-drop-toggle").onclick=()=>setDropMenuOpen(!S.dropMenuOpen);
+$("folder-drop-toggle").ondragenter=e=>{
+ e.preventDefault();setDropMenuOpen(true);$("folder-drop-toggle").classList.add("drag-menu-armed");
+};
+$("folder-drop-toggle").ondragover=e=>{
+ e.preventDefault();setDropMenuOpen(true);e.dataTransfer.dropEffect="copy";
+};
+$("folder-drop-toggle").ondragleave=()=>$("folder-drop-toggle").classList.remove("drag-menu-armed");
+$("folder-drop-menu").ondragover=e=>{
+ e.preventDefault();
+ const menu=$("folder-drop-menu"),rect=menu.getBoundingClientRect();
+ if(e.clientY<rect.top+48)menu.scrollTop-=15;
+ else if(e.clientY>rect.bottom-48)menu.scrollTop+=15;
+};
+$("album-create-folder").onclick=()=>createPersonalFolder([...S.selected]);
+$("album-create-folder").ondragover=e=>{e.preventDefault();$("album-create-folder").classList.add("drag-target");};
+$("album-create-folder").ondragleave=()=>$("album-create-folder").classList.remove("drag-target");
+$("album-create-folder").ondrop=e=>{
+ e.preventDefault();$("album-create-folder").classList.remove("drag-target");
+ const id=Number(e.dataTransfer.getData("text/plain"));
+ const ids=selectedDragIds(id);
+ if(ids.length)createPersonalFolder(ids);
+};
 $("selection-organize").onclick=openFolderPicker;
 $("folder-picker-cancel").onclick=()=>$("folder-picker").classList.add("hidden");
 $("save-cancel").onclick=closeSaveSheet;
@@ -843,6 +1072,16 @@ $("viewer-prev").onclick=()=>moveViewer(-1);
 $("viewer-next").onclick=()=>moveViewer(1);
 $("close-viewer").onclick=closeViewer;
 $("viewer-download").onclick=()=>downloadIds([S.items[S.viewer]?.id].filter(Boolean));
+$("viewer-set-cover").onclick=async()=>{
+ const media=S.items[S.viewer];
+ if(!S.folder?.personal||media?.kind!=="photo"||!media.thumb)return;
+ const folder=S.folder;
+ try{
+  await api("personal-set-cover",{personal_folder:folder.id,media:media.id});
+  await refresh(true);
+  notice("Esta foto es ahora la portada de "+folder.name+".");
+ }catch(e){notice(e.message);}
+};
 let touchStart=null,lastDistance=0,scale=1;
 const stage=$("viewer-stage");
 stage.addEventListener("touchstart",e=>{
