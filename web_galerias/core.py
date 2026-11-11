@@ -31,6 +31,17 @@ ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_videos_total BIGINT;
 ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_counts_at DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_counts_next_attempt DOUBLE PRECISION NOT NULL DEFAULT 0;
 ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_counts_error TEXT NOT NULL DEFAULT '';
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS last_catalog_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS last_preview_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS last_backup_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- No session strings or phone numbers are stored: only audit counts per permitted account.
+CREATE TABLE IF NOT EXISTS wg_source_coverage(
+ folder BIGINT NOT NULL REFERENCES wg_folders(id) ON DELETE CASCADE,
+ uid BIGINT NOT NULL,photos BIGINT, videos BIGINT,
+ checked_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+ method TEXT NOT NULL DEFAULT '',inexact BOOLEAN NOT NULL DEFAULT FALSE,
+ error TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(folder,uid));
 CREATE TABLE IF NOT EXISTS wg_media(
  id BIGSERIAL PRIMARY KEY,folder BIGINT NOT NULL REFERENCES wg_folders(id),
  message BIGINT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('photo','video')),
