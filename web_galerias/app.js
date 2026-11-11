@@ -1004,6 +1004,101 @@ async function uploadAsset(key,file,folder=null){
   return false;
  }
 }
+function introMime(file){
+ const ext=String(file?.name||"").split(".").pop().toLowerCase();
+ if(ext==="mov")return "video/quicktime";
+ if(ext==="mp4"||ext==="m4v")return "video/mp4";
+ if(ext==="webm")return "video/webm";
+ return file?.type||"";
+}
+async function uploadIntroVideo(file){
+ if(!file)return false;
+ const mime=introMime(file),limit=80*1024*1024;
+ if(!["video/mp4","video/quicktime","video/webm"].includes(mime))
+  throw Error("Selecciona un video MP4, MOV o WebM.");
+ if(!file.size||file.size>limit)
+  throw Error("El video supera los 80 MB; utiliza un video más corto o comprimido.");
+ const progress=$("upload-progress"),raw=tg?.initData||"";
+ return await new Promise((resolve,reject)=>{
+  const xhr=new XMLHttpRequest();
+  xhr.open("POST","/web-galerias/admin/intro-video",true);
+  xhr.withCredentials=true;
+  xhr.setRequestHeader("Content-Type",mime);
+  xhr.setRequestHeader("X-Intro-Mime",mime);
+  if(raw)xhr.setRequestHeader("X-Telegram-Init-Data",raw);
+  else xhr.setRequestHeader("X-Gallery-Web","1");
+  xhr.upload.onprogress=e=>{
+   if(e.lengthComputable){
+    const percent=Math.min(100,Math.floor(e.loaded/e.total*100));
+    progress.textContent="Subiendo video: "+percent+" %";
+    if(percent===100)progress.textContent="Video subido. Convirtiendo a MP4 y verificando Cloudflare…";
+   }
+  };
+  xhr.onerror=()=>reject(Error("No se pudo conectar durante la subida del video."));
+  xhr.onabort=()=>reject(Error("Se canceló la subida del video."));
+  xhr.onload=()=>{
+   if(xhr.status<200||xhr.status>=300){
+    reject(Error((xhr.responseText||"Error de subida").replace(/<[^>]*>/g," ").slice(0,220)));
+    return;
+   }
+   try{
+    const data=JSON.parse(xhr.responseText);
+    if(!data.complete)throw Error("No se confirmó la subida del video.");
+    progress.textContent="✓ Video MP4 guardado y verificado en Cloudflare.";
+    resolve(true);
+   }catch(e){reject(e);}
+  };
+  xhr.send(file);
+ });
+}
+function pendingEditorFiles(){
+ return ["logo","header","intro"]
+  .map(key=>({key,file:$("upload-"+key).files?.[0]}))
+  .filter(entry=>!!entry.file);
+}
+function editorPendingFilesMessage(){
+ const files=pendingEditorFiles();
+ $("upload-progress").textContent=files.length?
+  "Pendiente de confirmar: "+files.map(x=>x.file.name).join(" · ")+
+  ". Pulsa Confirmar cambios para publicar.":
+  "Sin archivos nuevos seleccionados. También puedes confirmar textos, colores y marca de agua.";
+}
+async function confirmEditorChanges(){
+ if(S.editorSaving)return;
+ const button=$("confirm-editor"),status=$("upload-progress");
+ S.editorSaving=true;button.disabled=true;button.textContent="Guardando cambios…";
+ try{
+  const files=pendingEditorFiles();
+  for(const {key,file} of files){
+   status.textContent="Preparando "+file.name+"…";
+   if(key==="intro"){
+    await uploadIntroVideo(file);
+   }else{
+    if(!await uploadAsset(key,file))throw Error("No se pudo guardar "+file.name+".");
+   }
+  }
+  const design={};
+  for(const key of ["title","intro_label","intro_caption","button_label",
+                    "header_mode","tile_shape","intro_fit","button_color",
+                    "accent","background","text_color"])
+   design[key]=$("edit-"+key).value;
+  design.daily_limit=100;
+  status.textContent="Guardando identidad y marca de agua…";
+  await api("admin-design",{design});
+  await api("admin-watermark",{watermark:watermarkFromEditor()});
+  for(const key of ["logo","header","intro"])$("upload-"+key).value="";
+  await refresh();
+  populateEditor();
+  status.textContent="✓ Cambios confirmados. La portada ya está publicada.";
+  notice("Cambios guardados y publicados correctamente.");
+ }catch(e){
+  status.textContent="No se pudieron confirmar todos los cambios: "+e.message+
+   " Los archivos confirmados anteriormente permanecen guardados.";
+  notice("Revisa el error antes de volver a confirmar.");
+ }finally{
+  S.editorSaving=false;button.disabled=false;button.textContent="✓ Confirmar cambios";
+ }
+}
 let searchTimer=null;
 $("enter").onclick=async()=>{
  if(!S.me)return notice("La Mini App aún se está configurando.");
