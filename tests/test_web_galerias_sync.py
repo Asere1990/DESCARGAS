@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from web_galerias.sync import (
     PauseGuard, PauseRequested, backup_one, folder_active, source_free,
     sync_folder, media_kind, find_dialog, fair_round, sync_limits, preview_one,
+    archive_candidates, choose_account,
     inspect_source, catalog, refresh_telegram_counts
 )
 from web_galerias.storage import PrivateStorage
@@ -446,6 +447,49 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         self.assertLess(counter,archive)
         self.assertIn("telegram_counts_next_attempt<=$1",text)
         self.assertIn("ORDER BY f.telegram_counts_at ASC,f.id ASC LIMIT 3",text)
+
+    async def test_preferred_account_must_match_linked_telegram_id(self):
+        g,db=gallery()
+        db.fetchrow.return_value={"uid":123456789}
+        folder={"id":7,"source_uid":111111111,"preferred_uid":123456789}
+        result=await choose_account(g,folder)
+        self.assertEqual(result,123456789)
+        sql=db.fetchrow.await_args.args
+        self.assertIn("($4::bigint IS NULL OR a.uid=$4)",sql[0])
+        self.assertEqual(sql[-1],123456789)
+        self.assertEqual(sql[-2],111111111)
+
+    async def test_switched_account_stops_old_account_from_accessing_gallery(self):
+        g,db=gallery()
+        db.fetchval.return_value=False
+        self.assertFalse(await folder_active(g,7,111111111))
+        sql=db.fetchval.await_args.args
+        self.assertIn("preferred_uid=$2",sql[0])
+        self.assertEqual(sql[1:3],(7,111111111))
+
+    def test_archive_waits_for_visible_cushion_but_never_stops_r2(self):
+        folders=[{"id":1},{"id":2},{"id":3}]
+        counts=[{"folder":1,"pending":400,"preview":4},
+                {"folder":2,"pending":0,"preview":10},
+                {"folder":3,"pending":800,"preview":80}]
+        self.assertEqual([f["id"] for f in archive_candidates(folders,counts,1)],[2,3])
+        # Cada quinta vuelta permite respaldar incluso si el grupo crece.
+        self.assertEqual([f["id"] for f in archive_candidates(folders,counts,5)],[1,2,3])
+        self.assertEqual(archive_candidates(folders,[],1),[])
+
+    async def test_prime_previews_have_larger_batch_than_archive(self):
+        g,_=gallery()
+        folders=[{"id":i+1,"source_uid":i%3+1,"preferred_uid":None} for i in range(50)]
+        with patch.dict(os.environ,{"GALERIAS_SYNC_PARALLEL_ACCOUNTS":"3",
+                                    "GALERIAS_SYNC_BETWEEN_FOLDERS":"0"}):
+            with patch("web_galerias.sync.sync_folder",new_callable=AsyncMock) as worker:
+                await fair_round(g,folders,phase="prime")
+            self.assertEqual(worker.await_count,50)
+            self.assertTrue(all(call.kwargs["max_files"]==2 for call in worker.await_args_list))
+            worker.reset_mock()
+            with patch("web_galerias.sync.sync_folder",new_callable=AsyncMock) as worker2:
+                await fair_round(g,folders,phase="archive")
+            self.assertTrue(all(call.kwargs["max_files"]==1 for call in worker2.await_args_list))
 
     def test_50_gallery_rounds_are_small_without_preventing_backups(self):
         with patch.dict(os.environ, {"GALERIAS_SYNC_BATCH_FILES": "5"}):
