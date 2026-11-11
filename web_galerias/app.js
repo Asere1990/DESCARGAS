@@ -596,7 +596,37 @@ function previewAdmin(){
    finally{audit.disabled=false;}
   };
   buttons.append(audit);
-  details.append(info,pick,buttons);
+  const examples=document.createElement("div");
+  examples.className="admin-missing-examples hidden";
+  const samples=document.createElement("button");samples.type="button";
+  samples.className="small-btn";samples.textContent="Ver 10 ejemplos";
+  samples.disabled=!f.missing;
+  samples.onclick=async()=>{
+   samples.disabled=true;examples.classList.remove("hidden");
+   examples.textContent="Consultando incidencias…";
+   try{
+    const data=await api("admin-missing-samples",{folder:f.id});
+    examples.replaceChildren();
+    if(!data.items.length){examples.textContent="Sin incidencias registradas.";return;}
+    const heading=document.createElement("h4");heading.textContent="Ejemplos de archivos por verificar";
+    examples.append(heading);
+    for(const item of data.items){
+     const row=document.createElement("p");
+     const kind=item.source_type||item.kind||"tipo desconocido";
+     const code=item.error||"sin motivo";
+     row.textContent="Mensaje "+item.message+" · "+kind+" · "+item.mime+
+       " · "+(readableReason[code]||code);
+     examples.append(row);
+    }
+   }catch(e){examples.textContent=e.message;}
+   finally{samples.disabled=false;}
+  };
+  buttons.append(samples);
+  const note=document.createElement("p");
+  note.className="admin-reindex-hint";
+  note.textContent="Para volver a recorrer el historial y detectar archivos antiguos"+
+    " que antes no se reconocían, utiliza Revisar origen. No borra los originales respaldados.";
+  details.append(info,pick,buttons,note,examples);
   function setExpanded(open){
     card.classList.toggle("expanded",open);
     details.classList.toggle("hidden",!open);
