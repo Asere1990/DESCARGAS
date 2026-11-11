@@ -607,3 +607,32 @@
   line-height:1.5;color:#c9d5e7;
   text-shadow:none;filter:none;
 }
+
+
+/* Portada instantánea: HTML pide una miniatura ligera ANTES del arranque de JS.
+   El primer fotograma se mantiene visible bajo el video hasta su primer frame real;
+   jamás se sustituye por un texto de espera o un destello negro. */
+#intro.has-intro-video .intro-video-wrap .intro-hero-poster{
+  position:absolute;inset:0;z-index:1;
+  width:100%;height:100%;object-fit:cover;
+  display:block;opacity:1;
+}
+#intro.has-intro-video .intro-video-wrap .intro-hero-poster[hidden]{
+  display:none!important;
+}
+#intro.has-intro-video .intro-video-wrap video{
+  z-index:2;opacity:0;
+  transition:opacity .14s linear;
+}
+#intro.has-intro-video .intro-video-wrap video.intro-playing{
+  opacity:1;
+}
+#intro.has-intro-video .intro-video-wrap:after{
+  z-index:3;
+}
+#intro .intro-video-wrap #intro-placeholder[hidden]{
+  display:none!important;
+}
+#intro.has-intro-video .intro-placeholder{
+  display:none!important;
+}
