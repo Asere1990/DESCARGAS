@@ -126,23 +126,75 @@
   const ids=[...state.selected];if(!ids.length)return;
   await deleteMediaIds(ids,$("admin-media-r2").checked);
  }
- async function activeUsers(older=false){
-  const select=$("admin-user-selector");
-  if(!older){state.usersNext=null;state.usersLoaded=false;
-   select.replaceChildren(new Option("Seleccionar usuario…",""));}
-  try{
-   const data=await api("admin-active-users",{after:older?(state.usersNext||0):0});
-   for(const u of data.users||[]){
-    select.add(new Option((u.name||"Usuario")+" · "+u.telegram_id,String(u.telegram_id)));
+ function usersLoaded(){return state.usersLoaded;}
+ function renderUserRows(){
+  const root=$("admin-users");root.replaceChildren();
+  for(const u of state.userItems){
+   const b=document.createElement("button");b.type="button";
+   b.className="admin-user-list-row";
+   b.setAttribute("role","listitem");
+   b.setAttribute("aria-label",u.name+(u.paid?" · Activo":"")+(u.online?" · En línea":""));
+   const name=document.createElement("span");name.className="admin-user-list-name";
+   name.textContent=u.name||"Usuario";
+   const right=document.createElement("span");right.className="admin-user-indicators";
+   if(u.blocked){
+    const badge=document.createElement("small");badge.className="admin-user-retired";
+    badge.textContent="Retirado";right.append(badge);
+   }else if(u.paid){
+    const badge=document.createElement("small");badge.className="admin-user-active";
+    badge.textContent="Activo";right.append(badge);
    }
-   state.usersNext=data.next||null;state.usersLoaded=true;
-   $("admin-user-more").classList.toggle("hidden",!state.usersNext);
+   if(u.online&&!u.blocked){
+    const dot=document.createElement("i");dot.className="admin-user-online";
+    dot.title="Conectado ahora a Web Galerías";
+    dot.setAttribute("aria-label","Conectado");right.append(dot);
+   }
+   b.append(name,right);
+   b.onclick=()=>showUserProfile(u.telegram_id);
+   root.append(b);
+  }
+  if(!state.userItems.length){
+   const empty=document.createElement("p");empty.className="muted";empty.textContent="No hay usuarios para esta búsqueda.";
+   root.append(empty);
+  }
+  $("admin-users-page").textContent="Página "+state.userPage;
+  $("admin-user-back-page").disabled=state.userPage===1;
+  $("admin-user-more").disabled=!state.usersNext;
+ }
+ async function loadUserPage(reset=false){
+  if(state.usersBusy)return;
+  state.usersBusy=true;
+  if(reset){state.userPage=1;state.userPages=[null];state.selectedUid=null;
+   $("admin-user-profile").classList.add("hidden");}
+  const requestQuery=$("admin-users-query").value.trim();
+  const page=state.userPage;
+  const after=state.userPages[page-1]||null;
+  try{
+   const result=await api("admin-users-page",{query:requestQuery,after});
+   if(page!==state.userPage||requestQuery!==$("admin-users-query").value.trim())return;
+   state.userItems=result.users||[];state.usersNext=result.next||null;
+   state.userPages[page]=state.usersNext;
+   state.usersLoaded=true;renderUserRows();
   }catch(e){notice(e.message);}
+  finally{state.usersBusy=false;}
+ }
+ function openUsers(){if(!state.usersLoaded)loadUserPage(true);}
+ function rowDatum(root,label,value){
+  const row=document.createElement("div");row.className="admin-data-row";
+  const key=document.createElement("span");key.className="admin-data-label";key.textContent=label;
+  const val=document.createElement("strong");val.className="admin-data-value";
+  val.textContent=String(value===null||value===undefined?"—":value);
+  val.style.whiteSpace="pre-line";row.append(key,val);root.append(row);
  }
  function renderUserProfile(profile){
-  const root=$("admin-user-profile");root.replaceChildren();
-  if(!profile.found){root.textContent="Este usuario no tiene ficha central registrada.";return;}
-  const fields=[
+  const root=$("admin-user-central");if(!root)return;
+  root.replaceChildren();
+  const h=document.createElement("h3");h.textContent="Ficha central · CUSTOMER-SERVICE";root.append(h);
+  if(!profile.found){
+   root.append(document.createTextNode("No existe una ficha central para este usuario."));
+   return;
+  }
+  for(const [label,value] of [
    ["Nombre de Stripe",profile.stripe_name||"—"],
    ["Nombre de Telegram",profile.telegram_name||"—"],
    ["Telegram ID",profile.telegram_id],
@@ -150,33 +202,170 @@
    ["Correos",(profile.emails||[]).join("\n")||"—"],
    ["Teléfonos",(profile.phones||[]).join("\n")||"—"],
    ["Notas",profile.notes||"Sin notas registradas"],
-   ["Disputas",profile.disputed?"Cuenta bloqueada":"No"]
-  ];
-  for(const [label,value] of fields){
-   const div=document.createElement("div");div.className="admin-data-row";
-   const left=document.createElement("span");left.className="admin-data-label";left.textContent=label;
-   const right=document.createElement("strong");right.className="admin-data-value";
-   right.textContent=String(value);right.style.whiteSpace="pre-line";
-   div.append(left,right);root.append(div);
-  }
-  const h=document.createElement("h3");h.textContent="Membresías y estado";root.append(h);
+   ["Disputas",profile.disputed?"Cuenta bloqueada":"No"]])
+   rowDatum(root,label,value);
+  const section=document.createElement("h3");section.textContent="Membresías y estado";root.append(section);
   const list=document.createElement("div");list.className="admin-membership-list";
   for(const m of profile.memberships||[]){
-   const div=document.createElement("div");div.className="admin-member-status";
-   div.textContent=m.name+" · "+m.status+
-     (m.access_type==="Web"?" · Tipo de acceso: Web":"")+
-     (m.expires?" · Vencimiento: "+m.expires:"");
-   list.append(div);
+   const item=document.createElement("div");item.className="admin-member-status";
+   item.textContent=m.name+" · "+m.status+
+    (m.access_type==="Web"?" · Tipo de acceso: Web":"")+
+    (m.expires?" · Vencimiento: "+m.expires:"");
+   list.append(item);
   }
   if(!list.children.length)list.textContent="Sin membresías registradas.";
   root.append(list);
  }
- async function showUserProfile(){
-  const uid=Number($("admin-user-selector").value);
-  if(!Number.isSafeInteger(uid)||uid<=0){notice("Selecciona un usuario.");return;}
-  $("admin-user-profile").textContent="Consultando ficha de CUSTOMER-SERVICE…";
-  try{renderUserProfile(await api("admin-user-profile",{telegram_id:uid}));}
-  catch(e){$("admin-user-profile").textContent=e.message;notice(e.message);}
+ async function showUserProfile(uid){
+  if(state.selectedUid===uid&&state.userProfileOpened)return;
+  state.selectedUid=uid;state.userProfileOpened=false;
+  const root=$("admin-user-profile");root.classList.remove("hidden");
+  root.replaceChildren();
+  const title=document.createElement("h3");title.textContent="Ficha del usuario";
+  const close=document.createElement("button");close.type="button";close.className="small-btn";
+  close.textContent="Cerrar ficha";
+  close.onclick=()=>{state.selectedUid=null;root.classList.add("hidden");};
+  root.append(title,close);
+  const status=document.createElement("p");status.className="muted";
+  status.textContent="Consultando los datos…";root.append(status);
+  root.scrollIntoView?.({block:"nearest",behavior:"smooth"});
+  try{
+   const local=await api("admin-user-access-status",{telegram_id:uid});
+   if(state.selectedUid!==uid)return;
+   state.userProfileOpened=true;status.remove();
+   rowDatum(root,"Nombre de Telegram",local.name||"Usuario");
+   rowDatum(root,"Telegram ID",uid);
+   rowDatum(root,"Membresía pagada",
+     ["active","trialing"].includes(local.state)&&local.paid_until>Date.now()/1000?"Activo":"Sin pago vigente");
+   rowDatum(root,"Estado en la web",local.blocked?"Retirado del sistema":"Autorización según membresía");
+   rowDatum(root,"Último acceso",local.last_seen?
+     new Date(local.last_seen*1000).toLocaleString("es-US"):"—");
+   const actions=document.createElement("div");actions.className="admin-profile-actions";
+   const folders=document.createElement("button");folders.className="small-btn strong";
+   folders.textContent="📁 Ver carpetas personalizadas";
+   folders.onclick=()=>loadUserFolders(uid);
+   const perms=document.createElement("button");perms.className="small-btn";
+   perms.textContent="Asignar carpetas de acceso";
+   perms.onclick=()=>{$("permission-uid").value=uid;loadPermissions();};
+   const toggle=document.createElement("button");toggle.className="small-btn admin-user-access-action";
+   toggle.textContent=local.blocked?"Volver a agregar al sistema":"Eliminar usuario del sistema";
+   toggle.onclick=async()=>{
+    const withdraw=!local.blocked;
+    const warning=withdraw?
+      "¿Retirar a este usuario de Web Galerías? Perderá el acceso inmediatamente.\n"+
+      "La suscripción en Stripe y sus carpetas se conservarán para permitir restaurarlo.":
+      "¿Volver a agregar a este usuario a Web Galerías?\n"+
+      "Recuperará acceso si su membresía o autorización de prueba sigue vigente.";
+    if(!confirm(warning))return;
+    toggle.disabled=true;
+    try{
+     await api("admin-user-access-change",{telegram_id:uid,blocked:withdraw,
+       confirm:"CAMBIAR_ACCESO_GALERIAS"});
+     state.usersLoaded=false;state.userProfileOpened=false;
+     await loadUserPage(false);await showUserProfile(uid);
+     notice(withdraw?"Usuario retirado del sistema.":"Usuario restaurado.");
+    }catch(e){notice(e.message);}
+    finally{toggle.disabled=false;}
+   };
+   actions.append(folders,perms,toggle);root.append(actions);
+   const personal=document.createElement("section");personal.id="admin-user-personal";
+   personal.className="admin-user-personal";root.append(personal);
+   const central=document.createElement("section");central.id="admin-user-central";
+   central.className="admin-user-central";
+   central.append(document.createTextNode("Consultando ficha de CUSTOMER-SERVICE…"));
+   root.append(central);
+   // The central CRM can be unavailable independently of gallery moderation.
+   try{
+    const profile=await api("admin-user-profile",{telegram_id:uid});
+    if(state.selectedUid===uid)renderUserProfile(profile);
+   }catch(e){
+    if(state.selectedUid===uid)central.textContent="La ficha central no está disponible en este momento. "+
+      "Las carpetas y el acceso de Web Galerías siguen disponibles.";
+   }
+  }catch(e){if(state.selectedUid===uid){status.textContent=e.message;notice(e.message);}}
+ }
+ async function loadUserFolders(uid){
+  if(state.selectedUid!==uid)return;
+  const root=$("admin-user-personal");root.replaceChildren();
+  const heading=document.createElement("h3");heading.textContent="Carpetas personalizadas";root.append(heading);
+  const message=document.createElement("p");message.textContent="Cargando carpetas…";root.append(message);
+  try{
+   const data=await api("admin-user-personal-folders",{telegram_id:uid});
+   if(state.selectedUid!==uid)return;
+   state.folders=data.folders||[];message.remove();
+   if(!state.folders.length){root.append(document.createTextNode("Este usuario no ha creado carpetas."));return;}
+   const list=document.createElement("div");list.className="admin-personal-folder-list";root.append(list);
+   for(const folder of state.folders){
+    const row=document.createElement("div");row.className="admin-personal-folder-row";
+    const open=document.createElement("button");open.className="small-btn";
+    open.textContent="📁 "+folder.name+" · "+folder.visible+" archivos";
+    open.onclick=()=>openUserFolder(uid,folder,root);
+    const remove=document.createElement("button");remove.className="small-btn admin-user-access-action";
+    remove.textContent="Eliminar carpeta";
+    remove.onclick=async()=>{
+     if(!confirm("¿Eliminar la carpeta personal «"+folder.name+"» de este usuario?\n"+
+       "Solo se borrará la carpeta y sus referencias; los originales de las galerías y Cloudflare NO se borrarán."))return;
+     remove.disabled=true;
+     try{
+      await api("admin-user-personal-delete",{telegram_id:uid,personal_folder:folder.id,
+       confirm:"ELIMINAR_CARPETA_PERSONAL"});
+      notice("Carpeta personal eliminada.");await loadUserFolders(uid);
+     }catch(e){notice(e.message);remove.disabled=false;}
+    };
+    row.append(open,remove);list.append(row);
+   }
+  }catch(e){message.textContent="No se pudieron consultar las carpetas: "+e.message;}
+ }
+ async function openUserFolder(uid,folder,parent){
+  if(state.selectedUid!==uid)return;
+  const existing=$("admin-user-personal-items");if(existing)existing.remove();
+  const box=document.createElement("section");box.id="admin-user-personal-items";
+  box.className="admin-user-personal-items";
+  const heading=document.createElement("h4");heading.textContent=folder.name;
+  const list=document.createElement("div");list.className="admin-personal-items-grid";
+  const more=document.createElement("button");more.className="small-btn";
+  more.textContent="Más archivos";more.hidden=true;
+  box.append(heading,list,more);parent.append(box);
+  let cursor=0,loading=false;
+  async function read(older=false){
+   if(loading)return;loading=true;
+   if(!older){cursor=0;list.replaceChildren();}
+   try{
+    const data=await api("admin-user-personal-items",{
+      telegram_id:uid,personal_folder:folder.id,cursor:older?cursor:0});
+    if(state.selectedUid!==uid||!box.isConnected)return;
+    for(const item of data.items||[]){
+     const row=document.createElement("div");row.className="admin-personal-item";
+     const thumb=document.createElement("img");thumb.alt=item.kind==="video"?"Video":"Foto";
+     if(item.thumb)thumb.src=item.thumb;else thumb.hidden=true;
+     const note=document.createElement("small");note.textContent=item.kind==="video"?"Video":"Foto";
+     const view=document.createElement("button");view.className="small-btn";view.textContent="Ver";
+     view.disabled=!(item.view||item.thumb);
+     view.onclick=()=>{const url=item.view||item.thumb;if(url)window.open(url,"_blank","noopener,noreferrer");};
+     const take=document.createElement("button");take.className="small-btn";take.textContent="Quitar de carpeta";
+     take.onclick=async()=>{
+      if(!confirm("¿Quitar este archivo de la carpeta «"+folder.name+"»?\n"+
+        "El original seguirá en la galería."))return;
+      take.disabled=true;
+      try{
+       await api("admin-user-personal-remove",{telegram_id:uid,personal_folder:folder.id,
+         ids:[item.id],confirm:"QUITAR_DE_CARPETA"});
+       notice("Archivo retirado de la carpeta personal.");
+       await loadUserFolders(uid);
+      }catch(e){notice(e.message);take.disabled=false;}
+     };
+     const erase=document.createElement("button");erase.className="small-btn admin-user-access-action";
+     erase.textContent="Eliminar de toda la web";
+     erase.onclick=async()=>{if(await deleteMediaIds([item.id],false))await loadUserFolders(uid);};
+     row.append(thumb,note,view,take,erase);list.append(row);
+    }
+    cursor=data.next||0;more.hidden=!data.next;
+    if(!list.children.length)list.append(document.createTextNode("No hay contenido visible en esta carpeta."));
+   }catch(e){notice(e.message);}
+   finally{loading=false;}
+  }
+  more.onclick=()=>read(true);
+  await read();
  }
 
  function closeActions(){
