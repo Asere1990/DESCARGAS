@@ -325,6 +325,8 @@ async function addToPersonalFolder(folder,ids){
 }
 
 async function openFolder(folder){
+ finishDrag();
+ setDropMenuOpen(false);
  S.folder=folder;S.items=[];S.next=null;S.search="";S.filter="all";
  S.selection=false;S.selected.clear();
  $("query").value="";$("album-title").textContent=folder.name;
@@ -536,6 +538,8 @@ function showViewerMedia(){
     else img.removeAttribute("src");
     img.alt=full?"Vista completa":"Vista previa; original en preparación";
   }
+  const canCover=!!(S.folder?.personal&&m.kind==="photo"&&m.thumb);
+  $("viewer-set-cover").classList.toggle("hidden",!canCover);
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
@@ -607,7 +611,7 @@ function openFolderPicker(){
  const root=$("folder-picker-list");root.replaceChildren();
  const newFolder=document.createElement("button");newFolder.type="button";
  newFolder.textContent="＋ Crear carpeta nueva";
- newFolder.onclick=async()=>{$("folder-picker").classList.add("hidden");await createPersonalFolder();openFolderPicker();};
+ newFolder.onclick=async()=>{$("folder-picker").classList.add("hidden");await createPersonalFolder([...S.selected]);};
  root.append(newFolder);
  for(const folder of S.personal){
   const b=document.createElement("button");b.type="button";b.textContent="📁 "+folder.name;
@@ -987,8 +991,35 @@ $("enter").onclick=async()=>{
  catch(e){notice(e.message);}
 };
 $("go-intro").onclick=()=>show("intro");
-$("create-personal-folder").onclick=createPersonalFolder;
-$("album-create-folder").onclick=createPersonalFolder;
+$("personal-folders-toggle").onclick=()=>setPersonalMenuOpen(!S.personalMenuOpen);
+$("create-personal-folder").onclick=()=>createPersonalFolder();
+$("personal-cover-file").onchange=()=>{
+ const file=$("personal-cover-file").files?.[0];
+ if(file)uploadPersonalCover(file);
+};
+$("folder-drop-toggle").onclick=()=>setDropMenuOpen(!S.dropMenuOpen);
+$("folder-drop-toggle").ondragenter=e=>{
+ e.preventDefault();setDropMenuOpen(true);$("folder-drop-toggle").classList.add("drag-menu-armed");
+};
+$("folder-drop-toggle").ondragover=e=>{
+ e.preventDefault();setDropMenuOpen(true);e.dataTransfer.dropEffect="copy";
+};
+$("folder-drop-toggle").ondragleave=()=>$("folder-drop-toggle").classList.remove("drag-menu-armed");
+$("folder-drop-menu").ondragover=e=>{
+ e.preventDefault();
+ const menu=$("folder-drop-menu"),rect=menu.getBoundingClientRect();
+ if(e.clientY<rect.top+48)menu.scrollTop-=15;
+ else if(e.clientY>rect.bottom-48)menu.scrollTop+=15;
+};
+$("album-create-folder").onclick=()=>createPersonalFolder([...S.selected]);
+$("album-create-folder").ondragover=e=>{e.preventDefault();$("album-create-folder").classList.add("drag-target");};
+$("album-create-folder").ondragleave=()=>$("album-create-folder").classList.remove("drag-target");
+$("album-create-folder").ondrop=e=>{
+ e.preventDefault();$("album-create-folder").classList.remove("drag-target");
+ const id=Number(e.dataTransfer.getData("text/plain"));
+ const ids=selectedDragIds(id);
+ if(ids.length)createPersonalFolder(ids);
+};
 $("selection-organize").onclick=openFolderPicker;
 $("folder-picker-cancel").onclick=()=>$("folder-picker").classList.add("hidden");
 $("save-cancel").onclick=closeSaveSheet;
@@ -1030,6 +1061,16 @@ $("viewer-prev").onclick=()=>moveViewer(-1);
 $("viewer-next").onclick=()=>moveViewer(1);
 $("close-viewer").onclick=closeViewer;
 $("viewer-download").onclick=()=>downloadIds([S.items[S.viewer]?.id].filter(Boolean));
+$("viewer-set-cover").onclick=async()=>{
+ const media=S.items[S.viewer];
+ if(!S.folder?.personal||media?.kind!=="photo"||!media.thumb)return;
+ const folder=S.folder;
+ try{
+  await api("personal-set-cover",{personal_folder:folder.id,media:media.id});
+  await refresh(true);
+  notice("Esta foto es ahora la portada de "+folder.name+".");
+ }catch(e){notice(e.message);}
+};
 let touchStart=null,lastDistance=0,scale=1;
 const stage=$("viewer-stage");
 stage.addEventListener("touchstart",e=>{
