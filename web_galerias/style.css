@@ -207,3 +207,31 @@
 }
 #new-cover-status{min-height:1.3em;line-height:1.35;margin:5px 0 12px}
 #new-cover{cursor:pointer}
+
+
+/* Filtro de galería accesible en Swiftgram/Telegram iOS.
+   Todos los controles editables quedan debajo del buscador. */
+#album .album-topbar{justify-content:center}
+#album .album-heading{text-align:center}
+#album .album-filter-bar{
+  position:relative;z-index:20;
+  display:flex;justify-content:flex-end;align-items:center;
+  margin:0 17px 12px;
+  min-height:48px;
+}
+#album .album-filter-bar .filter-wrap{position:relative;z-index:21}
+#album .album-filter-bar .filter-toggle{
+  min-height:48px;min-width:142px;
+  padding:10px 14px;font-size:13px;
+  white-space:nowrap;touch-action:manipulation;
+}
+#album .album-filter-bar .filter-menu{
+  position:absolute;top:calc(100% + 6px);right:0;
+  width:185px;z-index:22;
+}
+#album .album-filter-bar .filter-menu button{
+  min-height:48px;touch-action:manipulation;
+}
+#album .folder-drop-tray{
+  position:relative;top:auto;z-index:auto;
+}
