@@ -248,6 +248,23 @@ class BackgroundPanelSearch:
         else:raise ValueError('Acción de búsqueda no válida.')
         return await self.status(actor,version,job_id)
 
+    async def clear(self,actor,version):
+        """Dismiss only this administrator's search history/results, never sessions.
+
+        A concurrent search worker may finish its current read-only page; its
+        checkpoint will then find no job and stop. Search hits cascade away.
+        """
+        if not authorized(actor):raise web.HTTPForbidden()
+        if not getattr(self.s.repo,'pool',None):
+            raise ValueError('El servicio todavía no está disponible.')
+        async with self.s.repo.pool.acquire() as conn,conn.transaction():
+            await conn.execute('SELECT pg_advisory_xact_lock($1,$2)',
+                               int(self.s.bot_id)%2000000000,int(actor)%2000000000)
+            await conn.execute(
+                'DELETE FROM descarga_panel_search_jobs WHERE bot_id=$1 AND actor=$2',
+                self.s.bot_id,actor)
+        return {'job':None}
+
     async def results(self,actor,version,job_id,after=0):
         row=await self.owned(actor,version,job_id)
         if not row:raise ValueError('Búsqueda no encontrada.')
