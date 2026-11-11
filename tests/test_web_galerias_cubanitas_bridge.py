@@ -216,10 +216,10 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 _CUSTOMER_BOT_UID.reset(token)
 
-    async def test_signed_customer_bot_only_original_four_pilot_ids(self):
+    async def test_signed_customer_bot_only_five_pilot_ids(self):
         from web_galerias.core import _CUSTOMER_BOT_UID,customer_bot_signed
         with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":"7536216348"}):
-            for uid in (1609522430,5662710947,7536216348,7539025033):
+            for uid in (1609522430,5662710947,7536216348,7539025033,8129084202):
                 token=_CUSTOMER_BOT_UID.set(uid)
                 try:self.assertTrue(customer_bot_signed(uid))
                 finally:_CUSTOMER_BOT_UID.reset(token)
@@ -232,7 +232,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
         js=(Path(__file__).resolve().parents[1]/"web_galerias"/"app.js").read_text()
         self.assertNotIn("Compra segura mediante Stripe",js)
         self.assertNotIn("La compra se habilitará cuando Stripe esté configurado",js)
-        self.assertIn('$("intro-notice").classList.toggle("hidden"',js)
+        self.assertIn('$("intro-notice").classList.add("hidden")',js)
 
 
 if __name__ == "__main__":
