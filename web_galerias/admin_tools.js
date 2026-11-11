@@ -2,7 +2,9 @@
 /* Optional CUBANITAS administration and media actions. No changes to app.js billing. */
 (()=>{
  const $=id=>document.getElementById(id);
- const state={folder:null,media:[],next:null,selected:new Set(),usersNext:null,usersLoaded:false,busy:false};
+ const state={folder:null,media:[],next:null,selected:new Set(),usersNext:null,usersLoaded:false,busy:false,
+   userPage:1,userPages:[null],userQuery:"",usersBusy:false,userItems:[],selectedUid:null,
+   folders:[],folderOpened:null,folderNext:null,folderItems:[],mediaBusy:false};
  const fmt=n=>Number(n||0).toLocaleString("es-ES");
 
  function adminRefreshed(admin){
@@ -17,7 +19,7 @@
  function selectionStatus(){
   const n=state.selected.size;
   $("admin-media-selected").textContent=fmt(n)+" archivos seleccionados"+
-    (n>200?" · se procesarán en lotes de 200":"");
+    (n>100?" · máximo 100 por operación":"");
   $("admin-media-delete").disabled=n===0||state.busy;
  }
  function renderAdminMedia(){
@@ -29,6 +31,9 @@
    box.checked=state.selected.has(m.id);
    box.setAttribute("aria-label","Seleccionar "+(m.filename||"archivo"));
    box.onchange=()=>{
+    if(box.checked&&state.selected.size>=100&&!state.selected.has(m.id)){
+     box.checked=false;notice("Puedes seleccionar hasta 100 archivos.");return;
+    }
     if(box.checked)state.selected.add(m.id);else state.selected.delete(m.id);
     card.classList.toggle("selected",box.checked);selectionStatus();
    };
@@ -56,11 +61,13 @@
  async function loadAdminMedia(older=false){
   const folder=Number($("admin-media-folder").value);
   if(!Number.isSafeInteger(folder)||folder<=0){notice("Selecciona una galería.");return;}
+  const query=$("admin-media-query").value.trim();
+  const kind=$("admin-media-kind").value;
   state.folder=folder;
-  if(!older){state.media=[];state.next=null;}
+  if(!older){state.media=[];state.next=null;state.selected.clear();}
   $("admin-media-load").disabled=true;
   try{
-   const result=await api("admin-media-list",{folder,cursor:older?(state.next||0):0});
+   const result=await api("admin-media-list",{folder,cursor:older?(state.next||0):0,query,kind});
    if(folder!==state.folder)return;
    const already=new Set(state.media.map(m=>m.id));
    for(const m of result.items||[])if(!already.has(m.id))state.media.push(m);
@@ -70,31 +77,54 @@
   }catch(e){notice(e.message);}
   finally{$("admin-media-load").disabled=false;}
  }
- async function removeAdminMedia(){
-  const ids=[...state.selected];if(!ids.length)return;
-  const cloud=$("admin-media-r2").checked;
+ async function deleteMediaIds(ids,cloud=false){
+  if(!S.me?.admin||state.mediaBusy)return false;
+  ids=[...new Set(ids)].filter(x=>Number.isSafeInteger(x)&&x>0);
+  if(!ids.length||ids.length>100){notice("Selecciona de 1 a 100 archivos.");return false;}
   const description=cloud?
-    "También se eliminarán sus copias de Cloudflare R2 en segundo plano.":
-    "Sus copias de Cloudflare R2 se conservarán.";
-  if(!confirm("¿Ocultar "+ids.length+" fotos o videos para TODOS los usuarios?\n"+
-              description+"\nLos mensajes originales de Telegram NO se borrarán."))return;
-  if(cloud&&prompt("La eliminación de Cloudflare es irreversible. Escribe ELIMINAR:")!=="ELIMINAR")return;
-  state.busy=true;selectionStatus();
+    "También se borrarán los originales y miniaturas respaldados en Cloudflare R2.":
+    "El respaldo de Cloudflare R2 se conservará.";
+  if(!confirm("¿Eliminar "+ids.length+" archivos de TODAS las galerías de la web?\n"+
+      description+"\nLos mensajes originales de Telegram permanecerán intactos."))return false;
+  if(cloud&&prompt("Borrar los respaldos es irreversible. Escribe ELIMINAR:")!=="ELIMINAR")return false;
+  state.mediaBusy=true;state.busy=true;selectionStatus();
   try{
    let removed=0,queued=0;
-   for(let i=0;i<ids.length;i+=200){
-    const batch=ids.slice(i,i+200);
+   for(let i=0;i<ids.length;i+=100){
+    const batch=ids.slice(i,i+100);
     const result=await api("admin-media-remove",{
-     ids:batch,remove_cloudflare:cloud,confirm:"CONFIRMAR_ELIMINACION"});
+      ids:batch,remove_cloudflare:cloud,confirm:"CONFIRMAR_ELIMINACION"});
     removed+=result.removed||0;queued+=result.cloudflare_queued||0;
-    for(const id of batch)state.selected.delete(id);
+   }
+   const gone=new Set(ids);
+   state.media=state.media.filter(x=>!gone.has(x.id));
+   ids.forEach(id=>{state.selected.delete(id);S.selected.delete(id);});
+   S.items=S.items.filter(x=>!gone.has(x.id));
+   renderAdminMedia();updateSelection();renderItems();
+   if(!$("viewer").classList.contains("hidden")){
+    if(!S.items.length)closeViewer();
+    else {S.viewer=Math.min(S.viewer,S.items.length-1);showViewerMedia();}
    }
    $("admin-media-status").textContent=removed+" archivos eliminados de la web. "+
-     (cloud?queued+" objetos en cola para borrar de Cloudflare R2.":"Respaldo R2 conservado.");
-   if(state.folder)await loadAdminMedia(false);
+      (cloud?queued+" objetos programados para borrarse de R2.":"Respaldo R2 conservado.");
+   closeActions();
+   notice(removed+" archivos eliminados de la web.");
    await loadAdmin();await refresh(true);
-  }catch(e){notice(e.message);}
-  finally{state.busy=false;selectionStatus();}
+   return true;
+  }catch(e){notice(e.message);return false;}
+  finally{state.mediaBusy=false;state.busy=false;selectionStatus();}
+ }
+ function adminDeleteSelection(ids){
+  if(!S.me?.admin||!ids?.length)return;
+  const root=$("media-context-actions");root.replaceChildren();
+  $("media-context-title").textContent="Eliminar "+ids.length+" archivo"+(ids.length===1?"":"s");
+  root.append(choice("Eliminar de la web · conservar Cloudflare",()=>deleteMediaIds(ids,false)));
+  root.append(choice("Eliminar de la web y de Cloudflare R2",()=>deleteMediaIds(ids,true)));
+  $("media-context-sheet").classList.remove("hidden");
+ }
+ async function removeAdminMedia(){
+  const ids=[...state.selected];if(!ids.length)return;
+  await deleteMediaIds(ids,$("admin-media-r2").checked);
  }
  async function activeUsers(older=false){
   const select=$("admin-user-selector");
