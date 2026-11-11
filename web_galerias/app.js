@@ -269,19 +269,80 @@ function openViewer(index){
 }
 function closeViewer(){$("viewer").classList.add("hidden");$("view-video").pause();}
 function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
+function nativeDownload(data){
+ const url=location.origin+data.url;
+ if(tg?.downloadFile&&tg?.isVersionAtLeast?.("8.0")){
+  tg.downloadFile({url,file_name:data.name||"web-galerias.zip"},accepted=>{
+   if(accepted)notice("Descarga solicitada en Telegram. Para guardarla en Fotos, ábrela y elige Guardar.");
+  });
+ }else{
+  const link=document.createElement("a");link.href=url;
+  link.download=data.name||"web-galerias.zip";
+  document.body.append(link);link.click();link.remove();
+  notice("Archivo solicitado. En iPhone puedes guardarlo desde el menú Compartir.");
+ }
+}
+function closeSaveSheet(){
+ $("save-sheet").classList.add("hidden");S.prepared=null;S.saveData=null;
+}
 async function downloadIds(ids){
  if(!ids.length)return;
+ if(ids.some(id=>!S.items.find(x=>x.id===id)?.available))
+  return notice("Espera a que los originales seleccionados estén disponibles.");
  try{
   const data=await api("reserve",{ids});
   S.me.remaining=data.remaining;$("quota-count").textContent=pretty(data.remaining)+" de 100";
   $("quota-fill").style.width=data.remaining+"%";
   S.selected.clear();S.selection=false;updateSelection();renderItems();
-  const target=location.origin+data.url;
-  // En iOS Telegram abre la descarga en el navegador; no cargar videos completos en RAM.
-  if(tg?.openLink)tg.openLink(target);
-  else{const a=document.createElement("a");a.href=target;a.target="_blank";a.rel="noopener";a.click();}
+  S.saveData=data;S.prepared=null;
+  const total=(data.files||[]).reduce((sum,x)=>sum+Number(x.size||0),0);
+  // Web Share sirve para pasar fotos/videos a la hoja nativa de iOS.
+  // Por seguridad de memoria, los vídeos grandes y ZIP usan descarga nativa.
+  if(!navigator.share||!window.File||total>64*1024*1024){
+    nativeDownload(data);S.saveData=null;return;
+  }
+  try{
+   const files=[];
+   for(const entry of data.files){
+    const r=await fetch(entry.url,{cache:"no-store"});
+    if(!r.ok)throw Error("No se pudo preparar el archivo.");
+    const blob=await r.blob();
+    files.push(new File([blob],entry.name,{type:entry.mime||blob.type||
+     "application/octet-stream"}));
+   }
+   if(navigator.canShare&&!navigator.canShare({files})){
+    nativeDownload(data);S.saveData=null;return;
+   }
+   S.prepared=files;
+   $("save-sheet-message").textContent=files.length===1?
+     "Elige Guardar imagen o Guardar video en el menú de tu iPhone. La web no puede escribir en Fotos sin tu autorización.":
+     "Elige Guardar imágenes o Guardar videos en el menú de tu iPhone. Si no aparece, usa la descarga ZIP.";
+   $("save-share").classList.remove("hidden");
+   $("save-sheet").classList.remove("hidden");
+  }catch(e){
+   notice("Usaremos la descarga de Telegram para este archivo.");
+   nativeDownload(data);S.saveData=null;
+  }
  }catch(e){notice(e.message);}
 }
+function openFolderPicker(){
+ if(!S.selected.size)return;
+ const root=$("folder-picker-list");root.replaceChildren();
+ const newFolder=document.createElement("button");newFolder.type="button";
+ newFolder.textContent="＋ Crear carpeta nueva";
+ newFolder.onclick=async()=>{$("folder-picker").classList.add("hidden");await createPersonalFolder();openFolderPicker();};
+ root.append(newFolder);
+ for(const folder of S.personal){
+  const b=document.createElement("button");b.type="button";b.textContent="📁 "+folder.name;
+  b.onclick=async()=>{
+   $("folder-picker").classList.add("hidden");
+   await addToPersonalFolder(folder.id,[...S.selected]);
+  };
+  root.append(b);
+ }
+ $("folder-picker").classList.remove("hidden");
+}
+
 function previewAdmin(){
  if(!S.admin)return;
  const root=$("admin-folders");root.replaceChildren();
@@ -411,7 +472,38 @@ $("enter").onclick=async()=>{
  catch(e){notice(e.message);}
 };
 $("go-intro").onclick=()=>show("intro");
-$("back-library").onclick=()=>{S.folder=null;S.selected.clear();show("library");};
+$("create-personal-folder").onclick=createPersonalFolder;
+$("album-create-folder").onclick=createPersonalFolder;
+$("selection-organize").onclick=openFolderPicker;
+$("folder-picker-cancel").onclick=()=>$("folder-picker").classList.add("hidden");
+$("save-cancel").onclick=closeSaveSheet;
+$("save-native").onclick=()=>{if(S.saveData)nativeDownload(S.saveData);closeSaveSheet();};
+$("save-share").onclick=()=>{
+ if(!S.prepared?.length)return;
+ const files=S.prepared;
+ // Compartir directamente en respuesta al toque para conservar la activación iOS.
+ navigator.share({files}).then(()=>{
+  notice("Menú de Fotos cerrado. Comprueba que hayas elegido guardar.");
+  closeSaveSheet();
+ }).catch(e=>{
+  if(e?.name!=="AbortError")notice("Si Fotos no está disponible, usa Guardar en Archivos.");
+ });
+};
+$("filter-toggle").onclick=()=>{
+ const menu=$("filter-menu");const open=menu.classList.toggle("hidden")===false;
+ $("filter-toggle").setAttribute("aria-expanded",String(open));
+};
+document.querySelectorAll("#filter-menu [data-kind]").forEach(b=>b.onclick=()=>{
+ S.filter=b.dataset.kind;
+ const labels={all:"Mostrar todo",photo:"Solo fotos",video:"Solo videos"};
+ $("filter-toggle").textContent=labels[S.filter]+" ▾";
+ $("filter-menu").classList.add("hidden");
+ $("filter-toggle").setAttribute("aria-expanded","false");
+ S.selected.clear();S.selection=false;updateSelection();loadItems(false);
+});
+$("back-library").onclick=()=>{
+ S.folder=null;S.selected.clear();$("filter-menu").classList.add("hidden");show("library");
+};
 $("load-more").onclick=()=>loadItems(true);
 $("query").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{
   S.search=$("query").value.trim();S.next=null;S.selected.clear();updateSelection();loadItems(false);
