@@ -53,9 +53,12 @@ def media_kind(m):
     return kind,mime
 
 
-async def folder_active(g,folder):
-    return bool(await g.db().fetchval(
-        "SELECT active FROM wg_folders WHERE id=$1",folder))
+async def folder_active(g,folder,uid=None):
+    # El administrador puede cambiar la cuenta sin permitir que una sesión
+    # antigua continúe escribiendo cursores del historial incorrecto.
+    return bool(await g.db().fetchval("""SELECT active AND
+       ($2::bigint IS NULL OR preferred_uid IS NULL OR preferred_uid=$2)
+       FROM wg_folders WHERE id=$1""",folder,uid))
 
 
 async def checkpoint(g, folder=None, phase="esperando", error=""):
@@ -69,7 +72,7 @@ async def checkpoint(g, folder=None, phase="esperando", error=""):
 async def source_free(g,uid,folder,*,now=None):
     if g.closed or os.getenv("GALERIAS_SYNC_ENABLED","0")!="1":
         return False
-    if not await folder_active(g,folder):
+    if not await folder_active(g,folder,uid):
         return False
     queued=await g.db().fetchval("""SELECT EXISTS(
       SELECT 1 FROM descarga_jobs
@@ -158,9 +161,9 @@ async def mark_discovery(g,folder,uid,works,delay=0):
        folder,uid,time.time(),works,time.time()+max(0,delay))
 
 
-async def catalog_batch(g,folder,client,entity,source,limit=90):
+async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
     """Indexa con checkpoint duradero, incluso aunque no haya archivos nuevos."""
-    if not await folder_active(g,folder):raise PauseRequested()
+    if not await folder_active(g,folder,uid):raise PauseRequested()
     rows=[]
     limit=max(10,min(120,int(limit)))
     if not source["complete"]:
@@ -171,7 +174,7 @@ async def catalog_batch(g,folder,client,entity,source,limit=90):
         async for m in client.iter_messages(entity,
               min_id=source["high_water"],reverse=True,limit=limit):
             rows.append(m)
-    if not await folder_active(g,folder):raise PauseRequested()
+    if not await folder_active(g,folder,uid):raise PauseRequested()
     if not rows:
         if not source["complete"]:
             await g.db().execute(
@@ -180,6 +183,7 @@ async def catalog_batch(g,folder,client,entity,source,limit=90):
         return 0
     for m in rows:
         await catalog(g,folder,m)
+    if not await folder_active(g,folder,uid):raise PauseRequested()
     if not source["complete"]:
         await g.db().execute("""UPDATE wg_folders SET scan_cursor=$2,
           high_water=GREATEST(high_water,$3),scan_count=scan_count+$4
@@ -396,7 +400,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
 
             if phase in ("combined","index","prime"):
                 await checkpoint(g,folder,"catalogando")
-                await catalog_batch(g,folder,client,entity,source,limit=scan_size)
+                await catalog_batch(g,folder,client,entity,source,limit=scan_size,uid=uid)
             if catalog_only or phase=="index":
                 await checkpoint(g,folder,"en_espera")
                 return
