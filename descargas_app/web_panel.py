@@ -447,6 +447,10 @@ class TelegramPanel:
                     result=await self.favorites.remove(actor,
                         integer(data.get('account')),int(data.get('source')))
                 return web.json_response(result,headers=HEADERS)
+            if post and op=='search-job-clear':
+                return web.json_response(
+                    await self.background_search.clear(actor,session['version']),
+                    headers=HEADERS)
             if post and op in ('search-job-start','search-job-control'):
                 data=await request.json()
                 if not isinstance(data,dict):raise ValueError('Solicitud de búsqueda no válida.')
