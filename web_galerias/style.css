@@ -340,3 +340,14 @@
   border-bottom:1px solid var(--line);padding:8px 0;margin:0;
 }
 #admin .admin-missing-examples p:last-child{border-bottom:0}
+
+
+/* Totales del origen Telegram: distintos del contenido ya cargado en la web. */
+#admin .admin-gallery-trigger p.admin-origin-count{
+  margin:7px 1px 0;
+  color:var(--text);
+  font-size:11px;
+  line-height:1.45;
+  font-variant-numeric:tabular-nums;
+  overflow-wrap:anywhere;
+}
