@@ -73,3 +73,19 @@
 
 /* Purchased media folder only. */
 .purchase-card{display:grid;gap:12px;padding:16px 0;border-bottom:1px solid #b8c9bf}.purchase-media{display:grid;gap:8px}.purchase-preview{display:block;width:100%;max-height:60vh;object-fit:contain;border-radius:12px}.purchase-card a{overflow-wrap:anywhere}
+
+
+/* Personal favorites: metadata-only folder and small chat-header star. */
+#favorite-toggle{width:36px;height:36px;font-size:29px;color:#d69c00}
+#favorites-open,#favorites-folder{white-space:nowrap;color:#996a00}
+.favorite-categories{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:12px 0}
+.favorite-categories button{min-width:0;border:1px solid #d8e3d5;border-radius:9px;padding:10px 3px;font-size:12px;color:#44634d}
+.favorite-categories button.active{background:#e1f1e4;border-color:#7ab38b;font-weight:600}
+.favorite-entry{display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid #dce6dc}
+.favorite-open{flex:1;min-width:0;text-align:left;padding:5px;border-radius:8px}
+.favorite-open strong,.favorite-open small{display:block;overflow-wrap:anywhere}
+.favorite-open strong{font-size:15px;color:#177bb4}
+.favorite-open small{font-size:12px;color:#677d6c;line-height:1.55}
+.favorite-remove{width:40px;height:40px;flex-shrink:0;border-radius:50%;font-size:26px;color:#daa200;background:#f6f7ed}
+.favorite-remove:disabled{opacity:.5}
+@media(max-width:700px){.conversation header #manage-chat,.conversation header #search-toggle{width:35px;height:35px;font-size:25px}.conversation header #favorite-toggle{width:35px;height:35px;font-size:27px}.conversation header .heading{min-width:0;overflow:hidden}}

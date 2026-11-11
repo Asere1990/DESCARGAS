@@ -114,6 +114,50 @@ class BackgroundSearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(done['state'],'complete')
         self.assertEqual(done['completed'],1)
 
+    async def test_new_search_supersedes_previous_without_touching_session(self):
+        old=(await self.job.begin(111,'0','groups','antigua'))['job']
+        new=(await self.job.begin(111,'0','channels','nueva'))['job']
+        self.assertNotEqual(old['id'],new['id'])
+        previous=(await self.job.status(111,'0',old['id']))['job']
+        self.assertEqual(previous['state'],'superseded')
+        self.assertIsNotNone((await self.repo.account(22))['session'])
+        self.assertEqual((await self.job.status(111,'0'))['job']['id'],new['id'])
+        claimed=await self.job.claim()
+        self.assertEqual(claimed['id'],new['id'])
+
+    async def test_new_search_rolls_back_old_inflight_hits(self):
+        entered=asyncio.Event();release=asyncio.Event()
+        async def pending_page(*args):
+            entered.set()
+            await release.wait()
+            return {'items':[{'id':'-1004','type':'group','name':'Antigua','handle':'opaque'}],
+                    'next':None,'generation':0}
+        self.p.chats.side_effect=pending_page
+        old=(await self.job.begin(111,'0','groups','antigua'))['job']
+        claimed=await self.job.claim()
+        runner=asyncio.create_task(self.job.run_claimed(claimed))
+        await asyncio.wait_for(entered.wait(),2)
+        new=(await self.job.begin(111,'0','channels','nueva'))['job']
+        release.set()
+        await asyncio.wait_for(runner,3)
+        self.assertEqual((await self.job.status(111,'0',old['id']))['job']['state'],'superseded')
+        self.assertEqual((await self.job.status(111,'0',old['id']))['job']['found'],0)
+        self.assertEqual(await self.repo.pool.fetchval(
+            'SELECT count(*) FROM descarga_panel_search_hits WHERE job_id=$1',old['id']),0)
+        self.assertEqual((await self.job.status(111,'0'))['job']['id'],new['id'])
+
+    async def test_old_search_expires_without_opening_a_telegram_session(self):
+        import time
+        self.p.chats.return_value={'items':[],'next':None,'generation':0}
+        started=(await self.job.begin(111,'0','groups',''))['job']
+        await self.repo.pool.execute('UPDATE descarga_panel_search_jobs SET created=$2 WHERE id=$1',
+                                     started['id'],time.time()-search.MAX_SEARCH_SECONDS-1)
+        claimed=await self.job.claim()
+        await self.job.run_claimed(claimed)
+        self.assertEqual((await self.job.status(111,'0'))['job']['state'],'expired')
+        self.p.chats.assert_not_awaited()
+        self.assertIsNotNone((await self.repo.account(22))['session'])
+
     async def test_pause_inflight_leaves_an_atomic_checkpoint_for_resume(self):
         entered=asyncio.Event();release=asyncio.Event()
         async def read_page(*args):
