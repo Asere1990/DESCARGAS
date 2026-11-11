@@ -44,7 +44,8 @@ def cleaned_design(value):
                 raise web.HTTPBadRequest(text="Color inválido.")
             result[key]=val
         elif key in CHOICES:
-            if val not in CHOICES[key]:raise web.HTTPBadRequest(text="Opción inválida.")
+            if not isinstance(val,str) or val not in CHOICES[key]:
+                raise web.HTTPBadRequest(text="Opción inválida.")
             result[key]=val
     return result
 
