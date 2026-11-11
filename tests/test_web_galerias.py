@@ -14,7 +14,7 @@ from aiohttp import web
 from web_galerias.permissions import is_admin,is_tester,pilot_allowed,button_visible
 from web_galerias.admin import cleaned_design,admin_op,upload as admin_upload
 from web_galerias.downloads import temporary_link,validate_link,safe_filename
-from web_galerias.personal import folder_name,media_filter,items as personal_items
+from web_galerias.personal import folder_name,media_filter,items as personal_items,operation as personal_operation
 from web_galerias.core import DEFAULTS,normal,identifier,GalleryCore
 from web_galerias.covers import optimized_cover,temporary_cover,serve,MAX_UPLOAD
 
@@ -101,6 +101,38 @@ class PersonalFoldersTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(web.HTTPForbidden):
             await personal_items(g,12345,777,"",0,"all",lambda *x:"")
         pool.fetch.assert_not_awaited()
+
+    async def test_10_selected_files_are_saved_in_one_personal_folder_operation(self):
+        ids=list(range(1,11))
+        @asynccontextmanager
+        async def transaction():
+            yield
+        conn=SimpleNamespace(
+            fetchval=AsyncMock(return_value=1),
+            fetch=AsyncMock(return_value=[{"id":item} for item in ids]),
+            executemany=AsyncMock(),transaction=transaction)
+        @asynccontextmanager
+        async def acquire():
+            yield conn
+        pool=SimpleNamespace(acquire=acquire)
+        g=SimpleNamespace(db=lambda:pool)
+        with patch("web_galerias.permissions.is_admin",return_value=False):
+            result=await personal_operation(g,123456789,"personal-add",
+                 {"personal_folder":50,"ids":ids})
+        self.assertEqual(result,{"ok":True,"count":10})
+        self.assertIn("ON CONFLICT(folder,media) DO NOTHING",
+                      conn.executemany.await_args.args[0])
+        sent=conn.executemany.await_args.args[1]
+        self.assertEqual([row[2] for row in sent],ids)
+        self.assertEqual({row[1] for row in sent},{50})
+
+    async def test_more_than_10_personal_files_are_rejected_before_database_access(self):
+        db=SimpleNamespace(acquire=AsyncMock())
+        g=SimpleNamespace(db=lambda:db)
+        with self.assertRaises(web.HTTPBadRequest):
+            await personal_operation(g,123456789,"personal-add",
+                 {"personal_folder":50,"ids":list(range(1,12))})
+        db.acquire.assert_not_awaited()
 
     def test_save_links_are_short_lived_and_purpose_bound(self):
         g=type("G",(),{"s":FakeService()})()
