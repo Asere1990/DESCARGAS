@@ -155,6 +155,8 @@ async function refresh(lite=false){
  $("stat-videos").textContent=pretty(S.me.videos);
  $("quota-count").textContent=pretty(S.me.remaining)+" de 100";
  $("quota-fill").style.width=(S.me.remaining)+"%";
+ // The private introduction never discloses payment provider details.
+ $("intro-notice").classList.add("hidden");
  if(!S.me.allowed){
   if(S.me.checkout_enabled){
    $("enter").textContent="COMPRAR MEMBRESÍA";
