@@ -540,6 +540,7 @@ function showViewerMedia(){
   }
   const canCover=!!(S.folder?.personal&&m.kind==="photo"&&m.thumb);
   $("viewer-set-cover").classList.toggle("hidden",!canCover);
+  document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
