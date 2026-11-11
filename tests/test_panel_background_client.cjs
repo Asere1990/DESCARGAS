@@ -34,7 +34,7 @@ function setup(){
    if(op==='search-job-status')return {job};
    if(op.startsWith('search-job-results?'))return nextResult;
    if(op==='search-job-control'){
-    job={...job,state:data.action==='pause'?'paused':'queued'};
+    job={...job,state:data.action==='pause'?'paused':data.action==='cancel'?'cancelled':'queued'};
     return {job};
    }
    throw Error('Unexpected API: '+op);
@@ -53,7 +53,7 @@ test('starting search uses server API, not browser-only full scan',async()=>{
  assert.deepEqual(JSON.parse(JSON.stringify(s.requests[0].data)),{mode:'phrases',query:'casa'});
  assert.match(s.$('accounts-progress').textContent,/0\/3 cuentas activas/);
  assert.equal(s.$('cancel-account-search').hidden,false);
- assert.equal(s.$('cancel-account-search').textContent,'Pausar búsqueda');
+ assert.equal(s.$('cancel-account-search').textContent,'Detener búsqueda');
 });
 
 test('leaving the app never sends pause; returning restores progress and saved results',async()=>{
@@ -70,17 +70,15 @@ test('leaving the app never sends pause; returning restores progress and saved r
  assert.equal(s.requests.some(r=>r.op==='search-job-control'),false);
 });
 
-test('only an explicit pause click suspends job and reappear resumes it',async()=>{
+test('stop button cancels active job without leaving a zombie search',async()=>{
  const s=setup();
  await s.ctx.startPersistentSearch();
  await s.$('cancel-account-search').onclick();
- const pause=s.requests.find(r=>r.op==='search-job-control'&&r.data.action==='pause');
- assert.ok(pause,'Pause must call the server control endpoint');
- assert.match(s.$('accounts-progress').textContent,/Búsqueda pausada por ti/);
- assert.equal(s.$('continue-account-search').hidden,false);
- await s.$('continue-account-search').onclick();
- assert.equal(s.requests.at(-1).data.action,'resume');
- assert.equal(s.$('cancel-account-search').hidden,false);
+ const stop=s.requests.find(r=>r.op==='search-job-control'&&r.data.action==='cancel');
+ assert.ok(stop,'Stop must call the server cancel endpoint');
+ assert.match(s.$('accounts-progress').textContent,/Búsqueda detenida/);
+ assert.equal(s.$('continue-account-search').hidden,true);
+ assert.equal(s.$('cancel-account-search').hidden,true);
 });
 
 test('page reload retrieves the existing search job instead of starting another',async()=>{
