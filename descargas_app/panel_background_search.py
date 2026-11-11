@@ -50,6 +50,10 @@ LOG=logging.getLogger(__name__)
 MODES = frozenset(('phrases','name','id','username','phone','country',
                    'channels','channel_id','groups','group_id','bots'))
 ENTITIES = frozenset(('channels','channel_id','groups','group_id','bots'))
+# Old completed/paused searches must not reappear for days on the next login.
+# Also cap abandoned live searches so they cannot consume Telegram sessions forever.
+FINISHED_TTL = 30 * 60
+ACTIVE_MAX_AGE = 2 * 60 * 60
 
 
 def fold(value):
@@ -120,6 +124,22 @@ class BackgroundPanelSearch:
     def checkpoint(self,row):
         return self.s.repo.decode(row['checkpoint'])
 
+    @staticmethod
+    def expired(row,now=None):
+        now=time.time() if now is None else now
+        if row['state'] in ('queued','running','waiting'):
+            return now-float(row['created'])>ACTIVE_MAX_AGE
+        return now-float(row['updated'])>FINISHED_TTL
+
+    async def purge_old(self):
+        """Only search checkpoints and hits; account sessions are untouched."""
+        now=time.time()
+        return await self.s.repo.pool.execute(
+            """DELETE FROM descarga_panel_search_jobs WHERE bot_id=$1
+                 AND ((state IN ('complete','incomplete','paused') AND updated<$2)
+                   OR (state IN ('queued','running','waiting') AND created<$3))""",
+            self.s.bot_id,now-FINISHED_TTL,now-ACTIVE_MAX_AGE)
+
     async def owned(self,actor,version,job_id=''):
         if not authorized(actor):raise web.HTTPForbidden()
         if not getattr(self.s.repo,'pool',None):raise ValueError('El servicio todavía no está disponible.')
@@ -158,12 +178,15 @@ class BackgroundPanelSearch:
         if mode not in ENTITIES and not query:raise ValueError('Escribe un texto para buscar.')
         if mode in ('channel_id','group_id') and (not query.lstrip('-').isdigit()):
             raise ValueError('Introduce el ID completo del canal o grupo.')
+        # One search per administrator. Close the previous search (including
+        # its saved results) BEFORE loading accounts, so its Telegram scanner
+        # cannot compete with the new request.
         row=await self.owned(actor,version)
-        if row and row['state'] in ('queued','running','waiting'):
-            old=self.checkpoint(row)
-            if row['mode']==mode and old.get('query')==query:
-                return {'job':self.summary(row)}
-            raise ValueError('Hay una búsqueda en curso. Entra al panel y pulsa Pausar antes de iniciar otra.')
+        if row:
+            await self.s.repo.pool.execute(
+                """DELETE FROM descarga_panel_search_jobs
+                   WHERE id=$1 AND bot_id=$2 AND actor=$3 AND access_version=$4""",
+                row['id'],self.s.bot_id,actor,version)
         accounts=await self.active_accounts(actor)
         if not authorized(actor):raise web.HTTPForbidden()
         now=time.time()
@@ -175,10 +198,12 @@ class BackgroundPanelSearch:
             # from two browser tabs starting searches at nearly the same time.
             await conn.execute('SELECT pg_advisory_xact_lock($1,$2)',
                                int(self.s.bot_id)%2000000000,int(actor)%2000000000)
-            existing=await conn.fetchval("""SELECT id FROM descarga_panel_search_jobs
-                WHERE bot_id=$1 AND actor=$2 AND state IN ('queued','running','waiting') LIMIT 1""",
-                self.s.bot_id,actor)
-            if existing:raise ValueError('Ya tienes una búsqueda en curso.')
+            # Another tab might have started a job while account scope was
+            # being loaded. Last explicit search wins atomically.
+            await conn.execute(
+                """DELETE FROM descarga_panel_search_jobs
+                   WHERE bot_id=$1 AND actor=$2 AND access_version=$3""",
+                self.s.bot_id,actor,version)
             await conn.execute(
                 """INSERT INTO descarga_panel_search_jobs
                    (id,bot_id,actor,access_version,mode,state,checkpoint,total,
@@ -202,10 +227,26 @@ class BackgroundPanelSearch:
 
     async def status(self,actor,version,job_id=''):
         row=await self.owned(actor,version,job_id)
+        if row and self.expired(row):
+            await self.s.repo.pool.execute(
+                """DELETE FROM descarga_panel_search_jobs
+                   WHERE id=$1 AND bot_id=$2 AND actor=$3 AND access_version=$4""",
+                row['id'],self.s.bot_id,actor,version)
+            return {'job':None}
         return {'job':self.summary(row) if row else None}
 
     async def control(self,actor,version,job_id,action):
         row=await self.owned(actor,version,job_id)
+        if action=='close':
+            # A closed/expired job is already clean. Old browser tabs cannot
+            # delete a newer job because the exact job ID is required.
+            if not job_id:raise ValueError('Identificador de búsqueda obligatorio.')
+            if row:
+                await self.s.repo.pool.execute(
+                    """DELETE FROM descarga_panel_search_jobs
+                       WHERE id=$1 AND bot_id=$2 AND actor=$3 AND access_version=$4""",
+                    row['id'],self.s.bot_id,actor,version)
+            return {'job':None}
         if not row:raise ValueError('La búsqueda ya no existe.')
         if action=='pause':
             await self.s.repo.pool.execute(
@@ -364,6 +405,13 @@ class BackgroundPanelSearch:
     async def run_claimed(self,row):
         data=self.checkpoint(row)
         while True:
+            if time.time()-float(row['created'])>ACTIVE_MAX_AGE:
+                # Stop an abandoned scan even without a connected browser.
+                await self.s.repo.pool.execute(
+                    """DELETE FROM descarga_panel_search_jobs
+                       WHERE id=$1 AND bot_id=$2 AND actor=$3""",
+                    row['id'],self.s.bot_id,row['actor'])
+                return
             fresh=await self.s.repo.pool.fetchrow(
                 'SELECT state,owner,access_version FROM descarga_panel_search_jobs WHERE id=$1',row['id'])
             if not fresh or fresh['state']!='running' or fresh['owner']!=self.owner:return
@@ -392,10 +440,14 @@ class BackgroundPanelSearch:
             await asyncio.sleep(0.6)
 
     async def loop(self):
+        last_cleanup=0.0
         while True:
             try:
                 if not self.s.ready or not getattr(self.s.repo,'pool',None):
                     await asyncio.sleep(2);continue
+                if time.monotonic()-last_cleanup>120:
+                    await self.purge_old()
+                    last_cleanup=time.monotonic()
                 row=await self.claim()
                 if row:await self.run_claimed(row)
                 else:await asyncio.sleep(2)
