@@ -31,16 +31,22 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
         for hidden in ("pending","complete","error","peer","source_uid"):
             self.assertNotIn(hidden,folder)
 
-    async def test_free_tester_matches_paying_customer_exactly(self):
-        # La autorización puede provenir de acceso.txt o del pago, pero una vez
-        # autorizado el cliente recibe idénticos datos, cuotas y carpetas.
+    async def test_free_tester_gets_only_intended_extra_privileges(self):
+        # All gallery data remains identical. Only the expressly requested
+        # unlimited quota and watermark-exempt free flag may differ.
         core,db=self.make_core()
         core.folder_list=AsyncMock(side_effect=lambda uid:[{
             "id":7,"name":"Fotos públicas de Cuba","photos":4,"videos":0,
             "pending":550,"complete":False,"error":"RateLimit"}])
         pilot_user=await core.bootstrap(5662710947)
         paying_user=await core.bootstrap(1600000000)
-        self.assertEqual(pilot_user,paying_user)
+        common=lambda d:{k:v for k,v in d.items()
+                         if k not in ("free_access","quota_unlimited")}
+        self.assertEqual(common(pilot_user),common(paying_user))
+        self.assertTrue(pilot_user["free_access"])
+        self.assertTrue(pilot_user["quota_unlimited"])
+        self.assertFalse(paying_user["free_access"])
+        self.assertFalse(paying_user["quota_unlimited"])
         self.assertNotIn("tester",pilot_user)
         self.assertTrue(pilot_user["allowed"])
         self.assertFalse(pilot_user["admin"])
