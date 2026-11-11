@@ -241,8 +241,12 @@ async def admin_op(g,uid,op,data):
         if row:
             await db.execute("""UPDATE wg_discovery SET next_after=0
               WHERE folder=$1 AND uid=$2""",folder,account_uid)
-            # Elimina solo el cursor de exploración. Los originales ya guardados
-            # y las referencias públicas permanecen en R2 y en wg_media.
+            # Los mensajes previamente no recuperables con la cuenta anterior
+            # merecen una nueva oportunidad. Nunca se alteran las copias ready.
+            await db.execute("""UPDATE wg_media SET state='pending',
+              source_checks=0,attempts=0,available=0,
+              error='revalidar_con_nueva_cuenta'
+              WHERE folder=$1 AND state='missing'""",folder)
             await g.log(uid,op)
         return {"ok":True,"changed":bool(row),"account_uid":account_uid}
     if op=="admin-folder-cover-remove":
