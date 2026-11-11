@@ -14,6 +14,7 @@ from pathlib import Path
 from telethon import errors, types
 from PIL import Image, ImageOps
 from .core import normal
+from .media_types import classify
 
 log=logging.getLogger("web-galerias-sync")
 EXTRA="""
@@ -47,11 +48,9 @@ class PauseRequested(Exception):
 
 
 def media_kind(m):
-    if getattr(m,"photo",None):return "photo","image/jpeg"
-    doc=getattr(m,"document",None)
-    mime=str(getattr(doc,"mime_type","") or "")
-    if mime.startswith("video/"):return "video",mime
-    return None,None
+    """Mantener la firma anterior para los consumidores del sincronizador."""
+    kind,mime,_=classify(m)
+    return kind,mime
 
 
 async def folder_active(g,folder):
@@ -208,8 +207,14 @@ async def preview_one(g,folder,item,message,client,guard):
                 selected=next((i for i,size in enumerate(sizes)
                                if int(getattr(size,"w",0) or 0)>=320),None)
                 index=selected if selected is not None else (len(sizes)-1 if sizes else 0)
-                result=await client.download_media(message,
-                    file=str(temporary/"preview"),thumb=index)
+                # Un documento video/GIF sin miniatura no debe descargar el
+                # video completo en la fase prioritaria de vistas previas.
+                if sizes or (item["kind"]=="photo"
+                             and int(getattr(source,"size",0) or 0)<=8*1024*1024):
+                    result=await client.download_media(message,
+                        file=str(temporary/"preview"),thumb=index if sizes else None)
+                else:
+                    result=None
                 await guard()
                 if result and Path(result).is_file():
                     with Image.open(result) as photo:
@@ -244,6 +249,51 @@ async def media_retry(g,folder,message,exc):
          "SELECT COALESCE(attempts,0) FROM wg_media WHERE folder=$1 AND message=$2",
          folder,message) or 0))),
       type(exc).__name__)
+
+
+async def inspect_source(g,folder,item,message):
+    """No confundir un fallo temporal, un formato nuevo o una protección con un borrado.
+
+    Devuelve True si el archivo puede procesarse ahora. Reintenta los ausentes
+    hasta tres veces, con separación; nunca borra datos de R2.
+    """
+    expected=item["kind"]
+    old_mime=item["mime"]
+    state=item["state"]
+    current=classify(message) if message else (None,None,None)
+    kind,mime,source_type=current
+    if message and (getattr(message,"noforwards",False)
+                    or getattr(message,"ttl_period",None)
+                    or getattr(getattr(message,"media",None),"ttl_seconds",None)):
+        await g.db().execute("""UPDATE wg_media SET state='skipped',
+           error='protected_or_temporary' WHERE folder=$1 AND message=$2
+           AND state=$3""",folder,item["message"],state)
+        return False
+    if not kind:
+        count=max(0,int(item["source_checks"] or 0))+1
+        reason="message_absent" if not message else "media_removed"
+        confirmed=count>=3
+        next_state="missing" if confirmed else state
+        next_error=reason+"_after_rechecks" if confirmed else reason+"_pending_recheck"
+        # Al haber varios miles, nunca hacer las tres comprobaciones seguidas.
+        wait=0 if confirmed else (300 if count==1 else 1800)
+        await g.db().execute("""UPDATE wg_media SET state=$4,
+          error=$5,source_checks=$6,available=$7
+          WHERE folder=$1 AND message=$2 AND state=$3""",
+          folder,item["message"],state,next_state,next_error,count,time.time()+wait)
+        return False
+    if kind!=expected or mime!=old_mime:
+        await g.db().execute("""UPDATE wg_media SET kind=$4,mime=$5,
+           source_type=$6,source_checks=0,available=0,state='pending',
+           error='tipo_actualizado'
+           WHERE folder=$1 AND message=$2 AND state=$3""",
+           folder,item["message"],state,kind,mime,source_type)
+        return False
+    if item["source_type"]!=source_type or item["source_checks"]:
+        await g.db().execute("""UPDATE wg_media SET source_type=$3,
+           source_checks=0,error=CASE WHEN source_checks>0 THEN '' ELSE error END
+           WHERE folder=$1 AND message=$2""",folder,item["message"],source_type)
+    return True
 
 
 async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,phase="combined"):
@@ -284,18 +334,15 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             if phase in ("combined","preview","prime"):
                 for _ in range(batch):
                     await guard()
-                    item=await g.db().fetchrow("""SELECT message,kind,mime,size
+                    item=await g.db().fetchrow("""SELECT message,kind,mime,size,filename,
+                         attempts,source_checks,source_type,'pending'::text AS state
                        FROM wg_media WHERE folder=$1 AND state='pending'
                          AND available<=$2 ORDER BY id DESC LIMIT 1""",
                          folder,time.time())
                     if not item:break
                     m=await client.get_messages(entity,ids=item["message"])
                     await guard()
-                    if not m or media_kind(m)[0]!=item["kind"] or getattr(m,"noforwards",False):
-                        await g.db().execute("""UPDATE wg_media SET state='missing',
-                           error='no_disponible_en_origen'
-                           WHERE folder=$1 AND message=$2 AND state='pending'""",
-                           folder,item["message"])
+                    if not await inspect_source(g,folder,item,m):
                         continue
                     await checkpoint(g,folder,"preparando_vistas_previas")
                     try:
@@ -308,7 +355,8 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             if phase in ("combined","archive"):
                 for _ in range(batch):
                     await guard()
-                    item=await g.db().fetchrow("""SELECT message,kind,mime,size
+                    item=await g.db().fetchrow("""SELECT message,kind,mime,size,filename,
+                         attempts,source_checks,source_type,'preview'::text AS state
                        FROM wg_media WHERE folder=$1 AND state='preview'
                          AND available<=$2
                          ORDER BY CASE WHEN kind='photo' THEN 0 ELSE 1 END,
@@ -316,11 +364,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
                     if not item:break
                     m=await client.get_messages(entity,ids=item["message"])
                     await guard()
-                    if not m or media_kind(m)[0]!=item["kind"] or getattr(m,"noforwards",False):
-                        await g.db().execute("""UPDATE wg_media SET state='missing',
-                           error='no_disponible_en_origen'
-                           WHERE folder=$1 AND message=$2 AND state='preview'""",
-                           folder,item["message"])
+                    if not await inspect_source(g,folder,item,m):
                         continue
                     await checkpoint(g,folder,"respaldando")
                     try:
@@ -372,21 +416,12 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
 
 
 async def catalog(g,folder,m):
-    if getattr(m,"noforwards",False) or getattr(m,"ttl_period",None) or getattr(getattr(m,"media",None),"ttl_seconds",None):
+    """Guardar solo multimedia y sus captions: nunca indexar conversaciones."""
+    if (getattr(m,"noforwards",False) or getattr(m,"ttl_period",None)
+        or getattr(getattr(m,"media",None),"ttl_seconds",None)):
         return
-    db=g.db()
-    kind,mime=media_kind(m)
+    kind,mime,source_type=classify(m)
     if not kind:
-        reply=getattr(getattr(m,"reply_to",None),"reply_to_msg_id",None)
-        content=normal(getattr(m,"message","") or "")
-        if reply and content:
-            await db.execute("""INSERT INTO wg_replies(folder,parent_message,reply_message,words)
-              VALUES($1,$2,$3,$4) ON CONFLICT(folder,reply_message)
-              DO UPDATE SET words=excluded.words""",folder,reply,m.id,content[:1000])
-            # Only index the relation; comment text never exposed as chat.
-            await db.execute("""UPDATE wg_media SET search_text=left(search_text||' '||$3,4000)
-              WHERE folder=$1 AND message=$2 AND position($3 in search_text)=0""",
-              folder,reply,content[:1000])
         return
     caption=str(getattr(m,"message","") or "")[:1500]
     doc=getattr(m,"document",None)
@@ -394,29 +429,53 @@ async def catalog(g,folder,m):
     filename="video.mp4" if kind=="video" else "foto.jpg"
     attrs=getattr(doc,"attributes",[]) or []
     for attr in attrs:
-        if hasattr(attr,"file_name"):
+        if getattr(attr,"file_name",None):
             filename=str(attr.file_name)[:110]
+            break
+    if source_type=="gif" and mime=="image/gif" and filename=="video.mp4":
+        filename="animacion.gif"
+    if source_type=="photo_file" and filename=="foto.jpg":
+        extension={"image/png":".png","image/webp":".webp",
+                   "image/heic":".heic","image/avif":".avif"}.get(mime,".jpg")
+        filename="foto"+extension
     reply=getattr(getattr(m,"reply_to",None),"reply_to_msg_id",None)
     grouped=str(m.grouped_id) if getattr(m,"grouped_id",None) else None
-    other=await db.fetchval("""SELECT string_agg(words,' ') FROM wg_replies
-      WHERE folder=$1 AND parent_message=$2""",folder,m.id) or ""
-    await db.execute("""INSERT INTO wg_media(
+    await g.db().execute("""INSERT INTO wg_media(
       folder,message,kind,mime,filename,width,height,size,date,label,search_text,
-      reply_to,grouped,created)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      ON CONFLICT(folder,message) DO NOTHING""",
+      reply_to,grouped,created,source_type)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      ON CONFLICT(folder,message) DO UPDATE SET
+        source_type=excluded.source_type,
+        kind=CASE WHEN wg_media.state='ready' THEN wg_media.kind
+             ELSE excluded.kind END,
+        mime=CASE WHEN wg_media.state='ready' THEN wg_media.mime
+             ELSE excluded.mime END,
+        filename=CASE WHEN wg_media.state='ready' THEN wg_media.filename
+             ELSE excluded.filename END,
+        label=CASE WHEN wg_media.state='ready' THEN wg_media.label
+             ELSE excluded.label END,
+        search_text=CASE WHEN wg_media.state='ready' THEN wg_media.search_text
+             ELSE excluded.search_text END
+      WHERE wg_media.source_type='' OR wg_media.state IN ('pending','missing')""",
       folder,m.id,kind,mime,filename,0,0,size,
       m.date.timestamp() if m.date else time.time(),
-      caption,normal(caption+" "+other)[:4000],reply,grouped,time.time())
-
+      caption,normal(caption)[:4000],reply,grouped,time.time(),source_type)
 
 
 async def backup_one(g,folder,item,message,client,guard):
-    """Idempotente: guarda original + miniatura y después marca ready en DB."""
+    """Respaldo íntegro y verificable, sin modificar el formato original."""
     await guard()
     kind=item["kind"]
     mime=item["mime"] or ("image/jpeg" if kind=="photo" else "video/mp4")
-    ending=".jpg" if kind=="photo" else (".mov" if mime=="video/quicktime" else ".mp4")
+    if kind=="video" and mime=="image/gif":
+        from .gif_backup import backup_gif
+        return await backup_gif(g,folder,item,message,client,guard)
+    extensions={"image/jpeg":".jpg","image/png":".png","image/webp":".webp",
+      "image/bmp":".bmp","image/heic":".heic","image/heif":".heif",
+      "image/avif":".avif","video/quicktime":".mov",
+      "video/webm":".webm","video/x-matroska":".mkv",
+      "video/x-msvideo":".avi","video/x-m4v":".m4v","video/3gpp":".3gp"}
+    ending=extensions.get(mime,".jpg" if kind=="photo" else ".mp4")
     key=f"folders/{folder}/{message.id}/original{ending}"
     thumb_key=f"folders/{folder}/{message.id}/thumb.jpg"
 
@@ -427,54 +486,57 @@ async def backup_one(g,folder,item,message,client,guard):
         known_size==0 or original_size==known_size)
     if original_valid and thumb_size:
         await g.db().execute("""UPDATE wg_media SET state='ready',
-          file_key=$3,thumb_key=$4,size=$5,error=''
+          file_key=$3,thumb_key=$4,size=$5,error='',source_checks=0
           WHERE folder=$1 AND message=$2 AND state IN ('preview','pending')""",
           folder,message.id,key,thumb_key,original_size)
         return
 
-    # Las fotos se descargan a temporal para crear miniaturas de alta calidad.
-    # Video: streaming multiparte de Telegram a R2, con memoria < 16 MiB.
     with tempfile.TemporaryDirectory(prefix="wg-") as tmp:
         tmp=Path(tmp)
         thumb=tmp/"thumb.jpg"
         if kind=="photo" and not original_valid:
-            image_path=tmp/"original.jpg"
-            async def progress(_, total):
+            image_path=tmp/("original"+ending)
+            async def progress(_,total):
                 await guard()
-            await client.download_media(message,file=str(image_path),
-                                        progress_callback=progress)
-            if not image_path.is_file() or image_path.stat().st_size==0:
+            returned=await client.download_media(message,file=str(image_path),
+                                                  progress_callback=progress)
+            image_path=Path(returned) if returned else image_path
+            if not image_path.is_file() or image_path.stat().st_size<=0:
                 raise ValueError("Imagen incompleta")
-            with Image.open(image_path) as photo:
-                photo=ImageOps.exif_transpose(photo)
-                photo.thumbnail((640,640))
-                if photo.mode!="RGB":photo=photo.convert("RGB")
-                photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            try:
+                with Image.open(image_path) as photo:
+                    photo=ImageOps.exif_transpose(photo)
+                    photo.thumbnail((640,640))
+                    if photo.mode!="RGB":photo=photo.convert("RGB")
+                    photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            except (OSError,ValueError) as exc:
+                # No bloquear respaldo de HEIC/AVIF si Pillow no trae decoder.
+                log.info("Photo document thumbnail skipped (%s)",type(exc).__name__)
             await guard()
             await g.storage.upload(image_path,key,mime)
             original_size=image_path.stat().st_size
         elif kind=="video" and not original_valid:
-            # Sin archivo temporal gigantesco ni duplicar el original en memoria.
+            # Los videos se transmiten a R2 por partes sin cargar todo en RAM.
             parts=client.iter_download(message.media,request_size=512*1024)
-            original_size=await g.storage.upload_stream(
-                parts,key,mime,check=guard)
+            original_size=await g.storage.upload_stream(parts,key,mime,check=guard)
 
-        # Miniatura de foto si ya existía el original R2 pero faltaba el thumbnail:
-        # descargar la foto de Telegram solo en ese caso.
         if kind=="photo" and not thumb.is_file() and not thumb_size:
-            image_path=tmp/"source.jpg"
+            image_path=tmp/("source"+ending)
             await guard()
-            async def progress(_, total):
+            async def progress(_,total):
                 await guard()
-            await client.download_media(message,file=str(image_path),
-                                        progress_callback=progress)
-            with Image.open(image_path) as photo:
-                photo=ImageOps.exif_transpose(photo)
-                photo.thumbnail((640,640))
-                if photo.mode!="RGB":photo=photo.convert("RGB")
-                photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            returned=await client.download_media(message,file=str(image_path),
+                                                  progress_callback=progress)
+            image_path=Path(returned) if returned else image_path
+            try:
+                with Image.open(image_path) as photo:
+                    photo=ImageOps.exif_transpose(photo)
+                    photo.thumbnail((640,640))
+                    if photo.mode!="RGB":photo=photo.convert("RGB")
+                    photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            except (OSError,ValueError) as exc:
+                log.info("Photo document thumbnail skipped (%s)",type(exc).__name__)
         if kind=="video" and not thumb_size:
-            # Usar la mayor miniatura disponible en Telegram, sin bajar el video 2 veces.
             try:
                 preview=await client.download_media(
                     message,file=str(tmp/"video_preview"),thumb=-1)
@@ -494,11 +556,10 @@ async def backup_one(g,folder,item,message,client,guard):
             thumb_size=thumb.stat().st_size
 
     await guard()
-    # Las copias ya terminadas permanecen en R2 aunque después se oculte la carpeta.
     await g.db().execute("""UPDATE wg_media SET state='ready',file_key=$3,
-      thumb_key=$4,size=$5,error='' WHERE folder=$1 AND message=$2
-      AND state IN ('preview','pending')""",folder,message.id,key,
-      thumb_key if thumb_size else None,original_size or 0)
+      thumb_key=$4,size=$5,error='',source_checks=0
+      WHERE folder=$1 AND message=$2 AND state IN ('preview','pending')""",
+      folder,message.id,key,thumb_key if thumb_size else None,original_size or 0)
 
 
 def sync_limits(total):

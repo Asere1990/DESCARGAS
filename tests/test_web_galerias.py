@@ -388,4 +388,95 @@ class FolderCoverTests(unittest.IsolatedAsyncioTestCase):
                          'admin-folder-cover-remove','Cambiar foto'):
             self.assertIn(expected,html+js)
 
+class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
+    async def test_overview_exposes_inventory_and_original_missing_causes(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        now=time.time()
+        folder={"id":7,"peer":-1002977998232,"name":"Interno",
+                "public_name":"ALMACÉN CUBANO","active":True,
+                "complete":True,"scan_count":6063,
+                "cover_updated":None,"automatic_cover":None,
+                "photo_native":500,"video_native":320,"photo_files":20,
+                "visible_photos":215,"visible_videos":85,
+                "video_files":30,"gifs":12,"media_total":882,
+                "legacy_uncategorized":400,
+                "ready":300,"pending":550,"missing":32,
+                "missing_rechecked":2,"skipped":0,"rechecking":0}
+        reasons=[{"folder":7,"error":"no_disponible_en_origen","amount":30},
+                 {"folder":7,"error":"message_absent_after_rechecks","amount":2}]
+        db=SimpleNamespace(fetch=AsyncMock(side_effect=[[folder],reasons,[]]),
+                           fetchval=AsyncMock(return_value={
+                             "enabled":True,"storage":True,"updated":now,"phase":"respaldando"}))
+        g=SimpleNamespace(db=lambda:db,s=FakeService(),
+                          storage=SimpleNamespace(ready=True),last_error="")
+        result=await admin_op(g,7539025033,"admin-overview",{})
+        found=result["folders"][0]
+        self.assertEqual(found["gifs"],12)
+        self.assertEqual(found["photo_files"],20)
+        self.assertEqual(found["video_files"],30)
+        self.assertEqual(found["missing_rechecked"],2)
+        self.assertEqual(sum(x["count"] for x in found["missing_reasons"]),32)
+        self.assertNotIn("automatic_cover",found)
+        self.assertEqual(db.fetch.await_count,3)
+
+    async def test_rechecking_only_requeues_ten_missing_without_removing_r2(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        db=SimpleNamespace(
+            fetchval=AsyncMock(return_value=1),
+            fetch=AsyncMock(return_value=[{"id":i} for i in range(1,11)]))
+        g=SimpleNamespace(db=lambda:db,log=AsyncMock())
+        result=await admin_op(g,7539025033,"admin-recheck-missing",{"folder":7})
+        self.assertEqual(result,{"ok":True,"scheduled":10})
+        sql=db.fetch.await_args.args[0]
+        self.assertIn("FOR UPDATE SKIP LOCKED LIMIT 10",sql)
+        self.assertIn("state='missing'",sql)
+        self.assertIn("state='pending'",sql)
+        self.assertNotIn("DELETE",sql)
+        self.assertEqual(db.fetch.await_args.args[1],7)
+
+    async def test_admin_samples_show_telegram_message_ids_and_failure_reasons(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        samples=[{"message":501,"kind":"video","mime":"image/gif",
+                  "source_type":"gif","error":"no_disponible_en_origen"}]
+        db=SimpleNamespace(fetchval=AsyncMock(return_value=1),
+                           fetch=AsyncMock(return_value=samples))
+        g=SimpleNamespace(db=lambda:db)
+        result=await admin_op(g,7539025033,"admin-missing-samples",{"folder":7})
+        self.assertEqual(result["items"],samples)
+        self.assertIn("ORDER BY id DESC LIMIT 10",db.fetch.await_args.args[0])
+        self.assertEqual(db.fetch.await_args.args[1],7)
+        with self.assertRaises(web.HTTPForbidden):
+            await admin_op(g,123456,"admin-missing-samples",{"folder":7})
+        self.assertEqual(db.fetch.await_count,1)
+
+    def test_admin_uses_client_style_cover_grid_and_expands_details(self):
+        root=Path(__file__).resolve().parents[1]/"web_galerias"
+        script=(root/"app.js").read_text(encoding="utf-8")
+        css=(root/"style.css").read_text(encoding="utf-8")
+        section=script.split("function previewAdmin(){",1)[1].split(' const users=$("admin-users")',1)[0]
+        for part in ('className="folder-card admin-gallery-card"',
+                     'className="folder-cover"',
+                     'className="admin-gallery-trigger"',
+                     'className="admin-gallery-detail hidden"',
+                     'trigger.setAttribute("aria-expanded",String(open))',
+                     'S.adminExpanded.has(f.id)',
+                     'addAdminDatum("GIF"',
+                     'addAdminDatum("Fotos enviadas como archivo"',
+                     'addAdminDatum("Videos enviados como archivo"',
+                     'addAdminDatum("Incidencias sin verificar"',
+                     'admin-recheck-missing','admin-missing-samples',
+                     'Ver 10 ejemplos'):
+            self.assertIn(part,section)
+        self.assertIn("#admin #admin-folders.admin-gallery-grid{",css)
+        self.assertIn("grid-template-columns:repeat(2",css)
+        self.assertIn("grid-column:1 / -1",css)
+        self.assertNotIn("root.innerHTML",section)
+
+    def test_gifs_fallback_to_animated_image_when_video_conversion_unavailable(self):
+        js=(Path(__file__).resolve().parents[1]/"web_galerias"/"app.js").read_text()
+        self.assertIn('m.kind==="video"&&full&&m.mime!=="image/gif"',js)
+
 if __name__=="__main__":unittest.main()

@@ -123,13 +123,13 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('className="admin-data-label"',section)
         self.assertIn('className="admin-data-value"',section)
         for label in ("Nombre público","Origen de Telegram","Estado del respaldo",
-                      "Archivos respaldados","Archivos pendientes","Mensajes revisados",
-                      "Historial","Archivos no disponibles"):
+                      "Archivos respaldados","Archivos pendientes","Mensajes recorridos",
+                      "Historial inicial","Incidencias sin verificar"):
             self.assertIn('addAdminDatum("'+label+'"',section)
         self.assertNotIn('info.textContent="Nombre público:',section)
         self.assertIn("#admin .admin-data-row{",self.css)
         self.assertIn("flex-direction:column",self.css)
-        self.assertIn("Catalogado no significa que todos los archivos estén respaldados.",self.js)
+        self.assertIn("Solo indica que se alcanzó el final del historial inicial; el respaldo sigue aparte.",self.js)
 
     def test_browser_admin_logout_is_hidden_from_telegram_clients(self):
         self.assertIn('id="browser-logout" type="button" class="mobile-action hidden"',self.html)

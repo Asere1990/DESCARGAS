@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
-const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null};
+const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);};
@@ -341,7 +341,7 @@ function showViewerMedia(){
   const img=$("view-image"),video=$("view-video");
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
-  if(m.kind==="video"&&full){
+  if(m.kind==="video"&&full&&m.mime!=="image/gif"){
     img.hidden=true;video.hidden=false;video.src=m.view;
   }else{
     video.hidden=true;img.hidden=false;
@@ -436,54 +436,114 @@ function openFolderPicker(){
 function previewAdmin(){
  if(!S.admin)return;
  const root=$("admin-folders");root.replaceChildren();
+ root.classList.add("folders","admin-gallery-grid");
+ const readableReason={
+  "no_disponible_en_origen":"Clasificación antigua: causa no verificada",
+  "message_absent_pending_recheck":"Mensaje ausente temporalmente; se volverá a comprobar",
+  "media_removed_pending_recheck":"Mensaje encontrado sin multimedia; se volverá a comprobar",
+  "message_absent_after_rechecks":"Mensaje no recuperado tras tres comprobaciones",
+  "media_removed_after_rechecks":"Multimedia no recuperado tras tres comprobaciones",
+  "protected_or_temporary":"Contenido restringido o temporal",
+  "en_revalidacion":"En cola para revalidación",
+  "sin_motivo":"Sin motivo registrado"
+ };
  for(const f of S.admin.folders){
-  const card=document.createElement("div");card.className="admin-row";
-  const title=document.createElement("h3");title.textContent=(f.name||"Sin nombre interno")+(f.active?"":" (oculta)");
-  const cover=f.cover?document.createElement("img"):null;
-  if(cover){cover.src=f.cover;cover.className="admin-folder-cover";
-    cover.alt="Foto de presentación de "+(f.public_name||f.name);cover.loading="lazy";}
+  const card=document.createElement("article");card.className="folder-card admin-gallery-card";
+  const trigger=document.createElement("button");trigger.type="button";
+  trigger.className="admin-gallery-trigger";trigger.setAttribute("aria-label",
+      "Mostrar datos de "+(f.public_name||f.name));
+  const cover=document.createElement("div");cover.className="folder-cover";
+  if(f.cover){
+   const img=document.createElement("img");img.src=f.cover;img.alt="";
+   img.loading="lazy";img.decoding="async";
+   img.onerror=()=>{img.remove();cover.textContent="▧";};
+   cover.append(img);
+  }else{
+   const icon=document.createElement("span");icon.className="folder-icon";
+   icon.textContent="▧";cover.append(icon);
+  }
+  const title=document.createElement("h3");
+  title.textContent=f.public_name||("Galería "+f.id);
+  const count=document.createElement("p");
+  // En la tarjeta, mostrar exactamente lo que ve el usuario.
+  // El inventario histórico completo permanece dentro de los detalles.
+  count.textContent=pretty(f.visible_photos)+" fotos · "+pretty(f.visible_videos)+" videos";
+  const chevron=document.createElement("span");chevron.className="admin-gallery-chevron";
+  chevron.textContent="Detalles ▾";
+  trigger.append(cover,title,count,chevron);
+  const details=document.createElement("div");details.className="admin-gallery-detail hidden";
+  details.id="admin-folder-details-"+f.id;
+  trigger.setAttribute("aria-controls",details.id);
   const info=document.createElement("div");info.className="admin-folder-data";
   const state=!f.active?"Pausada":S.admin.sync_enabled?"Respaldo activo":"Esperando sincronizador";
   function addAdminDatum(label,value,description=""){
-    const row=document.createElement("div");row.className="admin-data-row";
-    const name=document.createElement("span");name.className="admin-data-label";
-    name.textContent=label;
-    const result=document.createElement("strong");result.className="admin-data-value";
-    result.textContent=String(value);
-    row.append(name,result);
-    if(description){
-      const help=document.createElement("small");help.className="admin-data-help";
-      help.textContent=description;row.append(help);
-    }
-    info.append(row);
+   const row=document.createElement("div");row.className="admin-data-row";
+   const name=document.createElement("span");name.className="admin-data-label";
+   name.textContent=label;
+   const result=document.createElement("strong");result.className="admin-data-value";
+   result.textContent=String(value);
+   row.append(name,result);
+   if(description){
+    const help=document.createElement("small");help.className="admin-data-help";
+    help.textContent=description;row.append(help);
+   }
+   info.append(row);
   }
   addAdminDatum("Nombre público",f.public_name||("Galería "+f.id));
-  addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal del que se obtiene el contenido.");
+  addAdminDatum("Nombre interno",f.name||"Sin nombre");
+  addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal de origen.");
+  addAdminDatum("Fotos normales",pretty(f.photo_native),"Incluye registros antiguos aún sin clasificar.");
+  addAdminDatum("Videos normales",pretty(f.video_native),"Incluye registros antiguos aún sin clasificar.");
+  addAdminDatum("GIF",pretty(f.gifs),"Se incluyen en la galería de videos.");
+  addAdminDatum("Fotos enviadas como archivo",pretty(f.photo_files));
+  addAdminDatum("Videos enviados como archivo",pretty(f.video_files));
+  addAdminDatum("Multimedia registrado",pretty(f.media_total),
+    "Inventario único identificado hasta ahora. Puede aumentar si la catalogación continúa.");
+  if(f.legacy_uncategorized){
+   addAdminDatum("Registros antiguos sin distinguir formato",pretty(f.legacy_uncategorized),
+      "Ya están incluidos arriba; se clasificarán mejor cuando se revaliden.");
+  }
   addAdminDatum("Estado del respaldo",state,
-    "Indica el estado del sincronizador, no que esta galería esté transfiriendo un archivo en este instante.");
+     "Estado general del sincronizador; no necesariamente una transferencia activa de este grupo.");
   addAdminDatum("Archivos respaldados",pretty(f.ready),"Originales guardados en Cloudflare R2.");
   addAdminDatum("Archivos pendientes",pretty(f.pending),
-    "Todavía sin respaldo completo; algunos ya pueden tener vista previa.");
-  addAdminDatum("Mensajes revisados",pretty(f.scan_count),
-    "Mensajes examinados durante la catalogación; no todos son fotos o videos.");
-  addAdminDatum("Historial",f.complete?"Catalogado":"Catalogación en progreso",
-    "Catalogado no significa que todos los archivos estén respaldados.");
-  addAdminDatum("Archivos no disponibles",pretty(f.missing),
-    "El sistema no pudo recuperar estos archivos de Telegram.");
-  if(f.skipped)addAdminDatum("Archivos omitidos",pretty(f.skipped));
-  if(f.error)addAdminDatum("Última incidencia",f.error);
+     "Falta respaldar el original; algunos ya tienen miniatura.");
+  if(f.rechecking)addAdminDatum("Revalidación solicitada",pretty(f.rechecking),
+     "Forman parte de los pendientes; se comprobarán sin bloquear las descargas.");
+  const legacyMissing=Math.max(0,Number(f.missing||0)-Number(f.missing_rechecked||0));
+  addAdminDatum("Incidencias sin verificar",pretty(legacyMissing),
+    "No significa que estén borrados; incluye errores de clasificación anteriores.");
+  addAdminDatum("No recuperados tras tres comprobaciones",pretty(f.missing_rechecked),
+    "Pueden estar borrados, haber cambiado o no ser accesibles; no se borró nada de R2.");
+  addAdminDatum("Restringidos o temporales",pretty(f.skipped),
+    "Separados de los archivos que realmente faltan.");
+  addAdminDatum("Mensajes recorridos",pretty(f.scan_count),
+    "Contador de entradas examinadas por Telegram; se indexan únicamente los multimedia y sus captions.");
+  addAdminDatum("Historial inicial",f.complete?"Recorrido completado":"Recorrido en curso",
+    "Solo indica que se alcanzó el final del historial inicial; el respaldo sigue aparte.");
+  if(Array.isArray(f.missing_reasons)&&f.missing_reasons.length){
+   for(const reason of f.missing_reasons){
+    const label=readableReason[reason.code]||reason.code||"Motivo desconocido";
+    addAdminDatum("Motivo: "+label,pretty(reason.count));
+   }
+  }
+  if(f.error)addAdminDatum("Última incidencia técnica",f.error);
   const buttons=document.createElement("div");buttons.className="row-actions";
-  const edit=document.createElement("button");edit.className="small-btn";edit.textContent="Nombre interno";
+  const edit=document.createElement("button");edit.type="button";
+  edit.className="small-btn";edit.textContent="Nombre interno";
   edit.onclick=async()=>{const value=prompt("Nombre que solo ve el administrador",f.name);
-    if(!value||value===f.name)return;
-    try{await api("admin-folder-update",{folder:f.id,field:"name",name:value});await loadAdmin();}catch(e){notice(e.message);}};
-  const publicEdit=document.createElement("button");publicEdit.className="small-btn";publicEdit.textContent="Nombre público";
-  publicEdit.onclick=async()=>{const value=prompt("Nombre visible para los clientes",f.public_name||("Galería "+f.id));
-    if(!value||value===f.public_name)return;
-    try{await api("admin-folder-update",{folder:f.id,field:"public_name",name:value});
-        await loadAdmin();await refresh();
-    }catch(e){notice(e.message);}};
-  const remove=document.createElement("button");remove.className="small-btn";
+   if(!value||value===f.name)return;
+   try{await api("admin-folder-update",{folder:f.id,field:"name",name:value});
+       await loadAdmin();}catch(e){notice(e.message);}};
+  const publicEdit=document.createElement("button");publicEdit.type="button";
+  publicEdit.className="small-btn";publicEdit.textContent="Nombre público";
+  publicEdit.onclick=async()=>{const value=prompt("Nombre visible para los clientes",
+      f.public_name||("Galería "+f.id));
+   if(!value||value===f.public_name)return;
+   try{await api("admin-folder-update",{folder:f.id,field:"public_name",name:value});
+       await loadAdmin();await refresh();
+   }catch(e){notice(e.message);}};
+  const remove=document.createElement("button");remove.type="button";remove.className="small-btn";
   remove.textContent=f.active?"Ocultar":"Restaurar";
   remove.onclick=async()=>{
    try{
@@ -492,41 +552,94 @@ function previewAdmin(){
     await loadAdmin();
    }catch(e){notice(e.message);}
   };
-  const reset=document.createElement("button");reset.className="small-btn";reset.textContent="Revisar origen";
-  reset.onclick=async()=>{try{await api("admin-sync-reset",{folder:f.id});notice("Revisión solicitada");await loadAdmin();}catch(e){notice(e.message);}};
-  const pick=document.createElement("input");pick.type="file";pick.accept="image/jpeg,image/png,image/webp";
+  const reset=document.createElement("button");reset.type="button";
+  reset.className="small-btn";reset.textContent="Revisar origen";
+  reset.onclick=async()=>{try{await api("admin-sync-reset",{folder:f.id});
+    notice("Revisión solicitada");await loadAdmin();}catch(e){notice(e.message);}};
+  const pick=document.createElement("input");pick.type="file";
+  pick.accept="image/jpeg,image/png,image/webp";
   pick.className="hidden";pick.setAttribute("aria-label","Elegir nueva portada de galería");
   const choose=document.createElement("button");choose.type="button";choose.className="small-btn";
   choose.textContent=f.has_custom_cover?"Cambiar foto":"Agregar foto";
   choose.onclick=()=>pick.click();
   pick.onchange=async()=>{
-    const file=pick.files?.[0];if(!file)return;
-    choose.disabled=true;
-    const oldLabel=choose.textContent;choose.textContent="Subiendo…";
-    try{
-      if(await uploadAsset("folder-cover",file,f.id)){
-        await loadAdmin();await refresh(true);
-      }
-    }finally{choose.disabled=false;choose.textContent=oldLabel;}
+   const file=pick.files?.[0];if(!file)return;
+   choose.disabled=true;
+   const oldLabel=choose.textContent;choose.textContent="Subiendo…";
+   try{if(await uploadAsset("folder-cover",file,f.id)){await loadAdmin();await refresh(true);}}
+   finally{choose.disabled=false;choose.textContent=oldLabel;}
   };
   buttons.append(edit,publicEdit,choose);
   if(f.has_custom_cover){
-    const resetPhoto=document.createElement("button");resetPhoto.type="button";
-    resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
-    resetPhoto.onclick=async()=>{
-      if(!confirm("¿Quitar la portada personalizada? Se mostrará la miniatura automática."))return;
-      try{
-        await api("admin-folder-cover-remove",{folder:f.id});
-        await loadAdmin();await refresh(true);
-        notice("Portada quitada. Se mostrará la miniatura automática.");
-      }catch(e){notice(e.message);}
-    };
-    buttons.append(resetPhoto);
+   const resetPhoto=document.createElement("button");resetPhoto.type="button";
+   resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
+   resetPhoto.onclick=async()=>{
+    if(!confirm("¿Quitar la portada personalizada? Se mostrará la miniatura automática."))return;
+    try{await api("admin-folder-cover-remove",{folder:f.id});await loadAdmin();await refresh(true);
+        notice("Portada quitada. Se mostrará la miniatura automática.");}
+    catch(e){notice(e.message);}
+   };
+   buttons.append(resetPhoto);
   }
   buttons.append(remove,reset);
-  card.append(title);
-  if(cover)card.append(cover);
-  card.append(info,pick,buttons);root.append(card);
+  const audit=document.createElement("button");audit.type="button";audit.className="small-btn";
+  audit.textContent="Revalidar 10 incidencias";
+  audit.disabled=!f.missing;
+  audit.onclick=async()=>{
+   audit.disabled=true;
+   try{
+    const response=await api("admin-recheck-missing",{folder:f.id});
+    notice(response.scheduled?response.scheduled+" archivos enviados a revisión gradual.":
+         "No quedan incidencias pendientes de revalidación.");
+    await loadAdmin();
+   }catch(e){notice(e.message);}
+   finally{audit.disabled=false;}
+  };
+  buttons.append(audit);
+  const examples=document.createElement("div");
+  examples.className="admin-missing-examples hidden";
+  const samples=document.createElement("button");samples.type="button";
+  samples.className="small-btn";samples.textContent="Ver 10 ejemplos";
+  samples.disabled=!f.missing;
+  samples.onclick=async()=>{
+   samples.disabled=true;examples.classList.remove("hidden");
+   examples.textContent="Consultando incidencias…";
+   try{
+    const data=await api("admin-missing-samples",{folder:f.id});
+    examples.replaceChildren();
+    if(!data.items.length){examples.textContent="Sin incidencias registradas.";return;}
+    const heading=document.createElement("h4");heading.textContent="Ejemplos de archivos por verificar";
+    examples.append(heading);
+    for(const item of data.items){
+     const row=document.createElement("p");
+     const kind=item.source_type||item.kind||"tipo desconocido";
+     const code=item.error||"sin motivo";
+     row.textContent="Mensaje "+item.message+" · "+kind+" · "+item.mime+
+       " · "+(readableReason[code]||code);
+     examples.append(row);
+    }
+   }catch(e){examples.textContent=e.message;}
+   finally{samples.disabled=false;}
+  };
+  buttons.append(samples);
+  const note=document.createElement("p");
+  note.className="admin-reindex-hint";
+  note.textContent="Para volver a recorrer el historial y detectar archivos antiguos"+
+    " que antes no se reconocían, utiliza Revisar origen. No borra los originales respaldados.";
+  details.append(info,pick,buttons,note,examples);
+  function setExpanded(open){
+    card.classList.toggle("expanded",open);
+    details.classList.toggle("hidden",!open);
+    trigger.setAttribute("aria-expanded",String(open));
+    chevron.textContent=open?"Cerrar detalles ▴":"Detalles ▾";
+  }
+  trigger.onclick=()=>{
+   const open=!S.adminExpanded.has(f.id);
+   if(open)S.adminExpanded.add(f.id);else S.adminExpanded.delete(f.id);
+   setExpanded(open);
+  };
+  setExpanded(S.adminExpanded.has(f.id));
+  card.append(trigger,details);root.append(card);
  }
  const users=$("admin-users");users.replaceChildren();
  for(const u of S.admin.users){

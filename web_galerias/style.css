@@ -261,3 +261,82 @@
 #admin .admin-data-help{
   font-size:11px;line-height:1.5;color:var(--muted);
 }
+
+
+/* Panel admin: las galerías usan el mismo aspecto de mosaico que los clientes.
+   Solo se despliega una ficha de datos cuando el administrador la abre. */
+#admin #admin-folders.admin-gallery-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:18px 12px;
+  margin-top:18px;
+}
+#admin .admin-gallery-card{
+  background:transparent;border:0;border-radius:16px;
+  min-width:0;margin:0;padding:0;
+}
+#admin .admin-gallery-trigger{
+  display:block;background:none;border:0;color:var(--text);
+  width:100%;padding:0;text-align:left;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+#admin .admin-gallery-trigger .folder-cover{
+  width:100%;aspect-ratio:var(--tile-aspect);
+  border-radius:17px;overflow:hidden;display:flex;
+  align-items:center;justify-content:center;
+}
+#admin .admin-gallery-trigger .folder-cover img{
+  width:100%;height:100%;object-fit:cover;
+}
+#admin .admin-gallery-trigger h3{
+  font-size:15px;letter-spacing:-.02em;margin:9px 1px 3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+#admin .admin-gallery-trigger p{
+  font-size:11px;color:var(--muted);margin:0 1px;line-height:1.4;
+}
+#admin .admin-gallery-chevron{
+  display:block;margin:8px 1px 2px;color:var(--accent);
+  font-size:12px;font-weight:700;
+}
+#admin .admin-gallery-trigger:focus-visible{
+  outline:2px solid var(--accent);outline-offset:5px;border-radius:12px;
+}
+#admin .admin-gallery-card.expanded{
+  grid-column:1 / -1;
+  padding:13px 14px 17px;
+  background:#ffffff0b;border:1px solid var(--line);
+}
+#admin .admin-gallery-card.expanded .admin-gallery-trigger .folder-cover{
+  max-width:230px;
+}
+#admin .admin-gallery-card.expanded .admin-gallery-detail{margin-top:10px}
+#admin .admin-gallery-detail .admin-folder-data{margin:12px 0 15px}
+#admin .admin-gallery-detail .row-actions{margin-top:13px}
+#admin .admin-gallery-detail .row-actions button{
+  min-height:43px;touch-action:manipulation;
+}
+@media(min-width:680px){
+ #admin #admin-folders.admin-gallery-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:20px 15px}
+}
+
+
+/* Auditoría bajo demanda: no carga miles de filas al abrir el administrador. */
+#admin .admin-reindex-hint{
+  font-size:12px;line-height:1.5;color:var(--muted);
+  padding:11px 13px;border:1px solid var(--line);border-radius:12px;
+  margin-top:13px;
+}
+#admin .admin-missing-examples{
+  margin-top:10px;padding:12px;
+  border:1px solid var(--line);border-radius:12px;
+  max-height:270px;overflow-y:auto;
+  background:rgba(255,255,255,.03);
+}
+#admin .admin-missing-examples h4{margin:0 0 9px;font-size:13px}
+#admin .admin-missing-examples p{
+  font-size:12px;line-height:1.5;overflow-wrap:anywhere;
+  border-bottom:1px solid var(--line);padding:8px 0;margin:0;
+}
+#admin .admin-missing-examples p:last-child{border-bottom:0}

@@ -59,13 +59,40 @@ async def admin_op(g,uid,op,data):
             COALESCE(f.public_name,'') AS public_name,
             f.active,f.error,f.complete,f.scan_count,
             f.last_check,f.source_uid,MAX(c.updated) AS cover_updated,
+            MAX(m.id) FILTER(WHERE m.state IN ('ready','preview')
+              AND m.thumb_key IS NOT NULL) AS automatic_cover,
+            COUNT(m.id)::int AS media_total,
+            COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready')
+              AND m.kind='photo')::int AS visible_photos,
+            COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready')
+              AND m.kind='video')::int AS visible_videos,
+            COUNT(m.id) FILTER(WHERE m.source_type='photo' OR
+              (m.source_type='' AND m.kind='photo'))::int AS photo_native,
+            COUNT(m.id) FILTER(WHERE m.source_type='video' OR
+              (m.source_type='' AND m.kind='video'))::int AS video_native,
+            COUNT(m.id) FILTER(WHERE m.source_type='photo_file')::int AS photo_files,
+            COUNT(m.id) FILTER(WHERE m.source_type='video_file')::int AS video_files,
+            COUNT(m.id) FILTER(WHERE m.source_type='gif')::int AS gifs,
+            COUNT(m.id) FILTER(WHERE m.source_type='')::int AS legacy_uncategorized,
+            COUNT(m.id) FILTER(WHERE m.state='pending' AND
+              m.error='en_revalidacion')::int AS rechecking,
             COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
             COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending,
             COUNT(m.id) FILTER(WHERE m.state='missing')::int AS missing,
+            COUNT(m.id) FILTER(WHERE m.state='missing' AND
+              m.error IN ('message_absent_after_rechecks','media_removed_after_rechecks'))::int
+              AS missing_rechecked,
             COUNT(m.id) FILTER(WHERE m.state='skipped')::int AS skipped
             FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
             LEFT JOIN wg_folder_covers c ON c.folder=f.id
             GROUP BY f.id ORDER BY f.id DESC""")
+        reasons=await db.fetch("""SELECT folder,error,COUNT(*)::int AS amount
+          FROM wg_media WHERE state IN ('missing','skipped')
+          GROUP BY folder,error ORDER BY folder,amount DESC""")
+        reason_map={}
+        for entry in reasons:
+            reason_map.setdefault(entry["folder"],[]).append({
+              "code":entry["error"] or "sin_motivo","count":entry["amount"]})
         users=await db.fetch("""SELECT u.uid,u.name,u.first_seen,u.last_seen,
             s.state,s.paid_until,p.mode
             FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
@@ -82,7 +109,17 @@ async def admin_op(g,uid,op,data):
             folder=dict(item)
             updated=folder.pop("cover_updated",None)
             folder["has_custom_cover"]=bool(updated)
-            folder["cover"]=temporary_cover(g,uid,folder["id"]) if updated else None
+            if updated:
+                folder["cover"]=temporary_cover(g,uid,folder["id"])
+            elif folder.get("automatic_cover"):
+                from .downloads import temporary_link
+                photo_id=folder["automatic_cover"]
+                folder["cover"]=("/web-galerias/media/"+str(photo_id)+"/thumb?t="+
+                  temporary_link(g,uid,photo_id,"thumb"))
+            else:
+                folder["cover"]=None
+            folder.pop("automatic_cover",None)
+            folder["missing_reasons"]=reason_map.get(folder["id"],[])
             result_folders.append(folder)
         return {"folders":result_folders,
             "users":[{**dict(x),"admin":is_admin(x["uid"]),"tester":is_tester(x["uid"])} for x in users],
@@ -90,6 +127,31 @@ async def admin_op(g,uid,op,data):
             "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",
             "sync_folder":remote.get("folder") if running else None,
             "last_error":g.last_error}
+    if op=="admin-missing-samples":
+        folder=identifier(data.get("folder"))
+        exists=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
+        if not exists:raise web.HTTPNotFound(text="Galería no encontrada.")
+        rows=await db.fetch("""SELECT message,kind,mime,source_type,error
+          FROM wg_media WHERE folder=$1 AND state='missing'
+          ORDER BY id DESC LIMIT 10""",folder)
+        return {"items":[dict(row) for row in rows]}
+    if op=="admin-recheck-missing":
+        # La base de datos externa permanece privada. Volver a consultar
+        # diez incidencias desde el sincronizador normal, sin conexiones
+        # extra, ni borrar nada de R2.
+        folder=identifier(data.get("folder"))
+        found=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
+        if not found:raise web.HTTPNotFound(text="Galería no encontrada.")
+        changed=await db.fetch("""WITH candidate AS (
+           SELECT id FROM wg_media WHERE folder=$1 AND state='missing'
+           ORDER BY CASE WHEN error='no_disponible_en_origen'
+              THEN 0 ELSE 1 END,id DESC
+           FOR UPDATE SKIP LOCKED LIMIT 10)
+           UPDATE wg_media AS m SET state='pending',source_checks=0,
+             attempts=0,available=0,error='en_revalidacion'
+           FROM candidate c WHERE m.id=c.id RETURNING m.id""",folder)
+        await g.log(uid,op)
+        return {"ok":True,"scheduled":len(changed)}
     if op=="admin-folder":
         try:peer=int(data.get("peer",0))
         except (ValueError,TypeError,OverflowError):raise web.HTTPBadRequest(text="ID incorrecto.")
