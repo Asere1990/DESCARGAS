@@ -149,7 +149,7 @@ async def backfill_poster(g):
                 metadata["poster_size"]=poster_size
                 await g.db().execute("""UPDATE wg_config SET value=$2::jsonb
                     WHERE key='intro_promo' AND value->>'key'=$1
-                      AND NOT value ? 'poster_key'""",
+                      AND NOT (value ? 'poster_key')""",
                     key,json.dumps(metadata))
                 log.info("Promo poster cached from current video")
     except asyncio.CancelledError:
