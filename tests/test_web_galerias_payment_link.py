@@ -152,6 +152,41 @@ class PaymentLinkTests(unittest.IsolatedAsyncioTestCase):
             await link.reconcile_access(db,"sub_demo123456789")
             db.execute.assert_not_awaited()
 
+    async def test_real_stripe_event_instance_from_sdk_does_not_crash(self):
+        # Regression for production 500: stripe-python 15's Event is
+        # deliberately not iterable, so dict(event) raises TypeError.
+        import stripe
+        event_data={
+           "id":"evt_mock_verified_123456789",
+           "object":"event",
+           "type":"customer.subscription.created",
+           "created":int(time.time()),
+           "data":{"object":{"id":"sub_unrelated",
+                "object":"subscription",
+                "status":"active",
+                "items":{"data":[{"price":{"id":"price_unrelated"}}]}}}
+        }
+        event=stripe.Event.construct_from(event_data,"sk_test_dummy")
+        with self.assertRaises(TypeError):
+            dict(event)
+        self.assertIsInstance(event.to_dict(),dict)
+        conn=SimpleNamespace(fetchval=AsyncMock(return_value=None),
+                             fetchrow=AsyncMock(),execute=AsyncMock())
+        @asynccontextmanager
+        async def transaction():yield
+        @asynccontextmanager
+        async def acquire():yield conn
+        conn.transaction=transaction
+        g=SimpleNamespace(db=lambda:SimpleNamespace(acquire=acquire))
+        request=SimpleNamespace(read=AsyncMock(return_value=b"{}"),
+                                headers={"Stripe-Signature":"already-verified"})
+        with patch.dict(os.environ,ENV):
+            with patch.object(stripe.Webhook,"construct_event",return_value=event):
+                response=await link.webhook(g,request)
+        self.assertEqual(response.status,200)
+        self.assertIn("INSERT INTO wg_payment_events",conn.execute.await_args.args[0])
+        self.assertNotIn("INSERT INTO wg_subscriptions",conn.execute.await_args.args[0])
+
     async def test_webhook_signature_is_required_and_retries_safely(self):
         import stripe
         conn=SimpleNamespace(fetchval=AsyncMock(return_value=None),
