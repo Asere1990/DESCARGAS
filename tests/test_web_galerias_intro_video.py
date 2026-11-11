@@ -154,8 +154,7 @@ class IntroVideoTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("object-fit:cover",css)
         self.assertIn('app.router.add_post("/web-galerias/admin/intro-video"',app)
         self.assertIn('if key=="intro":',admin)
-        self.assertIn('getattr',str(getattr(intro_video,"MAX_INTRO_UPLOAD",None)) if False else
-                      "MAX_INTRO_UPLOAD=80*1024*1024")
+        self.assertEqual(intro_video.MAX_INTRO_UPLOAD,80*1024*1024)
         self.assertEqual(DEFAULTS["intro_fit"],"cover")
         self.assertEqual(cleaned_design({"intro_fit":"contain"})["intro_fit"],"contain")
         with self.assertRaises(web.HTTPBadRequest):
