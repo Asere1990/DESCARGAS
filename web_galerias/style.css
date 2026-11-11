@@ -767,3 +767,42 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  #album .selection-actions:has(#selection-admin-delete:not(.hidden)) .mobile-action{font-size:10px}
  .admin-profile-actions{grid-template-columns:1fr}
 }
+
+
+/* CUBANITAS admin: galleries first, deliberate user selection, free badges. */
+#admin .admin-members-summary{
+ margin:-7px 0 15px;color:var(--muted);font-size:12px;line-height:1.5;
+}
+#admin .admin-members-summary strong{color:var(--text);font-weight:800;font-variant-numeric:tabular-nums}
+#admin .admin-folder-first{margin:4px 0 18px}
+#admin .admin-folder-first>h2{font-size:18px;margin:0 0 13px}
+#admin .admin-tools-fold{
+ padding:0 16px;margin-bottom:12px;
+}
+#admin .admin-tools-fold>summary{
+ cursor:pointer;min-height:58px;display:flex;align-items:center;
+ font-size:15px;font-weight:750;list-style:none;
+ -webkit-tap-highlight-color:transparent;
+}
+#admin .admin-tools-fold>summary::-webkit-details-marker{display:none}
+#admin .admin-tools-fold[open]{padding-bottom:17px}
+#admin .admin-tools-fold[open]>summary{
+ border-bottom:1px solid var(--line);margin-bottom:12px;
+}
+#admin .admin-users-menu{padding:14px 17px}
+#admin .admin-users-menu label{margin:0;font-size:14px;font-weight:700;color:var(--text)}
+#admin .admin-users-menu select{min-height:52px;font-weight:650}
+#admin .admin-user-free{font-size:22px;font-weight:800;color:#ffc943;line-height:1}
+#admin .admin-user-recent{color:var(--muted);font-size:11px;max-width:128px;text-align:right}
+#admin .admin-users-details #admin-users-since-wrap{margin:10px 0}
+#admin .admin-users-details #admin-users-since{width:100%;min-height:45px}
+/* Telegram and iOS inset: titles never appear under the in-app status bar. */
+#album>.album-topbar,#admin>.topbar{
+ padding-top:calc(15px + max(45px,env(safe-area-inset-top,0px),
+                              var(--tg-safe-area-inset-top,0px),
+                              var(--tg-content-safe-area-inset-top,0px)));
+}
+@media(max-width:400px){
+ #admin .admin-user-list-row{gap:7px}
+ #admin .admin-user-recent{max-width:90px;font-size:10px}
+}
