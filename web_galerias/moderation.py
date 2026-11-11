@@ -51,6 +51,13 @@ async def operation(g, uid, op, data):
     if op == "admin-media-list":
         folder = identifier(data.get("folder"))
         cursor = identifier(data.get("cursor", 0), 0)
+        from .personal import media_filter
+        from .core import normal
+        kind=media_filter(data.get("kind","all"))
+        query=data.get("query","")
+        if not isinstance(query,str) or len(query)>100:
+            raise web.HTTPBadRequest(text="Búsqueda incorrecta.")
+        query=normal(query.strip())[:100]
         exists = await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1", folder)
         if not exists:
             raise web.HTTPNotFound(text="Galería no encontrada.")
@@ -59,8 +66,11 @@ async def operation(g, uid, op, data):
                    m.state,m.thumb_key,m.file_key
               FROM wg_media m WHERE m.folder=$1
                 AND m.state IN ('preview','ready')
+                AND ($3::text='all' OR m.kind=$3)
+                AND ($4::text='' OR to_tsvector('simple',m.search_text)
+                     @@ plainto_tsquery('simple',$4))
                 AND m.id<$2 ORDER BY m.id DESC LIMIT 61""",
-            folder, cursor or 2**63-1)
+            folder, cursor or 2**63-1,kind,query)
         result = []
         for row in rows[:60]:
             item = {k: row[k] for k in (
