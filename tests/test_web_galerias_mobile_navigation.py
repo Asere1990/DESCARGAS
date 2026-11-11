@@ -112,8 +112,24 @@ class GalleryMobileNavigation(unittest.TestCase):
 
     def test_non_admin_cannot_see_backup_status(self):
         self.assertIn('S.me?.admin && folder.pending',self.js)
-        self.assertIn('textContent="Nombre público:',self.js)
+        self.assertIn('addAdminDatum("Nombre público"',self.js)
         self.assertIn('id="new-public-name"',self.html)
+
+    def test_admin_folder_stats_are_separate_labeled_rows(self):
+        # No volver al párrafo unido por puntos intermedios en el panel admin.
+        section=self.js.split("function previewAdmin(){",1)[1].split("const users=",1)[0]
+        self.assertIn('className="admin-folder-data"',section)
+        self.assertIn('className="admin-data-row"',section)
+        self.assertIn('className="admin-data-label"',section)
+        self.assertIn('className="admin-data-value"',section)
+        for label in ("Nombre público","Origen de Telegram","Estado del respaldo",
+                      "Archivos respaldados","Archivos pendientes","Mensajes revisados",
+                      "Historial","Archivos no disponibles"):
+            self.assertIn('addAdminDatum("'+label+'"',section)
+        self.assertNotIn('info.textContent="Nombre público:',section)
+        self.assertIn("#admin .admin-data-row{",self.css)
+        self.assertIn("flex-direction:column",self.css)
+        self.assertIn("Catalogado no significa que todos los archivos estén respaldados.",self.js)
 
     def test_browser_admin_logout_is_hidden_from_telegram_clients(self):
         self.assertIn('id="browser-logout" type="button" class="mobile-action hidden"',self.html)
