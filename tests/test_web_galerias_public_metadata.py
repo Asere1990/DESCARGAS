@@ -50,7 +50,13 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
     def test_public_ui_has_no_tester_label(self):
         from pathlib import Path
         script=(Path(__file__).resolve().parents[1]/"web_galerias"/"app.js").read_text()
-        self.assertIn('"Acceso verificado"',script)
+        # El aviso de la portada permanece oculto también para el cliente
+        # con acceso verificado. Los detalles de cobro solo salen en Checkout.
+        self.assertNotIn("Compra segura mediante Stripe",script)
+        self.assertNotIn("cuando Stripe esté configurado",script)
+        self.assertIn('$("intro-notice").textContent="";',script)
+        html=(Path(__file__).resolve().parents[1]/"web_galerias"/"index.html").read_text()
+        self.assertIn('id="intro-notice" class="quiet hidden"',html)
         self.assertNotIn('S.me.tester',script)
         self.assertNotIn('"Usuario de prueba"',script)
 
