@@ -134,16 +134,18 @@ async def choose_account(g,folder):
     row=await g.db().fetchrow("""SELECT a.uid FROM descarga_accounts a
       LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
       LEFT JOIN wg_account_cooldown c ON c.uid=a.uid
-      WHERE a.session IS NOT NULL AND COALESCE(d.next_after,0)<=$2
+      WHERE a.session IS NOT NULL
+        AND ($4::bigint IS NULL OR a.uid=$4)
+        AND COALESCE(d.next_after,0)<=$2
         AND COALESCE(c.available_at,0)<=$2
-        AND (a.uid=$3 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
+        AND (a.uid=$3 OR a.uid=$4 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
       ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
                -- Nuevas carpetas sin origen: distribuir la exploración
                -- entre las cuentas elegibles en vez de elegir siempre la primera.
                CASE WHEN $3::bigint IS NULL AND d.tried_at IS NULL
                     THEN md5(a.uid::text || ':' || $1::text) ELSE '' END,
                COALESCE(d.tried_at,0),a.uid LIMIT 1""",
-       folder["id"],now,folder["source_uid"])
+       folder["id"],now,folder["source_uid"],folder.get("preferred_uid"))
     return row["uid"] if row else None
 
 
@@ -363,8 +365,10 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
     if not await folder_active(g,folder):return
     uid=await choose_account(g,source)
     if uid is None:
-        await g.db().execute("""UPDATE wg_folders SET
-          error='Buscando otra cuenta disponible' WHERE id=$1 AND active""",folder)
+        reason=("Cuenta de origen fijada no disponible: revisar conexión o espera"
+                if source.get("preferred_uid") else "Buscando otra cuenta disponible")
+        await g.db().execute("""UPDATE wg_folders SET error=$2
+          WHERE id=$1 AND active""",folder,reason)
         return
     if not await source_free(g,uid,folder):return
     try:
@@ -375,8 +379,12 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             await guard()
             if entity is None:
                 await mark_discovery(g,folder,uid,False,delay=600)
-                await g.db().execute("""UPDATE wg_folders SET source_uid=NULL
-                  WHERE id=$1 AND source_uid=$2""",folder,uid)
+                await g.db().execute("""UPDATE wg_folders
+                  SET source_uid=NULL,error=$3
+                  WHERE id=$1 AND source_uid=$2""",folder,uid,
+                  "La cuenta fijada no tiene acceso al grupo"
+                  if source.get("preferred_uid") else
+                  "La cuenta de respaldo no encuentra el grupo")
                 return
             await mark_discovery(g,folder,uid,True)
             await g.db().execute("""UPDATE wg_folders SET
