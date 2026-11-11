@@ -189,6 +189,97 @@ async def reconcile_access(connection,sub_id):
        data["uid"],data["customer"],sub_id,state,data["paid_until"],time.time())
 
 
+
+async def recover_independently_verified_purchase(g):
+    """One-time, admin-controlled repair for a verified paid receipt.
+
+    The payment was independently checked against Stripe's LIVE account:
+    completed Checkout with exact payment link + $6.99, paid invoice
+    with exact Price ID, active subscription with current paid period.
+    There is NO new Stripe charge. The existing random checkout reference
+    must match a nonce already issued by this installation to this UID.
+
+    A one-use receipt is delivered via CLOUDFLARE service environment only,
+    never through an unauthenticated web route, and is audited in SQL.
+    """
+    raw=os.getenv("GALERIAS_VERIFIED_PAID_RECOVERY","").strip()
+    if not raw:return None
+    try:
+        receipt=json.loads(raw)
+        if not isinstance(receipt,dict):raise ValueError("receipt type")
+        uid=receipt.get("uid")
+        nonce=receipt.get("nonce")
+        session=receipt.get("session")
+        subscription=receipt.get("subscription")
+        customer=receipt.get("customer")
+        invoice=receipt.get("invoice")
+        expiry=receipt.get("paid_until")
+        price=receipt.get("price_id")
+        if (type(uid) is not int or uid<=0 or
+            str(uid) not in {v.strip() for v in
+                os.getenv("GALERIAS_PAYMENT_TEST_UIDS","").split(",")} or
+            not isinstance(nonce,str) or len(nonce)<25 or len(nonce)>80 or
+            not isinstance(session,str) or not session.startswith("cs_live_") or
+            not isinstance(subscription,str) or not subscription.startswith("sub_") or
+            not isinstance(customer,str) or not customer.startswith("cus_") or
+            not isinstance(invoice,str) or not invoice.startswith("in_") or
+            price!=os.getenv("GALERIAS_STRIPE_PRICE_ID") or
+            receipt.get("payment_link")!=os.getenv("GALERIAS_STRIPE_PAYMENT_LINK_ID") or
+            receipt.get("currency")!="usd" or receipt.get("amount_paid")!=699 or
+            receipt.get("livemode") is not True or
+            type(expiry) is not int or not time.time()<expiry<time.time()+40*86400):
+            raise ValueError("invalid or expired verified receipt")
+    except (TypeError,ValueError):
+        raise ValueError("Invalid independent paid-recovery receipt") from None
+
+    db=g.db()
+    audit="gallery_paid_verified_recovery:"+subscription
+    async with db.acquire() as conn:
+        async with conn.transaction():
+            if await conn.fetchval(
+                "SELECT 1 FROM wg_activity WHERE actor=$1 AND operation=$2",
+                uid,audit):
+                return "already_reconciled"
+            checkout=await conn.fetchrow("""SELECT uid,session,subscription,created
+                FROM wg_checkouts WHERE nonce=$1 AND uid=$2 FOR UPDATE""",nonce,uid)
+            if (not checkout or
+                checkout["uid"]!=uid or
+                checkout["session"] not in (None,session) or
+                checkout["subscription"] not in (None,subscription) or
+                not time.time()-8*86400<float(checkout["created"])<=time.time()+60):
+                return "original_checkout_not_found"
+
+            # This record is evidence of the already-paid period, not a
+            # synthetic Stripe event and not a new purchase.
+            await conn.execute("""INSERT INTO wg_link_subscriptions(
+                 subscription,customer,price_id,status,period_end,paid_until,changed)
+               VALUES($1,$2,$3,'active',$4,$4,$5)
+               ON CONFLICT(subscription) DO UPDATE SET
+                 customer=excluded.customer,price_id=excluded.price_id,
+                 paid_until=GREATEST(wg_link_subscriptions.paid_until,excluded.paid_until),
+                 period_end=GREATEST(wg_link_subscriptions.period_end,excluded.period_end),
+                 status=CASE WHEN wg_link_subscriptions.status IN
+                    ('canceled','unpaid') THEN wg_link_subscriptions.status
+                    ELSE 'active' END""",
+                 subscription,customer,price,expiry,time.time())
+            await conn.execute("""UPDATE wg_checkouts
+                  SET session=$2,subscription=$3
+                  WHERE nonce=$1 AND uid=$4
+                    AND (session IS NULL OR session=$2)
+                    AND (subscription IS NULL OR subscription=$3)""",
+                  nonce,session,subscription,uid)
+            await reconcile_access(conn,subscription)
+            active=await conn.fetchval("""SELECT 1 FROM wg_subscriptions
+                 WHERE uid=$1 AND subscription=$2 AND state='active'
+                   AND paid_until>$3""",uid,subscription,time.time())
+            if not active:
+                raise ValueError("Paid receipt did not activate access")
+            await conn.execute("""INSERT INTO wg_activity(actor,operation,at)
+                VALUES($1,$2,$3)""",uid,audit,time.time())
+    return "reconciled"
+
+
+
 async def webhook(g,request):
     """Verify Stripe signature before reading metadata, UID or event state."""
     import stripe

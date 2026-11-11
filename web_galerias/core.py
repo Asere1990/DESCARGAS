@@ -144,6 +144,17 @@ class GalleryCore:
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     self.ready=True
                     log.warning("Gallery schema ready; storage=%s",self.storage.ready)
+                    # A single independently verified Stripe receipt can
+                    # repair a paid tester whose webhook failed before it was
+                    # processed. A failure must never stop Web Galerías.
+                    if os.getenv("GALERIAS_VERIFIED_PAID_RECOVERY"):
+                        from .payment_link_checkout import recover_independently_verified_purchase
+                        try:
+                            outcome=await recover_independently_verified_purchase(self)
+                            log.warning("Paid gallery receipt recovery: %s",outcome)
+                        except Exception as exc:
+                            log.error("Paid gallery receipt recovery failed (%s)",
+                                      type(exc).__name__)
                     # Build a first-frame preview for any existing video that
                     # predates the poster feature, off the user-request path.
                     if self.storage.ready:
