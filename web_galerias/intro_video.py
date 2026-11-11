@@ -111,6 +111,37 @@ def fetch_video_to_disk(storage,key,path,limit):
         stream.close()
 
 
+async def backfill_legacy_poster(g,log):
+    """First frame of the older intro video kept in private Postgres.
+
+    Previous versions saved up to 25 MB in wg_assets rather than R2.
+    Generate a small cached JPEG once, off the request path, preserving the
+    existing video bytes and everything stored by the backup service.
+    """
+    db=g.db()
+    existing=await db.fetchval(
+        "SELECT 1 FROM wg_assets WHERE key='intro-legacy-poster'")
+    if existing or UPLOAD_LOCK.locked():return
+    row=await db.fetchrow("SELECT mime,body FROM wg_assets WHERE key='intro'")
+    if not row or row["mime"] not in ALLOWED_VIDEO:return
+    body=bytes(row["body"])
+    if not 64<=len(body)<=25_000_000:return
+    require_video_memory()
+    async with UPLOAD_LOCK:
+        with tempfile.TemporaryDirectory(prefix="wg-legacy-poster-") as dirname:
+            src=Path(dirname)/("intro"+ALLOWED_VIDEO[row["mime"]])
+            photo=Path(dirname)/"intro-cover.jpg"
+            await asyncio.to_thread(src.write_bytes,body)
+            await asyncio.to_thread(extract_poster,src,photo)
+            jpeg=await asyncio.to_thread(photo.read_bytes)
+            await db.execute("""INSERT INTO wg_assets(key,mime,body,updated)
+                VALUES('intro-legacy-poster','image/jpeg',$1,$2)
+                ON CONFLICT(key) DO UPDATE SET
+                 mime=excluded.mime,body=excluded.body,updated=excluded.updated""",
+                 jpeg,time.time())
+            log.info("Legacy promo first frame cached")
+
+
 async def backfill_poster(g):
     """One-time migration for an already uploaded promotional video.
 
@@ -123,7 +154,9 @@ async def backfill_poster(g):
         await asyncio.sleep(3)
         if g.closed or not g.storage.ready:return
         raw=await g.db().fetchval("SELECT value FROM wg_config WHERE key='intro_promo'")
-        if not raw:return
+        if not raw:
+            await backfill_legacy_poster(g,log)
+            return
         metadata=json.loads(raw) if isinstance(raw,str) else dict(raw)
         if metadata.get("poster_key") or metadata.get("mime")!="video/mp4":
             return
@@ -171,7 +204,13 @@ async def poster_asset(g,request):
             headers={"Cache-Control":"public, max-age=30, stale-while-revalidate=120",
                      "X-Content-Type-Options":"nosniff"})
     raw=await g.db().fetchval("SELECT value FROM wg_config WHERE key='intro_promo'")
-    if not raw:raise web.HTTPNotFound(text="Video de portada no configurado.")
+    if not raw:
+        legacy=await g.db().fetchrow(
+            "SELECT mime,body FROM wg_assets WHERE key='intro-legacy-poster'")
+        if not legacy:raise web.HTTPNotFound(text="Fotograma inicial pendiente.")
+        return web.Response(body=bytes(legacy["body"]),content_type="image/jpeg",
+            headers={"Cache-Control":"public, max-age=30, stale-while-revalidate=120",
+                     "X-Content-Type-Options":"nosniff"})
     metadata=json.loads(raw) if isinstance(raw,str) else dict(raw)
     key=metadata.get("poster_key")
     size=metadata.get("poster_size")
