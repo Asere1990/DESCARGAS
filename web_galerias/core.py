@@ -87,6 +87,13 @@ CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
 CREATE TABLE IF NOT EXISTS wg_payment_events(id TEXT PRIMARY KEY,created DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS wg_activity(
  id BIGSERIAL PRIMARY KEY,actor BIGINT NOT NULL,operation TEXT NOT NULL,at DOUBLE PRECISION NOT NULL);
+-- Independent customer-service mirror. No changes to DESCARGAS tables.
+CREATE TABLE IF NOT EXISTS wg_bridge_snapshots(
+ subscription TEXT PRIMARY KEY,last_change DOUBLE PRECISION NOT NULL DEFAULT 0,
+ last_checked DOUBLE PRECISION NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS wg_access_blocks(
+ uid BIGINT PRIMARY KEY,blocked BOOLEAN NOT NULL DEFAULT FALSE,
+ updated DOUBLE PRECISION NOT NULL DEFAULT 0);
 """
 SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
@@ -127,6 +134,7 @@ class GalleryCore:
         self.task=None
         self.sync_task=None
         self.intro_poster_task=None
+        self.customer_bridge_task=None
         self.last_error=""
 
     def db(self):
@@ -144,6 +152,11 @@ class GalleryCore:
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     self.ready=True
                     log.warning("Gallery schema ready; storage=%s",self.storage.ready)
+                    # Best-effort low-priority CUSTOMER-SERVICE mirror; never
+                    # participates in the user's gallery loading or R2 sync.
+                    from .customer_bridge import ready as bridge_ready,run as bridge_run
+                    if bridge_ready():
+                        self.customer_bridge_task=asyncio.create_task(bridge_run(self))
                     # A single independently verified Stripe receipt can
                     # repair a paid tester whose webhook failed before it was
                     # processed. A failure must never stop Web Galerías.
@@ -186,9 +199,22 @@ class GalleryCore:
             if token:
                 try:return validate_init_data(raw,token)
                 except Exception:pass
+        # Customer-Service uses its own bot token. Never copy its secret
+        # into this service: have the trusted server verify initData instead.
+        from .customer_bridge import ready as bridge_ready,verify_customer_bot
+        if bridge_ready():
+            try:
+                return await verify_customer_bot(raw,self)
+            except Exception:
+                pass
         raise web.HTTPUnauthorized(text="Identidad Telegram no verificada.")
 
     async def entitled(self,uid):
+        # Web-only disputes are independent of group membership and stop access
+        # even while Stripe's paid period has not yet expired.
+        if await self.db().fetchval(
+                "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
+            return False
         if pilot_allowed(uid):return True
         from .permissions import payment_test_user
         # Payment-test users retain access only through a verified active
