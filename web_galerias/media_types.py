@@ -37,8 +37,10 @@ def classify(message):
         return "video","image/gif","gif"
     if animated and (declared.startswith("video/") or ext in VIDEO_EXT):
         return "video",declared if declared.startswith("video/") else VIDEO_EXT[ext],"gif"
-    if declared.startswith("image/") or ext in IMAGE_EXT:
-        mime=declared if declared.startswith("image/") else IMAGE_EXT[ext]
+    # SVG y otros formatos activos no son fotos seguras para publicar.
+    safe_images=set(IMAGE_EXT.values())
+    if declared in safe_images or ext in IMAGE_EXT:
+        mime=declared if declared in safe_images else IMAGE_EXT[ext]
         return "photo",mime,"photo_file"
     if declared.startswith("video/") or ext in VIDEO_EXT:
         mime=declared if declared.startswith("video/") else VIDEO_EXT[ext]
