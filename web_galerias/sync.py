@@ -207,8 +207,14 @@ async def preview_one(g,folder,item,message,client,guard):
                 selected=next((i for i,size in enumerate(sizes)
                                if int(getattr(size,"w",0) or 0)>=320),None)
                 index=selected if selected is not None else (len(sizes)-1 if sizes else 0)
-                result=await client.download_media(message,
-                    file=str(temporary/"preview"),thumb=index)
+                # Un documento video/GIF sin miniatura no debe descargar el
+                # video completo en la fase prioritaria de vistas previas.
+                if sizes or (item["kind"]=="photo"
+                             and int(getattr(source,"size",0) or 0)<=8*1024*1024):
+                    result=await client.download_media(message,
+                        file=str(temporary/"preview"),thumb=index if sizes else None)
+                else:
+                    result=None
                 await guard()
                 if result and Path(result).is_file():
                     with Image.open(result) as photo:
