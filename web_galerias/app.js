@@ -1255,12 +1255,20 @@ $("load-permissions").onclick=loadPermissions;
 $("save-permissions").onclick=savePermissions;
 $("save-design").onclick=saveDesign;
 $("save-watermark").onclick=saveWatermark;
+$("confirm-editor").onclick=confirmEditorChanges;
+$("intro-sound").onclick=()=>{
+ const video=$("intro-video"),button=$("intro-sound");
+ video.muted=!video.muted;
+ button.textContent=video.muted?"🔊 Activar sonido":"🔇 Silenciar video";
+ video.play().catch(()=>notice("No se pudo reproducir el video automáticamente."));
+};
 for(const key of ["enabled","line1","line2","position","opacity","size","color"]){
  const input=$("edit-wm-"+key);
  input.addEventListener("input",previewWatermark);
  input.addEventListener("change",previewWatermark);
 }
-for(const key of ["logo","header","intro"])$("upload-"+key).onchange=e=>uploadAsset(key,e.target.files[0]);
+for(const key of ["logo","header","intro"])
+ $("upload-"+key).onchange=editorPendingFilesMessage;
 async function browserLogin(uid,password){
  const response=await fetch("/web-galerias/admin/login",{
   method:"POST",cache:"no-store",credentials:"same-origin",
