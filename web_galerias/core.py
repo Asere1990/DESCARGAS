@@ -210,19 +210,22 @@ class GalleryCore:
         raise web.HTTPUnauthorized(text="Identidad Telegram no verificada.")
 
     async def entitled(self,uid):
-        # Web-only disputes are independent of group membership and stop access
-        # even while Stripe's paid period has not yet expired.
-        if await self.db().fetchval(
-                "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
-            return False
         if pilot_allowed(uid):return True
         from .permissions import payment_test_user
         # Payment-test users retain access only through a verified active
         # gallery subscription, even while the public launch is disabled.
         if os.getenv("GALERIAS_PUBLIC","0")!="1" and not payment_test_user(uid):
             return False
-        row=await self.db().fetchrow("SELECT state,paid_until FROM wg_subscriptions WHERE uid=$1",uid)
-        return bool(row and row["state"] in ("active","trialing") and row["paid_until"]>time.time())
+        # One DB lookup: preserve the original fast Stripe-paid access check
+        # while denying disputed Web memberships.
+        row=await self.db().fetchrow("""SELECT s.state,s.paid_until,
+                   COALESCE(b.blocked,FALSE) AS blocked
+                   FROM wg_subscriptions s
+                   LEFT JOIN wg_access_blocks b ON b.uid=s.uid
+                   WHERE s.uid=$1""",uid)
+        return bool(row and not row.get("blocked",False)
+                and row["state"] in ("active","trialing")
+                and row["paid_until"]>time.time())
 
     async def permitted(self,uid,folder):
         if not await self.entitled(uid):return False
