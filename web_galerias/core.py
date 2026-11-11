@@ -24,6 +24,13 @@ CREATE TABLE IF NOT EXISTS wg_folders(
  scan_count BIGINT NOT NULL DEFAULT 0);
 -- El nombre original permanece interno; el nombre público jamás se infiere.
 ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS public_name TEXT;
+-- Totales publicados por Telegram, independientes de la catalogación y de R2.
+-- NULL significa todavía sin consulta satisfactoria; nunca equivale a cero.
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_photos_total BIGINT;
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_videos_total BIGINT;
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_counts_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_counts_next_attempt DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_counts_error TEXT NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS wg_media(
  id BIGSERIAL PRIMARY KEY,folder BIGINT NOT NULL REFERENCES wg_folders(id),
  message BIGINT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('photo','video')),
