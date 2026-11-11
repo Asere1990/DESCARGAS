@@ -438,7 +438,7 @@
  function mediaActions(item){
   if(!item?.id)return;
   const selected=S.selected.has(item.id)?[...S.selected]:[item.id];
-  const ids=selected.length>1?selected.slice(0,10):[item.id];
+  const ids=selected.length>1?selected.slice(0,selectionLimit()):[item.id];
   const root=$("media-context-actions");root.replaceChildren();
   $("media-context-title").textContent=ids.length>1?
    ids.length+" archivos seleccionados":"Opciones de foto o video";
@@ -450,6 +450,10 @@
   // exactly two choices, regardless of source collection or search term.
   if(ids.length===1)root.append(choice("⌕ Buscar en galería original",
                                       ()=>locateOriginal(item)));
+  if(S.me?.admin){
+   root.append(choice("Eliminar de la web (conservar respaldo)",()=>deleteMediaIds(ids,false)));
+   root.append(choice("Eliminar también de Cloudflare R2",()=>deleteMediaIds(ids,true)));
+  }
   $("media-context-sheet").classList.remove("hidden");
  }
 
@@ -459,16 +463,34 @@
   $("admin-media-delete").onclick=removeAdminMedia;
   $("admin-media-folder").onchange=()=>{
    state.folder=Number($("admin-media-folder").value)||null;
-   state.media=[];state.next=null;renderAdminMedia();
+   state.media=[];state.next=null;state.selected.clear();renderAdminMedia();
   };
-  $("admin-users-details").ontoggle=()=>{
-   if($("admin-users-details").open&&!state.usersLoaded)activeUsers();
+  let mediaTimer;
+  $("admin-media-query").oninput=()=>{
+   clearTimeout(mediaTimer);
+   mediaTimer=setTimeout(()=>{if(state.folder)loadAdminMedia(false);},350);
   };
-  $("admin-user-more").onclick=()=>activeUsers(true);
-  $("admin-user-open").onclick=showUserProfile;
+  $("admin-media-kind").onchange=()=>{if(state.folder)loadAdminMedia(false);};
+  let userTimer;
+  $("admin-users-query").oninput=()=>{
+   clearTimeout(userTimer);
+   userTimer=setTimeout(()=>loadUserPage(true),350);
+  };
+  $("admin-user-more").onclick=()=>{
+   if(!state.usersNext||state.usersBusy)return;
+   state.userPage++;loadUserPage(false);
+  };
+  $("admin-user-back-page").onclick=()=>{
+   if(state.userPage<=1||state.usersBusy)return;
+   state.userPage--;loadUserPage(false);
+  };
+  setInterval(()=>{
+   if(state.usersLoaded&&!document.hidden&&!$("tab-usuarios").classList.contains("hidden"))
+    loadUserPage(false);
+  },30000);
   $("media-context-close").onclick=closeActions;
   $("media-context-sheet").onclick=e=>{if(e.target===$("media-context-sheet"))closeActions();};
  }
- window.CubanitasTools={adminRefreshed,mediaActions};
+ window.CubanitasTools={adminRefreshed,mediaActions,adminDeleteSelection,openUsers,usersLoaded};
  initialize();
 })();
