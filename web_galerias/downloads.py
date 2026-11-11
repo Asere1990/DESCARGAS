@@ -92,7 +92,10 @@ async def save_file(g,request):
 async def reserve(g,uid,ids):
     if not await g.entitled(uid):raise web.HTTPForbidden(text="Acceso no vigente.")
     if not g.storage.ready:raise web.HTTPServiceUnavailable(text="El respaldo aún no está disponible.")
-    from .permissions import is_admin
+    from .permissions import is_admin,free_access
+    # The per-request bound stays 10 for customers. Only the DAILY counter
+    # is unlimited for explicitly invited acceso.txt users.
+    unlimited=free_access(uid)
     limit=100 if is_admin(uid) else 10
     if not isinstance(ids,list) or not 1<=len(ids)<=limit:
         raise web.HTTPBadRequest(text=f"Selecciona de 1 a {limit} archivos.")
@@ -109,12 +112,14 @@ async def reserve(g,uid,ids):
         if len(rows)!=len(ids):raise web.HTTPForbidden(text="Uno o más archivos no están autorizados.")
         if sum(max(0,x["size"]) for x in rows)>500*1024*1024:
             raise web.HTTPBadRequest(text="El lote supera 500 MB; selecciona menos videos.")
-        await c.execute("""INSERT INTO wg_quota(uid,day,used) VALUES($1,$2,0)
-           ON CONFLICT DO NOTHING""",uid,day)
-        used=await c.fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2 FOR UPDATE",uid,day)
-        if used+len(ids)>100:
-            raise web.HTTPForbidden(text=f"Te quedan {max(0,100-used)} descargas hoy.")
-        await c.execute("UPDATE wg_quota SET used=used+$3 WHERE uid=$1 AND day=$2",uid,day,len(ids))
+        used=0
+        if not unlimited:
+            await c.execute("""INSERT INTO wg_quota(uid,day,used) VALUES($1,$2,0)
+               ON CONFLICT DO NOTHING""",uid,day)
+            used=await c.fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2 FOR UPDATE",uid,day)
+            if used+len(ids)>100:
+                raise web.HTTPForbidden(text=f"Te quedan {max(0,100-used)} descargas hoy.")
+            await c.execute("UPDATE wg_quota SET used=used+$3 WHERE uid=$1 AND day=$2",uid,day,len(ids))
         ticket=secrets.token_urlsafe(30)
         await c.execute("""INSERT INTO wg_download_tickets(token,uid,ids,day,expires)
             VALUES($1,$2,$3,$4,$5)""",ticket,uid,ids,day,time.time()+300)
@@ -126,7 +131,8 @@ async def reserve(g,uid,ids):
             for item in ids]
     return {"url":"/web-galerias/download/"+ticket,"count":len(ids),
             "files":files,"name":files[0]["name"] if len(files)==1 else "web-galerias.zip",
-            "remaining":100-used-len(ids)}
+            "remaining":None if unlimited else 100-used-len(ids),
+            "quota_unlimited":unlimited}
 
 async def download(g,request):
     token=request.match_info["ticket"]
