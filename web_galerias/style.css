@@ -320,3 +320,23 @@
 @media(min-width:680px){
  #admin #admin-folders.admin-gallery-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:20px 15px}
 }
+
+
+/* Auditoría bajo demanda: no carga miles de filas al abrir el administrador. */
+#admin .admin-reindex-hint{
+  font-size:12px;line-height:1.5;color:var(--muted);
+  padding:11px 13px;border:1px solid var(--line);border-radius:12px;
+  margin-top:13px;
+}
+#admin .admin-missing-examples{
+  margin-top:10px;padding:12px;
+  border:1px solid var(--line);border-radius:12px;
+  max-height:270px;overflow-y:auto;
+  background:rgba(255,255,255,.03);
+}
+#admin .admin-missing-examples h4{margin:0 0 9px;font-size:13px}
+#admin .admin-missing-examples p{
+  font-size:12px;line-height:1.5;overflow-wrap:anywhere;
+  border-bottom:1px solid var(--line);padding:8px 0;margin:0;
+}
+#admin .admin-missing-examples p:last-child{border-bottom:0}
