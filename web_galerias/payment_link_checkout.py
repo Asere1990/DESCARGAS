@@ -119,7 +119,7 @@ async def stage_paid_invoice(connection,obj):
     customer=str(obj.get("customer") or "")
     await connection.execute("""INSERT INTO wg_link_subscriptions(
          subscription,customer,price_id,status,period_end,paid_until,changed)
-       VALUES($1,$2,$3,'active',$4,$4,$5)
+       VALUES($1,$2,$3,'active',$4,$4,0)
        ON CONFLICT(subscription) DO UPDATE SET
         paid_until=GREATEST(wg_link_subscriptions.paid_until,$4),
         period_end=GREATEST(wg_link_subscriptions.period_end,$4),
@@ -128,7 +128,7 @@ async def stage_paid_invoice(connection,obj):
         price_id=$3,
         status=CASE WHEN wg_link_subscriptions.status IN ('canceled','unpaid')
           THEN wg_link_subscriptions.status ELSE 'active' END""",
-        sub_id,customer,price,until,time.time())
+        sub_id,customer,price,until)
     return sub_id
 
 
