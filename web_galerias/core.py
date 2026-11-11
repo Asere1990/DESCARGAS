@@ -11,6 +11,7 @@ from pathlib import Path
 from aiohttp import web
 from .permissions import is_admin,pilot_allowed,is_tester,payment_test_user
 from .storage import PrivateStorage
+from .moderation import SCHEMA as MODERATION_SCHEMA, run_deletions
 from .personal import PERSONAL_SCHEMA,folders as personal_folders,media_filter
 from .covers import COVER_SCHEMA,temporary_cover
 from .admin_browser import SCHEMA as BROWSER_SCHEMA,authenticate as authenticate_browser
@@ -149,6 +150,7 @@ class GalleryCore:
         self.sync_task=None
         self.intro_poster_task=None
         self.customer_bridge_task=None
+        self.moderation_task=None
         self.last_error=""
 
     def db(self):
@@ -164,7 +166,9 @@ class GalleryCore:
                 try:
                     await self.s.repo.pool.execute(SCHEMA)
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
+                    await self.s.repo.pool.execute(MODERATION_SCHEMA)
                     self.ready=True
+                    self.moderation_task=asyncio.create_task(run_deletions(self))
                     log.warning("Gallery schema ready; storage=%s",self.storage.ready)
                     # Best-effort low-priority CUSTOMER-SERVICE mirror; never
                     # participates in the user's gallery loading or R2 sync.

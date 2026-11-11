@@ -636,3 +636,45 @@
 #intro.has-intro-video .intro-placeholder{
   display:none!important;
 }
+
+
+/* CUBANITAS: controls used only inside the existing authenticated admin panel. */
+.admin-media-manager .admin-media-grid{
+ display:grid;grid-template-columns:repeat(auto-fill,minmax(98px,1fr));
+ gap:8px;margin:12px 0;max-height:58dvh;overflow-y:auto;
+ overscroll-behavior:contain;
+}
+.admin-media-card{position:relative;border:1px solid var(--line);
+ border-radius:11px;background:#ffffff0b;padding:5px;min-width:0;
+ color:var(--text);display:flex;flex-direction:column;gap:5px;cursor:pointer}
+.admin-media-card.selected{border-color:var(--accent);outline:2px solid var(--accent)}
+.admin-media-card img,.admin-media-card .admin-media-placeholder{
+ height:103px;width:100%;object-fit:cover;border-radius:7px;
+ background:#17263a;display:grid;place-items:center;color:#fff}
+.admin-media-card input[type=checkbox]{position:absolute;right:7px;top:7px;
+ width:24px;height:24px;margin:0;accent-color:var(--accent)}
+.admin-media-card small{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.admin-media-card .admin-media-view{font-size:11px;text-align:center;
+ padding:6px;background:#ffffff13;border-radius:7px;color:#fff}
+.admin-r2-choice{display:flex!important;align-items:center;gap:12px;
+ font-size:13px;line-height:1.4;margin:12px 0!important}
+.admin-r2-choice input{width:22px!important;height:22px!important;min-height:22px!important;
+ accent-color:var(--accent);flex:none}
+.admin-delete-media{width:100%;min-height:51px;border-color:#d44!important;color:#ffdddd!important}
+.admin-delete-media:disabled{opacity:.45}
+.admin-users-details summary{cursor:pointer;min-height:45px;
+ display:flex;align-items:center;font-weight:700;list-style:none}
+.admin-users-details summary::-webkit-details-marker{display:none}
+.admin-users-details select{min-height:48px;width:100%}
+.admin-user-profile{margin-top:12px;display:grid;gap:7px}
+.admin-user-profile .admin-data-row{display:grid;grid-template-columns:minmax(115px,40%) 1fr;
+ gap:8px;padding:10px;border-bottom:1px solid var(--line);min-width:0}
+.admin-user-profile .admin-data-label{font-size:12px;color:var(--muted)}
+.admin-user-profile .admin-data-value{font-size:13px;overflow-wrap:anywhere}
+.admin-user-profile .admin-membership-list{display:grid;gap:8px;margin:6px 0}
+.admin-user-profile .admin-member-status{padding:10px;border:1px solid var(--line);
+ border-radius:10px;font-size:13px}
+#media-context-sheet{z-index:2100}
+#media-context-actions button{min-height:54px;width:100%;text-align:left}
+
+.media-tile.located-media{outline:3px solid var(--accent);outline-offset:2px;box-shadow:0 0 0 5px rgba(56,180,255,.24);}

@@ -418,7 +418,7 @@ function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
   const b=document.createElement("button");b.className="media-tile"+(S.selected.has(m.id)?" selected":"");
-  b.type="button";b.draggable=!!window.matchMedia?.("(pointer:fine)")?.matches;
+  b.type="button";b.dataset.mediaId=String(m.id);b.draggable=!!window.matchMedia?.("(pointer:fine)")?.matches;
   b.setAttribute("aria-label",m.kind==="video"?"Abrir video":"Abrir foto");
   if(m.thumb){const img=document.createElement("img");img.src=m.thumb;img.loading="lazy";img.decoding="async";img.alt="";
    img.onerror=()=>{img.remove();fallback(b,m);};b.append(img);}else fallback(b,m);
@@ -526,6 +526,16 @@ function attachLongPress(b,m,index){
   clear();
   timer=setTimeout(()=>{
    if(!active)return;
+   // In search results and personal folders, holding a touch opens actions.
+   // Regular galleries keep the existing drag-to-folder gesture unchanged.
+   if((S.folder?.personal||S.search.trim())&&e.pointerType!=="mouse"){
+    active=false;held=false;clear();
+    S.suppressClick=m.id;
+    setTimeout(()=>{if(S.suppressClick===m.id)S.suppressClick=null;},600);
+    window.CubanitasTools?.mediaActions?.(m);
+    tg?.HapticFeedback?.selectionChanged?.();
+    return;
+   }
    if(!S.selected.has(m.id)&&S.selected.size>=10){
     notice("Puedes seleccionar hasta 10 archivos.");return;
    }
@@ -979,7 +989,7 @@ function previewAdmin(){
   "</p><p>Agregar carpeta → comenzar; ocultar carpeta → pausar; restaurar → continuar. No se borran archivos de R2.</p>";
 }
 async function loadAdmin(){
- try{S.admin=await api("admin-overview");previewAdmin();}catch(e){notice(e.message);}
+ try{S.admin=await api("admin-overview");previewAdmin();window.CubanitasTools?.adminRefreshed?.(S.admin);}catch(e){notice(e.message);}
 }
 function switchAdminTab(tab){
  document.querySelectorAll(".admin-tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));

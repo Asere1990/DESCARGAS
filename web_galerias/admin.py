@@ -6,6 +6,7 @@ import re
 import time
 from aiohttp import web
 from .permissions import is_admin,is_tester
+from . import moderation
 from .core import DEFAULTS,ASSET_MIME,MAX_ASSET,identifier
 from .covers import ALLOWED_MIME,MAX_UPLOAD,optimized_cover,temporary_cover
 
@@ -56,6 +57,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op in ("admin-media-list","admin-media-remove","admin-media-r2-status",
+              "admin-active-users","admin-user-profile"):
+        return await moderation.operation(g,uid,op,data)
     if op=="admin-overview":
         folders=await db.fetch("""SELECT f.id,f.peer,f.name,
             COALESCE(f.public_name,'') AS public_name,

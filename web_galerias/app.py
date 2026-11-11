@@ -11,7 +11,7 @@ from aiohttp import web
 from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
-from . import admin,admin_browser,downloads,payments,personal,covers,intro_video
+from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location
 
 log=logging.getLogger("web-galerias")
 ROOT=Path(__file__).resolve().parent
@@ -73,6 +73,7 @@ class Gallery(GalleryCore):
             folder=identifier(data.get("folder"))
             return await self.list_items(uid,folder,data.get("query",""),cursor,
                                          token,data.get("kind","all"))
+        if op=="locate-media":return await location.locate(self,uid,data)
         if op=="reserve":return await downloads.reserve(self,uid,data.get("ids"))
         raise web.HTTPNotFound()
 
@@ -83,7 +84,7 @@ def mount(app,service):
         return web.Response(text=content,content_type="text/html",headers=HEADERS)
     async def static(request):
         name=request.match_info["name"]
-        if name not in ("app.js","style.css"):raise web.HTTPNotFound()
+        if name not in ("app.js","style.css","admin_tools.js"):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/name,headers={
             "Cache-Control":"no-cache","X-Content-Type-Options":"nosniff"})
     async def api(request):
@@ -169,7 +170,7 @@ def mount(app,service):
         g.task=asyncio.create_task(g.setup())
     async def cleanup(_):
         g.closed=True
-        tasks=(g.sync_task,g.intro_poster_task,g.customer_bridge_task,g.task)
+        tasks=(g.sync_task,g.intro_poster_task,g.customer_bridge_task,g.moderation_task,g.task)
         for task in tasks:
             if task:task.cancel()
         await asyncio.gather(*(t for t in tasks if t),return_exceptions=True)
