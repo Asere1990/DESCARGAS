@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+from contextvars import ContextVar
 import unicodedata
 from datetime import datetime,timezone
 from pathlib import Path
@@ -112,6 +113,13 @@ ASSET_MIME={
  "intro":{"video/mp4","video/quicktime","video/webm"}}
 MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro-photo":5_000_000,"intro":25_000_000}
 
+# Request-scoped proof from CUSTOMER-SERVICE; never trust the bare Telegram ID.
+_CUSTOMER_BOT_UID=ContextVar("wg_customer_bot_verified_uid",default=0)
+
+def customer_bot_signed(uid):
+    return _CUSTOMER_BOT_UID.get()==int(uid)
+
+
 def identifier(value,minimum=1):
     try:n=int(value)
     except (ValueError,TypeError,OverflowError):raise web.HTTPBadRequest(text="Identificador incorrecto.")
@@ -204,7 +212,9 @@ class GalleryCore:
         from .customer_bridge import ready as bridge_ready,verify_customer_bot
         if bridge_ready():
             try:
-                return await verify_customer_bot(raw,self)
+                uid=await verify_customer_bot(raw,self)
+                _CUSTOMER_BOT_UID.set(uid)
+                return uid
             except Exception:
                 pass
         raise web.HTTPUnauthorized(text="Identidad Telegram no verificada.")
@@ -214,7 +224,9 @@ class GalleryCore:
         from .permissions import payment_test_user
         # Payment-test users retain access only through a verified active
         # gallery subscription, even while the public launch is disabled.
-        if os.getenv("GALERIAS_PUBLIC","0")!="1" and not payment_test_user(uid):
+        if (os.getenv("GALERIAS_PUBLIC","0")!="1"
+            and not payment_test_user(uid)
+            and not customer_bot_signed(uid)):
             return False
         # One DB lookup: preserve the original fast Stripe-paid access check
         # while denying disputed Web memberships.
@@ -289,7 +301,8 @@ class GalleryCore:
         from .permissions import payment_test_user
         from .payments import ready as stripe_ready
         checkout_enabled=(not allowed and (payment_test_user(uid)
-                         or os.getenv("GALERIAS_PUBLIC","0")=="1")
+                         or os.getenv("GALERIAS_PUBLIC","0")=="1"
+                         or customer_bot_signed(uid))
                          and not await self.db().fetchval(
                             "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
         return {"admin":is_admin(uid),"allowed":allowed,
