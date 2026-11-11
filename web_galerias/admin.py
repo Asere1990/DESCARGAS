@@ -387,6 +387,13 @@ async def upload(g,uid,data):
 async def asset(g,request):
     key=request.match_info["key"]
     if key not in ASSET_MIME:raise web.HTTPNotFound()
+    if key=="intro":
+        metadata=await g.db().fetchval(
+            "SELECT value FROM wg_config WHERE key='intro_promo'")
+        if metadata:
+            if isinstance(metadata,str):metadata=json.loads(metadata)
+            from .intro_video import stream
+            return await stream(g,request,metadata)
     row=await g.db().fetchrow("SELECT mime,body FROM wg_assets WHERE key=$1",key)
     if not row:raise web.HTTPNotFound()
     body=bytes(row["body"])
