@@ -44,5 +44,7 @@ def classify(message):
         return "photo",mime,"photo_file"
     if declared.startswith("video/") or ext in VIDEO_EXT:
         mime=declared if declared.startswith("video/") else VIDEO_EXT[ext]
-        return "video",mime,"video_file" if filename else "video"
+        has_video_metadata=any(isinstance(a,types.DocumentAttributeVideo) for a in attrs)
+        # El nombre por sí solo no distingue un archivo de un video normal.
+        return "video",mime,"video" if has_video_metadata or not filename else "video_file"
     return None,None,None
