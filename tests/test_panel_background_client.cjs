@@ -15,6 +15,7 @@ function setup(){
   completed:0,total:3,found:0,failures:0,current:'Cuenta A'
  };
  let job={...started},nextResult={items:[],next:null,cursor:0},shouldReject=false;
+ const nameFetches=[];let nameReply={items:[{id:'22',name:'Realme',generation:3}],next:null,total:1};
  const node=(tag='div',label='')=>({
   tagName:tag.toUpperCase(),dataset:{},value:'',hidden:false,textContent:label,children:[],
   append(...args){this.children.push(...args);},
@@ -25,7 +26,10 @@ function setup(){
  const $=id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id)};
  const ctx={$,el:node,document:{hidden:false,addEventListener:(key,fn)=>{events['document:'+key]=fn;}},
   window:{addEventListener:(key,fn)=>{events['window:'+key]=fn;}},
-  setInterval:()=>1,notice(){},isEntitySearchMode:m=>['channels','channel_id','groups','group_id','bots'].includes(m),
+  setInterval:()=>1,setTimeout:()=>1,clearTimeout(){},notice(){},
+  fetch:async url=>{nameFetches.push(url);return {ok:true,json:async()=>nameReply};},
+  selectAccount(){},
+  isEntitySearchMode:m=>['channels','channel_id','groups','group_id','bots'].includes(m),
   accountSearchHit(a,hit){shown.push([a.id,hit.chat.id]);},entitySearchHit(a,hit){shown.push([a.id,hit.chat.id]);},
   metadataSearchHit(a){shown.push([a.id,'metadata']);},
   api:async(op,data)=>{requests.push({op,data});
@@ -33,6 +37,7 @@ function setup(){
    if(op==='search-job-start')return {job};
    if(op==='search-job-status')return {job};
    if(op.startsWith('search-job-results?'))return nextResult;
+   if(op==='search-job-clear'){job=null;return {job:null};}
    if(op==='search-job-control'){
     job={...job,state:data.action==='pause'?'paused':data.action==='cancel'?'cancelled':'queued'};
     return {job};
@@ -42,8 +47,10 @@ function setup(){
  $('workspace').hidden=false;$('workspace').dataset={view:'accounts'};
  $('accounts-search-mode').value='phrases';$('accounts-query').value='casa';
  vm.createContext(ctx);
- vm.runInContext(block+'\nthis.startPersistentSearch=startPersistentSearch;this.refreshPersistentSearch=refreshPersistentSearch;this.controlPersistentSearch=controlPersistentSearch;this.showJob=renderServerJob;',ctx);
- return {ctx,$,events,requests,shown,job:()=>job,setJob:j=>{job={...job,...j}},setResults:r=>nextResult=r,setReject:v=>shouldReject=v};
+ vm.runInContext(block+'\nthis.startPersistentSearch=startPersistentSearch;this.refreshPersistentSearch=refreshPersistentSearch;this.controlPersistentSearch=controlPersistentSearch;this.showJob=renderServerJob;this.runFastNameSearch=runFastNameSearch;this.clearAccountSearch=clearAccountSearch;',ctx);
+ return {ctx,$,events,requests,shown,nameFetches,job:()=>job,
+         setJob:j=>{job={...job,...j}},setResults:r=>nextResult=r,
+         setNameReply:r=>nameReply=r,setReject:v=>shouldReject=v};
 }
 
 test('starting search uses server API, not browser-only full scan',async()=>{
@@ -81,14 +88,38 @@ test('stop button cancels active job without leaving a zombie search',async()=>{
  assert.equal(s.$('cancel-account-search').hidden,true);
 });
 
-test('page reload retrieves the existing search job instead of starting another',async()=>{
+test('opening the panel does not repopulate Realme or restore a stopped search',async()=>{
  const s=setup();
- s.setJob({state:'complete',total:12,completed:12,found:0,query:'grupo',mode:'groups'});
+ s.$('accounts-query').value='';
+ s.setJob({state:'cancelled',total:147,completed:5,found:0,query:'Realme',mode:'name'});
  await s.ctx.refreshPersistentSearch();
- assert.equal(s.$('accounts-query').value,'grupo');
- assert.equal(s.$('accounts-search-mode').value,'groups');
- assert.match(s.$('accounts-progress').textContent,/Búsqueda terminada · 12\/12/);
+ assert.equal(s.$('accounts-query').value,'');
+ assert.equal(s.$('accounts-search-mode').value,'phrases');
+ assert.equal(s.requests.filter(r=>r.op==='search-job-status').length,0);
+});
+
+test('clear search removes input, results and saved server job without touching accounts',async()=>{
+ const s=setup();
+ await s.ctx.startPersistentSearch();
+ await s.ctx.clearAccountSearch();
+ assert.equal(s.$('accounts-query').value,'');
+ assert.equal(s.$('accounts-results').hidden,true);
+ assert.equal(s.$('cancel-account-search').hidden,true);
+ assert.equal(s.$('continue-account-search').hidden,true);
+ assert.ok(s.requests.some(r=>r.op==='search-job-clear'));
+ assert.equal(s.job(),null);
+});
+
+test('name search uses immediate prefix endpoint, never launches a background job',async()=>{
+ const s=setup();
+ s.$('accounts-search-mode').value='name';
+ s.$('accounts-query').value='Re';
+ await s.ctx.startPersistentSearch();
  assert.equal(s.requests.filter(r=>r.op==='search-job-start').length,0);
+ assert.equal(s.nameFetches.length,1);
+ assert.match(s.nameFetches[0],/account-name-search\?q=Re&after=0/);
+ assert.match(s.$('accounts-progress').textContent,/1 cuenta cuyo nombre comienza/);
+ assert.equal(s.$('accounts-results').children.length,1);
 });
 
 test('the form submit delegates all search modes to the server',async()=>{
