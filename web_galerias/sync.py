@@ -355,7 +355,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             if phase in ("combined","archive"):
                 for _ in range(batch):
                     await guard()
-                    item=await g.db().fetchrow("""SELECT message,kind,mime,size,
+                    item=await g.db().fetchrow("""SELECT message,kind,mime,size,filename,
                          attempts,source_checks,source_type,'preview'::text AS state
                        FROM wg_media WHERE folder=$1 AND state='preview'
                          AND available<=$2
