@@ -24,7 +24,7 @@ function setup(){
   addEventListener(){},setAttribute(){}
  });
  const $=id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id)};
- const ctx={$,el:node,document:{hidden:false,addEventListener:(key,fn)=>{events['document:'+key]=fn;}},
+ const ctx={$,el:node,base:'/panel',document:{hidden:false,addEventListener:(key,fn)=>{events['document:'+key]=fn;}},
   window:{addEventListener:(key,fn)=>{events['window:'+key]=fn;}},
   setInterval:()=>1,setTimeout:()=>1,clearTimeout(){},notice(){},
   fetch:async url=>{nameFetches.push(url);return {ok:true,json:async()=>nameReply};},
