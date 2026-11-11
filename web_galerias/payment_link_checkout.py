@@ -201,7 +201,15 @@ async def webhook(g,request):
             os.environ["GALERIAS_STRIPE_WEBHOOK_SECRET"])
     except Exception:
         raise web.HTTPBadRequest(text="Firma del webhook Stripe inválida.") from None
-    event=dict(signed)
+    # stripe-python 15+ returns stripe.Event, which is NOT iterable.
+    # .to_dict() produces recursively plain dicts for nested event objects.
+    # Retain simple Mapping support for old clients and test fixtures.
+    if hasattr(signed,"to_dict"):
+        event=signed.to_dict()
+    elif isinstance(signed,dict):
+        event=signed
+    else:
+        raise web.HTTPBadRequest(text="Formato de evento Stripe inesperado.")
     kind=event.get("type")
     data=event.get("data") or {}
     obj=data.get("object") or {}
