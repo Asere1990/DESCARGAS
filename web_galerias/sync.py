@@ -296,6 +296,66 @@ async def inspect_source(g,folder,item,message):
     return True
 
 
+async def refresh_telegram_counts(g,folder,client,entity,guard):
+    """Obtener los totales del servidor sin leer ni descargar archivos.
+
+    Telegram responde al filtro Photos / Video con TotalList.total. Se usa la
+    conexión ya abierta para la copia y nunca se compite con DESCARGAS.
+    """
+    db=g.db()
+    now=time.time()
+    # Reserva atómica para no consultar la misma carpeta en cada ronda.
+    claim=await db.fetchval("""UPDATE wg_folders
+       SET telegram_counts_next_attempt=$2
+       WHERE id=$1 AND active AND telegram_counts_next_attempt<=$3
+       RETURNING id""",folder,now+300,now)
+    if not claim:return False
+    try:
+        await guard()
+        photos=await client.get_messages(entity,0,filter=types.InputMessagesFilterPhotos)
+        await guard()
+        videos=await client.get_messages(entity,0,filter=types.InputMessagesFilterVideo)
+        await guard()
+        photo_total=getattr(photos,"total",None)
+        video_total=getattr(videos,"total",None)
+        if (not isinstance(photo_total,int) or not isinstance(video_total,int)
+            or photo_total<0 or video_total<0):
+            raise ValueError("Telegram no devolvió contadores válidos")
+        try:
+            ttl=int(os.getenv("GALERIAS_TELEGRAM_TOTALS_INTERVAL","1800"))
+        except (ValueError,TypeError):
+            ttl=1800
+        ttl=max(900,min(7200,ttl))
+        refreshed=time.time()
+        await db.execute("""UPDATE wg_folders SET
+           telegram_photos_total=$2,telegram_videos_total=$3,
+           telegram_counts_at=$4,telegram_counts_next_attempt=$5,
+           telegram_counts_error=''
+           WHERE id=$1 AND active""",folder,photo_total,video_total,
+           refreshed,refreshed+ttl+(folder%180))
+        return True
+    except (PauseRequested,asyncio.CancelledError):
+        await db.execute("""UPDATE wg_folders
+           SET telegram_counts_next_attempt=$2
+           WHERE id=$1""",folder,time.time()+45)
+        raise
+    except errors.FloodWaitError as exc:
+        # Respetar el mismo enfriamiento por cuenta que el respaldo.
+        seconds=max(1,int(getattr(exc,"seconds",60)))
+        await db.execute("""UPDATE wg_folders SET
+          telegram_counts_error='TelegramRateLimit',
+          telegram_counts_next_attempt=$2 WHERE id=$1""",
+          folder,time.time()+max(600,seconds+120))
+        raise
+    except Exception as exc:
+        # Contar es secundario: un error del servidor no debe frenar R2.
+        log.info("Telegram source counter deferred (%s)",type(exc).__name__)
+        await db.execute("""UPDATE wg_folders SET
+          telegram_counts_error=$2,telegram_counts_next_attempt=$3
+          WHERE id=$1""",folder,type(exc).__name__,time.time()+600)
+        return False
+
+
 async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,phase="combined"):
     """Un turno de lectura + copia, con lock exclusivo de cuenta ya existente."""
     from descargas_app.account_chat import connected
@@ -322,6 +382,9 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             await g.db().execute("""UPDATE wg_folders SET
               source_uid=$2,last_check=$3,error='' WHERE id=$1 AND active""",
               folder,uid,time.time())
+            if phase=="counts":
+                await refresh_telegram_counts(g,folder,client,entity,guard)
+                return
 
             if phase in ("combined","index","prime"):
                 await checkpoint(g,folder,"catalogando")
@@ -637,6 +700,18 @@ async def run(g):
                     # Índice + miniatura en el mismo turno de cada galería:
                     # el cliente no espera a que terminen 50 índices.
                     await fair_round(g,folders,phase="prime")
+                    # Las vistas previas del usuario van primero. Después,
+                    # consultar pocos totales de Telegram por ronda (limit=0),
+                    # sin enumerar/descargar el historial y sin abrir otras
+                    # sesiones fuera de los carriles protegidos existentes.
+                    due=await db.fetch("""SELECT f.* FROM wg_folders f
+                      LEFT JOIN wg_account_cooldown c ON c.uid=f.source_uid
+                      WHERE f.active AND f.source_uid IS NOT NULL
+                        AND f.telegram_counts_next_attempt<=$1
+                        AND COALESCE(c.available_at,0)<=$1
+                      ORDER BY f.telegram_counts_at ASC,f.id ASC LIMIT 3""",time.time())
+                    if due:
+                        await fair_round(g,due,phase="counts")
                     # Archivar un número limitado por ronda evita que los videos
                     # grandes retrasen indefinidamente las otras 50 galerías.
                     if folders:
