@@ -8,10 +8,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from web_galerias.sync import (
     PauseGuard, PauseRequested, backup_one, folder_active, source_free,
-    sync_folder, media_kind, find_dialog, fair_round, sync_limits, preview_one
+    sync_folder, media_kind, find_dialog, fair_round, sync_limits, preview_one,
+    inspect_source, catalog
 )
 from web_galerias.storage import PrivateStorage
 from web_galerias.admin import admin_op
+from web_galerias.media_types import classify
+from web_galerias.gif_backup import backup_gif
 
 
 class FakeStore:
@@ -233,6 +236,141 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["items"][1]["available"])
         self.assertIn("/view?",result["items"][1]["view"])
         self.assertNotIn("thumb_key",result["items"][0])
+
+    def doc(self,mime,filename=None,animated=False,sticker=False):
+        from telethon import types
+        attributes=[]
+        if filename:
+            attributes.append(types.DocumentAttributeFilename(file_name=filename))
+        if animated:
+            attributes.append(types.DocumentAttributeAnimated())
+        if sticker:
+            attributes.append(types.DocumentAttributeSticker(alt="",stickerset=types.InputStickerSetEmpty()))
+        return SimpleNamespace(photo=None,document=SimpleNamespace(
+            mime_type=mime,size=1512,attributes=attributes))
+
+    def test_document_photos_videos_and_gifs_are_classified(self):
+        samples=[
+            (self.doc("image/png","album.png"),("photo","image/png","photo_file")),
+            (self.doc("image/jpeg","foto.jpg"),("photo","image/jpeg","photo_file")),
+            (self.doc("application/octet-stream","foto.webp"),("photo","image/webp","photo_file")),
+            (self.doc("video/mp4","clip.mp4"),("video","video/mp4","video_file")),
+            (self.doc("application/octet-stream","clip.mov"),("video","video/quicktime","video_file")),
+            (self.doc("image/gif","anim.gif"),("video","image/gif","gif")),
+            (self.doc("video/mp4","animation.mp4",animated=True),("video","video/mp4","gif")),
+            (self.doc("image/svg+xml"),(None,None,None)),
+            (self.doc("image/webp","sticker.webp",sticker=True),(None,None,None)),
+        ]
+        for m,expected in samples:
+            with self.subTest(expected=expected):self.assertEqual(classify(m),expected)
+        self.assertEqual(classify(SimpleNamespace(photo=object(),document=None)),
+                         ("photo","image/jpeg","photo"))
+        self.assertEqual(classify(SimpleNamespace(photo=None,document=None)),
+                         (None,None,None))
+
+    async def test_catalog_ignores_conversations_and_only_indexes_media_captions(self):
+        g,db=gallery()
+        text=SimpleNamespace(photo=None,document=None,message="texto privado",
+                             reply_to=SimpleNamespace(reply_to_msg_id=9),id=100)
+        await catalog(g,7,text)
+        db.execute.assert_not_awaited()
+        image=SimpleNamespace(photo=object(),document=None,message="📍 Caption del álbum",
+                              noforwards=False,ttl_period=None,media=None,date=None,
+                              grouped_id=999,reply_to=None,id=101)
+        await catalog(g,7,image)
+        args=db.execute.await_args.args
+        self.assertIn("INSERT INTO wg_media",args[0])
+        self.assertNotIn("wg_replies",args[0])
+        self.assertIn("caption del album",args[11])
+        self.assertEqual(args[13],"999")
+        self.assertEqual(args[-1],"photo")
+
+    async def test_legacy_missing_needs_three_checks_not_one(self):
+        g,db=gallery()
+        item={"state":"pending","message":202,"kind":"photo",
+              "mime":"image/jpeg","source_checks":0,"source_type":"photo"}
+        self.assertFalse(await inspect_source(g,7,item,None))
+        args=db.execute.await_args.args
+        self.assertEqual(args[4],"pending")
+        self.assertEqual(args[5],"message_absent_pending_recheck")
+        self.assertEqual(args[6],1)
+        self.assertNotIn("state='missing'",args[0])
+        db.execute.reset_mock()
+        item["source_checks"]=2
+        self.assertFalse(await inspect_source(g,7,item,None))
+        args=db.execute.await_args.args
+        self.assertEqual(args[4],"missing")
+        self.assertEqual(args[5],"message_absent_after_rechecks")
+        self.assertEqual(args[6],3)
+
+    async def test_protected_media_is_skipped_not_marked_missing(self):
+        g,db=gallery()
+        item={"state":"pending","message":202,"kind":"photo",
+              "mime":"image/jpeg","source_checks":0,"source_type":"photo"}
+        m=SimpleNamespace(noforwards=True,photo=None,document=None)
+        self.assertFalse(await inspect_source(g,7,item,m))
+        self.assertIn("state='skipped'",db.execute.await_args.args[0])
+        self.assertNotIn("state='missing'",db.execute.await_args.args[0])
+
+    async def test_new_file_type_reclassifies_instead_of_missing(self):
+        g,db=gallery()
+        item={"state":"pending","message":202,"kind":"video",
+              "mime":"video/mp4","source_checks":0,"source_type":"video"}
+        m=self.doc("image/png","imagen.png")
+        self.assertFalse(await inspect_source(g,7,item,m))
+        args=db.execute.await_args.args
+        self.assertEqual(args[4],"photo")
+        self.assertEqual(args[5],"image/png")
+        self.assertEqual(args[6],"photo_file")
+        self.assertNotIn("state='missing'",args[0])
+
+    async def test_gif_stores_source_and_playable_mp4_without_overwriting_original(self):
+        from pathlib import Path
+        from PIL import Image
+        g,db=gallery()
+        data={}
+        async def object_size(key):return data.get(key)
+        async def upload(path,key,mime):
+            data[key]=Path(path).stat().st_size
+        async def download_media(message,file):
+            image=Image.new("RGB",(20,20),(30,60,90))
+            image.save(file,format="GIF")
+            return file
+        def convert(src,dst):
+            Path(dst).write_bytes(b"MP4 test fixture bytes")
+        g.storage.object_size=AsyncMock(side_effect=object_size)
+        g.storage.upload=AsyncMock(side_effect=upload)
+        client=SimpleNamespace(download_media=AsyncMock(side_effect=download_media))
+        with patch("web_galerias.gif_backup.convert_gif_to_mp4",side_effect=convert):
+            await backup_gif(g,7,{"filename":"anim.gif"},SimpleNamespace(id=202),
+                             client,AsyncMock())
+        self.assertIn("folders/7/202/source.gif",data)
+        self.assertIn("folders/7/202/original.mp4",data)
+        self.assertIn("folders/7/202/thumb.jpg",data)
+        args=db.execute.await_args.args
+        self.assertIn("state='ready'",args[0])
+        self.assertEqual(args[3],"folders/7/202/original.mp4")
+        self.assertEqual(args[6],"video/mp4")
+        self.assertEqual(args[7],"anim.mp4")
+
+    async def test_photo_document_preserves_png_original(self):
+        from pathlib import Path
+        from PIL import Image
+        g,db=gallery()
+        original={}
+        async def object_size(key):return original.get(key)
+        async def upload(path,key,mime):original[key]=Path(path).stat().st_size
+        async def download_media(message,*,file,progress_callback):
+            Image.new("RGB",(20,20),(0,120,90)).save(file,format="PNG")
+            return file
+        g.storage.object_size=AsyncMock(side_effect=object_size)
+        g.storage.upload=AsyncMock(side_effect=upload)
+        client=SimpleNamespace(download_media=AsyncMock(side_effect=download_media))
+        await backup_one(g,7,{"message":202,"kind":"photo","mime":"image/png","size":0},
+                         SimpleNamespace(id=202),client,AsyncMock())
+        self.assertIn("folders/7/202/original.png",original)
+        self.assertIn("folders/7/202/thumb.jpg",original)
+        self.assertIn("state='ready'",db.execute.await_args.args[0])
 
     def test_50_gallery_rounds_are_small_without_preventing_backups(self):
         with patch.dict(os.environ, {"GALERIAS_SYNC_BATCH_FILES": "5"}):
