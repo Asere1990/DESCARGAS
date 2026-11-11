@@ -259,6 +259,44 @@ class IntroVideoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(new["poster_size"],len(jpeg))
         self.assertEqual(new["key"],meta["key"])
 
+    async def test_previous_database_video_receives_cached_first_frame(self):
+        from PIL import Image
+        video=b"\\x00\\x00\\x00\\x18ftypisom"+b"x"*200
+        image=io.BytesIO()
+        Image.new("RGB",(80,60),(12,83,145)).save(image,"JPEG")
+        jpeg=image.getvalue()
+        db=SimpleNamespace(
+            fetchval=AsyncMock(side_effect=[None,None]),
+            fetchrow=AsyncMock(return_value={"mime":"video/mp4","body":video}),
+            execute=AsyncMock())
+        g=SimpleNamespace(closed=False,
+            storage=SimpleNamespace(ready=True),db=lambda:db)
+        def make_jpeg(_,out):
+            Path(out).write_bytes(jpeg)
+        with patch.object(intro_video.asyncio,"sleep",new_callable=AsyncMock):
+            with patch.object(intro_video,"require_video_memory"):
+                with patch.object(intro_video,"extract_poster",side_effect=make_jpeg):
+                    await intro_video.backfill_poster(g)
+        self.assertIn("key='intro-legacy-poster'",db.fetchval.await_args.args[0])
+        db.fetchrow.assert_awaited_once()
+        query,args_image,_=db.execute.await_args.args
+        self.assertIn("INSERT INTO wg_assets",query)
+        self.assertIn("'intro-legacy-poster'",query)
+        self.assertEqual(args_image,jpeg)
+        self.assertNotIn("DELETE",query)
+        self.assertNotIn("wg_media",query)
+
+    async def test_legacy_first_frame_response_needs_no_video_bytes(self):
+        jpeg=b"\\xff\\xd8\\xff"+b"image"
+        db=SimpleNamespace(
+            fetchval=AsyncMock(side_effect=[{"intro_media":"video"},None]),
+            fetchrow=AsyncMock(return_value={"mime":"image/jpeg","body":jpeg}))
+        g=SimpleNamespace(db=lambda:db)
+        response=await intro_video.poster_asset(g,SimpleNamespace())
+        self.assertEqual(response.content_type,"image/jpeg")
+        self.assertEqual(response.body,jpeg)
+        self.assertIn("intro-legacy-poster",db.fetchrow.await_args.args[0])
+
     def test_intro_photo_video_preload_is_present_before_scripts(self):
         html=(ROOT/"index.html").read_text(encoding="utf-8")
         js=(ROOT/"app.js").read_text(encoding="utf-8")
