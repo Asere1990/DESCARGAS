@@ -1161,6 +1161,7 @@ $("enter").onclick=async()=>{
  try{const data=await api("checkout");if(data.allowed){await refresh();show("library");}
   else if(data.url){tg?.openLink?tg.openLink(data.url):location.assign(data.url);}}
  catch(e){notice(e.message);}
+ finally{enter.disabled=false;}
 };
 $("go-intro").onclick=()=>show("intro");
 $("personal-folders-toggle").onclick=()=>setPersonalMenuOpen(!S.personalMenuOpen);
