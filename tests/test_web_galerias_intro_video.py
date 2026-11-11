@@ -287,7 +287,8 @@ class IntroVideoTests(unittest.IsolatedAsyncioTestCase):
                     "video hasta 80 MB","autoplay muted loop playsinline"):
             self.assertIn(key,html)
         self.assertIn('$("confirm-editor").onclick=confirmEditorChanges',js)
-        self.assertIn('$("upload-"+key).onchange=editorPendingFilesMessage',js)
+        self.assertIn('$("upload-"+key).onchange=()=>{',js)
+        self.assertIn('editorPendingFilesMessage();',js)
         self.assertNotIn('onchange=e=>uploadAsset(key,e.target.files[0])',js)
         self.assertIn("new XMLHttpRequest()",js)
         self.assertIn('xhr.upload.onprogress',js)
