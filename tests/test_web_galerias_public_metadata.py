@@ -1,5 +1,6 @@
 """Los nombres internos y el estado del respaldo no deben salir a clientes."""
 import unittest
+from aiohttp import web
 from types import SimpleNamespace
 from unittest.mock import AsyncMock,patch
 from web_galerias.core import GalleryCore
