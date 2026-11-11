@@ -391,16 +391,26 @@ function hideDragPreview(){
 function dragMenuScroll(){
  if(!S.drag)return;
  const menu=$("folder-drop-menu");
+ const x=S.drag.x,y=S.drag.y;
+ let insideMenu=false;
  if(S.dropMenuOpen&&!menu.classList.contains("hidden")){
   const rect=menu.getBoundingClientRect();
-  const x=S.drag.x,y=S.drag.y;
-  if(x>=rect.left-12&&x<=rect.right+12&&y>=rect.top-30&&y<=rect.bottom+30){
+  insideMenu=x>=rect.left-12&&x<=rect.right+12&&y>=rect.top-30&&y<=rect.bottom+30;
+  if(insideMenu){
    const zone=57;
    let delta=0;
    if(y<rect.top+zone)delta=-Math.min(16,Math.ceil((rect.top+zone-y)/3));
    else if(y>rect.bottom-zone)delta=Math.min(16,Math.ceil((y-(rect.bottom-zone))/3));
    if(delta){menu.scrollTop+=delta;dragHoverAt(x,y);}
   }
+ }
+ if(!insideMenu){
+  // Mantener el dedo cerca del borde desplaza la galería para poder llevar
+  // una selección de fotos lejanas hasta el menú sin soltarla.
+  const edge=65;
+  if(y<edge)window.scrollBy(0,-13);
+  else if(y>window.innerHeight-edge)window.scrollBy(0,13);
+  dragHoverAt(x,y);
  }
  S.drag.raf=requestAnimationFrame(dragMenuScroll);
 }
