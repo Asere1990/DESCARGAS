@@ -80,6 +80,9 @@ async def admin_op(g,uid,op,data):
             COUNT(m.id) FILTER(WHERE m.state='pending' AND
               m.error='en_revalidacion')::int AS rechecking,
             COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
+            COUNT(m.id) FILTER(WHERE m.state='preview')::int AS preview_only,
+            COUNT(m.id) FILTER(WHERE m.state='preview'
+              AND m.thumb_key IS NOT NULL)::int AS previews_with_images,
             COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending,
             COUNT(m.id) FILTER(WHERE m.state='missing')::int AS missing,
             COUNT(m.id) FILTER(WHERE m.state='missing' AND
