@@ -166,7 +166,7 @@ class IOSGalleryUXTests(unittest.TestCase):
         self.assertIn("return await stream_object(",src[start:])
         self.assertNotIn("raise web.HTTPFound",src[start:])
         self.assertIn("max(0,100-used-len(ids))" if False else
-                      '"remaining":100-used-len(ids)',src)
+                      '"remaining":None if unlimited else 100-used-len(ids)',src)
 
 class WatermarkEditorTests(unittest.IsolatedAsyncioTestCase):
     def test_defaults_match_requested_mark_and_work_on_both_media(self):
@@ -251,7 +251,7 @@ class WatermarkEditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('id="wm-preview-text"',html)
         self.assertIn('id="save-watermark"',html)
         self.assertIn('api("admin-watermark"',js)
-        self.assertIn('renderWatermark($("viewer-watermark"),S.me?.design)',js)
+        self.assertIn('renderViewerWatermark()',js)
         self.assertIn('input.addEventListener("input",previewWatermark)',js)
 
 
@@ -424,7 +424,7 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(found["missing_rechecked"],2)
         self.assertEqual(sum(x["count"] for x in found["missing_reasons"]),32)
         self.assertNotIn("automatic_cover",found)
-        self.assertEqual(db.fetch.await_count,3)
+        self.assertEqual(db.fetch.await_count,2)
 
     async def test_rechecking_only_requeues_ten_missing_without_removing_r2(self):
         from types import SimpleNamespace
