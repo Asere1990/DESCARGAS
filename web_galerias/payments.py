@@ -6,6 +6,8 @@ import time
 from aiohttp import web
 
 def ready():
+    from .payment_link_checkout import configured
+    if configured():return True
     return all(os.getenv(k) for k in ("GALERIAS_STRIPE_KEY","GALERIAS_STRIPE_PRICE_ID",
                                      "GALERIAS_STRIPE_WEBHOOK_SECRET"))
 
@@ -23,6 +25,9 @@ async def checkout(g,uid):
         raise web.HTTPForbidden(text="El acceso todavía está en prueba privada.")
     if not ready():
         raise web.HTTPServiceUnavailable(text="Pagar con tarjeta aún no está configurado.")
+    from .payment_link_checkout import configured,checkout as new_checkout
+    if configured():
+        return await new_checkout(g,uid)
     import stripe
     stripe.api_key=os.environ["GALERIAS_STRIPE_KEY"]
     nonce=secrets.token_urlsafe(24)
@@ -48,6 +53,8 @@ async def checkout(g,uid):
 
 async def webhook(g,request):
     if not ready():raise web.HTTPServiceUnavailable(text="Los pagos no están configurados.")
+    from .payment_link_checkout import configured,webhook as link_webhook
+    if configured():return await link_webhook(g,request)
     raw=await request.read()
     if len(raw)>200000:raise web.HTTPRequestEntityTooLarge(max_size=200000,actual_size=len(raw))
     import stripe
