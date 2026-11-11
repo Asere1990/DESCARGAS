@@ -1,16 +1,18 @@
 """Pruebas de aislamiento y seguridad del piloto Web Galerías."""
 import json
+import base64
 import io
 import time
 import unittest
 from types import SimpleNamespace
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock,patch
 from pathlib import Path
 from cryptography.fernet import Fernet
 from PIL import Image
 from aiohttp import web
 from web_galerias.permissions import is_admin,is_tester,pilot_allowed,button_visible
-from web_galerias.admin import cleaned_design,admin_op
+from web_galerias.admin import cleaned_design,admin_op,upload as admin_upload
 from web_galerias.downloads import temporary_link,validate_link,safe_filename
 from web_galerias.personal import folder_name,media_filter,items as personal_items
 from web_galerias.core import DEFAULTS,normal,identifier,GalleryCore
@@ -306,6 +308,43 @@ class FolderCoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("MAX(c.updated)",sql)
         self.assertIn("NULLIF(f.public_name,'')",sql)
         self.assertNotIn("f.name",sql)
+
+    async def test_cover_upload_only_changes_cover_table(self):
+        png=self.png((600,400))
+        async def transaction():
+            yield connection
+        async def acquire():
+            yield connection
+        connection=SimpleNamespace(
+            execute=AsyncMock(),
+            fetch=AsyncMock(return_value=[
+                {"part":0,"total":1,"key":"folder-cover:7","mime":"image/png","body":png}]),
+            transaction=asynccontextmanager(transaction))
+        pool=SimpleNamespace(fetchval=AsyncMock(return_value=1),
+                             acquire=asynccontextmanager(acquire))
+        g=SimpleNamespace(db=lambda:pool,log=AsyncMock())
+        result=await admin_upload(g,7539025033,{
+            "key":"folder-cover","folder":7,"mime":"image/png",
+            "upload":"a"*32,"part":0,"total":1,
+            "data":base64.b64encode(png).decode()})
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["folder"],7)
+        queries=[call.args[0] for call in connection.execute.await_args_list]
+        self.assertTrue(any("INSERT INTO wg_folder_covers" in q for q in queries))
+        self.assertFalse(any("INSERT INTO wg_assets" in q for q in queries))
+        self.assertFalse(any("DELETE FROM wg_media" in q for q in queries))
+        g.log.assert_awaited_once_with(7539025033,"admin-folder-cover")
+
+    async def test_removing_cover_does_not_remove_original_media(self):
+        db=SimpleNamespace(fetchval=AsyncMock(return_value=1),execute=AsyncMock())
+        g=SimpleNamespace(db=lambda:db,log=AsyncMock())
+        result=await admin_op(g,7539025033,"admin-folder-cover-remove",
+                              {"folder":7})
+        self.assertEqual(result,{"ok":True})
+        query=db.execute.await_args.args[0]
+        self.assertIn("DELETE FROM wg_folder_covers",query)
+        self.assertNotIn("wg_media",query)
+        self.assertNotIn("wg_folders",query)
 
     def test_editor_has_cover_on_create_and_change(self):
         root=Path(__file__).resolve().parents[1]/"web_galerias"
