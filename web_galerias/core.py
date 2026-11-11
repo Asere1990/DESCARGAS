@@ -170,7 +170,11 @@ class GalleryCore:
 
     async def entitled(self,uid):
         if pilot_allowed(uid):return True
-        if os.getenv("GALERIAS_PUBLIC","0")!="1":return False
+        from .permissions import payment_test_user
+        # Payment-test users retain access only through a verified active
+        # gallery subscription, even while the public launch is disabled.
+        if os.getenv("GALERIAS_PUBLIC","0")!="1" and not payment_test_user(uid):
+            return False
         row=await self.db().fetchrow("SELECT state,paid_until FROM wg_subscriptions WHERE uid=$1",uid)
         return bool(row and row["state"] in ("active","trialing") and row["paid_until"]>time.time())
 
