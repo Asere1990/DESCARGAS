@@ -131,6 +131,44 @@ async def operation(g,uid,op,data):
                   VALUES($1,$2,$3,$4) ON CONFLICT(folder,media) DO NOTHING""",
                   [(uid,folder,item["id"],time.time()) for item in valid])
         return {"ok":True,"id":folder,"name":name,"count":len(ids)}
+    if op=="personal-move":
+        # Move only personal-folder references, never the gallery original.
+        source=identifier(data.get("personal_folder"))
+        destination=identifier(data.get("target_folder"))
+        ids=data.get("ids")
+        if not isinstance(ids,list) or not 1<=len(ids)<=10:
+            raise web.HTTPBadRequest(text="Selecciona de 1 a 10 archivos.")
+        ids=list(dict.fromkeys(identifier(x) for x in ids))
+        if source==destination:
+            return {"ok":True,"count":len(ids)}
+        async with db.acquire() as c,c.transaction():
+            owned=await c.fetch("""
+                SELECT id FROM wg_personal_folders WHERE uid=$1
+                  AND id=ANY($2::bigint[]) ORDER BY id FOR UPDATE""",
+                uid,[source,destination])
+            if len(owned)!=2:
+                raise web.HTTPForbidden(text="Carpeta personal no autorizada.")
+            rows=await c.fetch("""
+                SELECT i.media FROM wg_personal_items i
+                JOIN wg_media m ON m.id=i.media
+                WHERE i.uid=$1 AND i.folder=$2
+                  AND i.media=ANY($3::bigint[])
+                  AND m.state IN ('preview','ready')""",
+                uid,source,ids)
+            if len(rows)!=len(ids):
+                raise web.HTTPConflict(text="La selección cambió. Actualiza tu carpeta.")
+            await allowed_personal_media(c,uid,ids)
+            await c.executemany("""
+                INSERT INTO wg_personal_items(uid,folder,media,added)
+                VALUES($1,$2,$3,$4) ON CONFLICT(folder,media) DO NOTHING""",
+                [(uid,destination,media["media"],time.time()) for media in rows])
+            await c.execute("""
+                DELETE FROM wg_personal_items WHERE uid=$1 AND folder=$2
+                  AND media=ANY($3::bigint[])""",uid,source,ids)
+            await c.execute("""UPDATE wg_personal_folders SET cover_media=NULL
+                WHERE uid=$1 AND id=$2 AND cover_media=ANY($3::bigint[])""",
+                uid,source,ids)
+        return {"ok":True,"count":len(ids)}
     folder=identifier(data.get("personal_folder"))
     if op=="personal-cover-upload":
         # Encoded image is resized on the phone and limited to 350 KB of JSON.
