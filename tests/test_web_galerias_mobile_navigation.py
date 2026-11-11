@@ -66,6 +66,38 @@ class GalleryMobileNavigation(unittest.TestCase):
                                "viewer-prev","viewer-next"):
                 self.assertNotIn(f'id="{identifier}"',header)
 
+    def test_library_brand_is_visible_below_swiftgram_toolbar(self):
+        library=self.html.split('<section id="library"',1)[1].split('</section>',1)[0]
+        header=library.split('<header',1)[1].split('</header>',1)[0]
+        self.assertIn('library-safe-spacer',header)
+        self.assertNotIn('id="brand-logo"',header)
+        self.assertNotIn('id="brand-name"',header)
+        self.assertNotIn('<button',header)
+        self.assertEqual(library.count('id="brand-logo"'),1)
+        self.assertEqual(library.count('id="brand-name"'),1)
+        brand=library.index('class="library-branding"')
+        eyebrow=library.index('class="eyebrow">MI COLECCIÓN')
+        heading=library.index('<h1>Mis galerías</h1>')
+        self.assertLess(brand,eyebrow)
+        self.assertLess(eyebrow,heading)
+        self.assertIn('#library .library-safe-spacer{',self.css)
+        self.assertIn('min-height:70px;height:70px',self.css)
+        self.assertIn('#library .library-branding{',self.css)
+        self.assertIn('position:static;top:auto;z-index:auto',self.css)
+
+    def test_video_has_no_middle_star_and_placeholder_does_not_overlay(self):
+        intro=self.html.split('<section id="intro"',1)[1].split('</section>',1)[0]
+        video=intro.split('class="intro-video-wrap"',1)[1].split('</div>',1)[0]
+        self.assertNotIn('✦',video)
+        self.assertNotIn('<span>✦</span>',self.html)
+        self.assertIn('id="intro-placeholder" class="intro-placeholder"',intro)
+        self.assertIn('class="intro-placeholder-label"',intro)
+        self.assertIn('#intro .intro-placeholder[hidden]',self.css)
+        self.assertIn('#intro.has-intro-video #intro-placeholder',self.css)
+        self.assertIn('display:none!important',self.css)
+        self.assertIn('video.hidden=false;placeholder.hidden=true;',self.js)
+        self.assertIn('video.hidden=true;placeholder.hidden=false;',self.js)
+
     def test_filter_is_below_search_outside_swiftgram_header(self):
         album=self.html.split('<section id="album"',1)[1].split('</section>',1)[0]
         header=album.split('<header',1)[1].split('</header>',1)[0]

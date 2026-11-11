@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=fullscreen-intro-confirm-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=brand-below-toolbar-no-star-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=fullscreen-intro-confirm-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=brand-below-toolbar-no-star-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -35,7 +35,7 @@
  </section>
  <section id="intro" class="intro screen">
   <div class="intro-video-wrap"><video id="intro-video" autoplay muted loop playsinline webkit-playsinline preload="metadata" hidden></video>
-   <div id="intro-placeholder" class="intro-placeholder"><span>✦</span><span>GALERÍAS PRIVADAS</span></div></div>
+   <div id="intro-placeholder" class="intro-placeholder"><span class="intro-placeholder-label">GALERÍAS PRIVADAS</span></div></div>
   <div class="intro-bottom">
     <button id="intro-sound" type="button" class="intro-sound hidden" aria-label="Activar sonido del video de presentación">🔊 Activar sonido</button>
     <div id="intro-logo" class="intro-logo">▦</div>
@@ -46,9 +46,12 @@
   </div>
  </section>
  <section id="library" class="screen hidden">
-  <header class="topbar"><div class="branding"><img id="brand-logo" alt="" hidden><span id="brand-icon">▦</span>
-   <strong id="brand-name">Web Galerías</strong></div></header>
+  <header class="topbar library-safe-spacer" aria-hidden="true"></header>
   <main class="container">
+   <div class="library-branding" aria-label="Identidad de Web Galerías">
+    <img id="brand-logo" alt="" hidden><span id="brand-icon" aria-hidden="true">▦</span>
+    <strong id="brand-name">Web Galerías</strong>
+   </div>
    <div class="eyebrow">MI COLECCIÓN</div><h1>Mis galerías</h1>
    <div class="stats"><div><strong id="stat-folders">0</strong><small>Carpetas</small></div>
     <div><strong id="stat-photos">0</strong><small>Fotos</small></div>
