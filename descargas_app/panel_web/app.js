@@ -2,6 +2,7 @@
 const $=id=>document.getElementById(id),el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;},base=document.body.dataset.base;
 let capabilities=null,operationBusy=false,replyDraft=null,attachedFile=null,sendRequest=null;
 let panelReviewer=false,panelAdmin=false;
+let favoriteItems=[];
 let csrf='',account=null,chat=null,accountsNext=null,chatsNext=null,filter='all',mode='messages',before=null,query='',epoch=0,polling=false,rows=[],messages=new Map(),thumbQueue=[],thumbBusy=false,modal=false,retryAt=0,pendingEpoch=-1,requestId=0,listPolling=false,networkTail=Promise.resolve();
 const imageCache=new Map();let imageBytes=0;let topic=0,topicNext=null,folder=null,folders=[],scheduleDraft=null,contextMode=false,contextFocus=null,autoHistoryArmed=false,olderLoading=false;
 function clearImages(){for(const c of imageCache.values())URL.revokeObjectURL(c.url);imageCache.clear();imageBytes=0;thumbQueue=[];}
@@ -14,6 +15,80 @@ async function api(op,data,raw=false){const r=await network(base+'/api/'+op,{cac
 const view=v=>{$('workspace').dataset.view=v;if(v==='accounts')setTimeout(pumpStatuses,0);};
 function avatar(title){const a=el('div',title.split(/\s+/).slice(0,2).map(v=>v[0]).join('').toUpperCase());a.className='avatar';return a;}
 function fileUrl(op,m){return base+'/api/'+op+'?account='+account.id+'&peer='+encodeURIComponent(chat.handle)+(m?'&message='+m.id:'');}
+function currentFavorite(){return favoriteItems.some(f=>String(f.account_id)===String(account?.id)&&String(f.id)===String(chat?.id));}
+function updateFavoriteStar(){
+ const button=$('favorite-toggle');button.hidden=!account||!chat;if(button.hidden)return;
+ const active=currentFavorite();button.textContent=active?'★':'☆';
+ button.setAttribute('aria-pressed',String(active));
+ button.setAttribute('aria-label',active?'Quitar de favoritos':'Marcar como favorito');
+ button.title=active?'Quitar de favoritos':'Marcar como favorito';
+}
+async function refreshFavorites(){
+ const result=await api('favorites');favoriteItems=result.items||[];updateFavoriteStar();return favoriteItems;
+}
+async function toggleChatFavorite(){
+ if(!chat||!account)return;
+ const chosen=chat,owner=account,button=$('favorite-toggle');button.disabled=true;
+ try{
+  await api('favorite-toggle',{account:owner.id,peer:chosen.handle,type:chosen.type,
+   name:chosen.name,username:chosen.username||'',account_name:owner.name,
+   favorite:!currentFavorite()});
+  await refreshFavorites();
+ }catch(e){notice(e.message);}
+ finally{button.disabled=false;}
+}
+function favoriteFolder(){
+ const box=management('⭐ Mis favoritos');
+ const info=el('p','Grupos, canales y chats privados que has marcado. Cada elemento conserva el ID del chat y el Telegram ID de la cuenta vinculada.');
+ const tabs=el('div');tabs.className='favorite-categories';const list=el('div');
+ let selected='all';box.append(info,tabs,list);
+ const render=()=>{
+  tabs.replaceChildren();list.replaceChildren();
+  for(const [kind,title] of [['all','Todos'],['group','Grupos'],['channel','Canales'],['private','Privados']]){
+   const button=el('button',title);button.className=kind===selected?'active':'';
+   button.setAttribute('aria-pressed',String(kind===selected));
+   button.onclick=()=>{selected=kind;render();};tabs.append(button);
+  }
+  const matching=favoriteItems.filter(item=>selected==='all'||item.type===selected);
+  if(!matching.length){list.append(el('p','No tienes favoritos en esta categoría.'));return;}
+  for(const item of matching){
+   const entry=el('div');entry.className='favorite-entry';
+   const open=el('button');open.className='favorite-open';
+   open.append(el('strong',item.name),el('small',(item.username?'@'+item.username+' · ':'')+
+    ({group:'Grupo',channel:'Canal',private:'Privado'}[item.type]||'Chat')),
+    el('small','ID: '+item.id+' · Telegram ID: '+item.account_id),
+    el('small','Cuenta: '+item.account+(item.available?'':' · Reconecta o actualiza esta cuenta para abrir')));
+   open.onclick=async()=>{
+    if(!item.available||!item.handle)return notice('Actualiza la lista de chats de la cuenta vinculada para abrir este favorito.');
+    $('management').close();
+    try{
+     if(!account||String(account.id)!==String(item.account_id)){
+      const a=overviewAccounts.get(String(item.account_id))||{id:item.account_id,name:item.account,generation:item.generation};
+      await selectAccount(a);
+     }
+     await openChat({id:item.id,handle:item.handle,name:item.name,username:item.username,
+      type:item.type,avatar:false,forum:false,members:null});
+    }catch(e){notice(e.message);}
+   };
+   const star=el('button','★');star.className='favorite-remove';
+   star.title='Quitar de favoritos';star.setAttribute('aria-label','Quitar '+item.name+' de favoritos');
+   star.onclick=async()=>{
+    star.disabled=true;
+    try{
+     await api('favorite-remove',{account:item.account_id,source:item.id});
+     favoriteItems=favoriteItems.filter(f=>!(String(f.account_id)===String(item.account_id)&&String(f.id)===String(item.id)));
+     updateFavoriteStar();render();
+    }catch(e){star.disabled=false;notice(e.message);}
+   };
+   entry.append(open,star);list.append(entry);
+  }
+ };
+ list.append(el('p','Cargando favoritos…'));
+ refreshFavorites().then(()=>{if($('management').open)render();}).catch(e=>notice(e.message));
+}
+$('favorite-toggle').onclick=toggleChatFavorite;
+$('favorites-open').onclick=favoriteFolder;
+$('favorites-folder').onclick=favoriteFolder;
 function scheduleImage(img,url){thumbQueue.push({img,url,epoch,protected:img.dataset.protected==='1'});pumpThumbs();}
 async function pumpThumbs(){if(thumbBusy||modal||operationBusy||!thumbQueue.length)return;thumbBusy=true;const task=thumbQueue.shift();if(task.epoch===epoch&&task.img.isConnected){try{const r=await network(task.url,{cache:'no-store'});if(r.ok&&r.status!==204){const blob=await r.blob();if(task.epoch===epoch&&task.img.isConnected){const url=URL.createObjectURL(blob);if(task.protected){task.img.onload=()=>URL.revokeObjectURL(url);task.img.onerror=()=>URL.revokeObjectURL(url);}else{imageCache.set(task.url,{url,size:blob.size});imageBytes+=blob.size;}while((imageBytes>8*1024*1024||imageCache.size>120)&&imageCache.size>1){const [key,old]=imageCache.entries().next().value;imageCache.delete(key);imageBytes-=old.size;URL.revokeObjectURL(old.url);}task.img.src=url;task.img.style.opacity='1';}}}catch{}}thumbBusy=false;pumpThumbs();}
 let profileQueue=[],profileBusy=false;
@@ -22,11 +97,11 @@ const profileObserver=new IntersectionObserver(entries=>{for(const item of entri
 const imageObserver=new IntersectionObserver(entries=>{for(const item of entries)if(item.isIntersecting){const img=item.target;imageObserver.unobserve(img);if(img.dataset.url)scheduleImage(img,img.dataset.url);}}, {rootMargin:'100px'});
 function lazyImage(parent,url,alt,protectedMedia=false){const img=el('img');img.alt=alt;img.style.opacity='0';img.dataset.url=url;img.dataset.protected=protectedMedia?'1':'0';img.draggable=false;if(protectedMedia)img.oncontextmenu=e=>e.preventDefault();parent.append(img);const cached=protectedMedia?null:imageCache.get(url);if(cached){img.src=cached.url;img.style.opacity='1';}else imageObserver.observe(img);return img;}
 async function loadAccounts(append=false){const r=await api('accounts'+(append&&accountsNext?'?after='+accountsNext:''));panelReviewer=!!r.reviewer;if(!append){loadedAccountPages=0;profileObserver.disconnect();profileQueue=[];statusQueue=[];overviewAccounts.clear();accountCards.clear();buildAccountGroups();}for(const a of r.items){overviewAccounts.set(a.id,a);if(!accountCards.has(a.id))createAccountCard(a);else updateAccountCard(a);}accountsNext=r.next;loadedAccountPages++;$('more-accounts').hidden=!r.next;updateAccountGroups();if(!append&&!r.items.length)$('accounts').append(el('p',r.next?'No hay cuentas visibles en esta página. Pulsa Cargar más cuentas.':'No hay cuentas disponibles con tus permisos.'));queueAccountCache();}
-async function selectAccount(a){if(operationBusy)return notice('Espera a que termine la operación en curso.');cancelOverviewSearch();stopLive();resetComposer();$('manage-chat').hidden=true;epoch++;thumbQueue=[];account=a;chat=null;rows=[];messages.clear();mode='messages';$('gallery-count').hidden=true;$('thread').classList.remove('gallery');$('thread').replaceChildren(el('p','Selecciona una conversación de esta cuenta.'));$('chat-title').textContent='Tus conversaciones';$('chat-subtitle').textContent=a.name;$('chat-avatar').textContent='➤';$('message-tabs').hidden=true;$('older').hidden=true;filter='all';document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter==='all'));query='';$('chat-search').value='';$('account-name').textContent=a.name;$('account-chip').textContent=a.name;view('chats');$('chats').replaceChildren(el('p','Cargando chats…'));notice('');await loadChats();await loadFolders();startLive();}
+async function selectAccount(a){if(operationBusy)return notice('Espera a que termine la operación en curso.');cancelOverviewSearch();stopLive();resetComposer();$('manage-chat').hidden=true;$('favorite-toggle').hidden=true;epoch++;thumbQueue=[];account=a;chat=null;rows=[];messages.clear();mode='messages';$('gallery-count').hidden=true;$('thread').classList.remove('gallery');$('thread').replaceChildren(el('p','Selecciona una conversación de esta cuenta.'));$('chat-title').textContent='Tus conversaciones';$('chat-subtitle').textContent=a.name;$('chat-avatar').textContent='➤';$('message-tabs').hidden=true;$('older').hidden=true;filter='all';document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter==='all'));query='';$('chat-search').value='';$('account-name').textContent=a.name;$('account-chip').textContent=a.name;view('chats');$('chats').replaceChildren(el('p','Cargando chats…'));notice('');await pausePersistentSearchForChats();await loadChats();await loadFolders();startLive();refreshFavorites().catch(()=>{});}
 async function loadChats(append=false,quiet=false){if(!account)return;const requestEpoch=epoch;const r=await api('chats?account='+account.id+(append&&chatsNext?'&cursor='+encodeURIComponent(chatsNext):''));if(requestEpoch!==epoch)return;if(account.generation!==undefined&&r.generation!==undefined&&account.generation!==r.generation)rows=[];account.generation=r.generation;const oldRows=JSON.stringify(rows);const incoming=r.items.map(item=>{const old=rows.find(r=>r.id===item.id);return old?{...item,handle:old.handle}:item;});rows=append?[...rows,...incoming.filter(item=>!rows.some(old=>old.id===item.id))]:quiet?[...incoming,...rows.filter(old=>!incoming.some(item=>item.id===old.id))]:incoming;if(!quiet)chatsNext=r.next;account.name=r.account||account.name;$('account-name').textContent=account.name;$('account-chip').textContent=account.name;notice('');$('more-chats').hidden=!chatsNext;if(!quiet||JSON.stringify(rows)!==oldRows)renderChats();}
 function matchesChatFilter(c,selected){return selected==='all'||(selected==='owner'?!!c.owner:selected==='admin'?!!c.admin:selected==='saved'?!!c.saved:c.type===selected);}
 function renderChats(){for(const img of $('chats').querySelectorAll('img'))imageObserver.unobserve(img);const q=$('chat-search').value.trim().toLowerCase();$('chats').replaceChildren();for(const c of rows.filter(c=>matchesChatFilter(c,filter)&&folderMatches(c)&&(!q||c.name.toLowerCase().includes(q)))){const b=el('button');b.className='chat-row'+(c.id===chat?.id?' selected':'');const av=avatar(c.name);if(c.avatar)lazyImage(av,base+'/api/avatar?account='+account.id+'&peer='+encodeURIComponent(c.handle),c.name);b.append(av);const body=el('div');body.className='chat-body';const line=el('div');line.className='chat-line';line.append(el('strong',c.name),el('time',c.date?time(c.date):''));const preview=el('div');preview.className='chat-preview';preview.append(el('p',labels[c.preview]||c.preview||'Sin mensajes'));if(c.unread){const n=el('span',c.unread>999?'999+':c.unread);n.className='badge';preview.append(n);}body.append(line);if(panelAdmin&&c.type!=='private')body.append(el('small','ID: '+c.id));body.append(preview);if(c.members!=null&&c.type!=='private')body.append(el('small',Number(c.members).toLocaleString('es')+(c.type==='channel'?' suscriptores':' miembros')));b.append(body);b.onclick=()=>openChat(c).catch(e=>notice(e.message));$('chats').append(b);}if(!$('chats').children.length){const p=el('p',chatsNext?'Sin resultados en esta página. Carga más chats para continuar.':'No hay conversaciones disponibles.');p.className='empty';$('chats').append(p);}}
-async function openChat(c,resume=null){if(operationBusy)return notice('Espera a que termine la operación en curso.');stopLive();resetComposer();topic=0;topicNext=null;contextMode=false;autoHistoryArmed=false;$('return-latest').hidden=true;$('topic-bar').hidden=true;capabilities=null;epoch++;thumbQueue=[];chat=c;mode='messages';query='';messages.clear();before=null;$('chat-title').textContent=c.name;$('chat-source-id').hidden=!panelAdmin||c.type==='private';$('chat-source-id').textContent=panelAdmin&&c.type!=='private'?'ID: '+c.id:'';$('chat-subtitle').textContent={private:'Chat privado',group:'Grupo',channel:'Canal'}[c.type]+' · '+account.name;$('chat-avatar').replaceChildren(...avatar(c.name).childNodes);if(c.avatar)lazyImage($('chat-avatar'),fileUrl('avatar'),c.name);$('chat-counts').hidden=true;loadChatCounts();$('message-tabs').hidden=false;$('message-search').hidden=true;$('message-query').value='';tabs();view('conversation');notice('');$('thread').replaceChildren(el('p','Cargando conversación…'));renderChats();if(resume)await restoreConversation(resume);else await loadMessages();await loadCapabilities();if(c.forum)await loadTopics();const opened=epoch;requestAnimationFrame(()=>{if(!resume&&opened===epoch&&mode==='messages')$('thread').scrollTop=$('thread').scrollHeight;});startLive();}
+async function openChat(c,resume=null){if(operationBusy)return notice('Espera a que termine la operación en curso.');stopLive();resetComposer();topic=0;topicNext=null;contextMode=false;autoHistoryArmed=false;$('return-latest').hidden=true;$('topic-bar').hidden=true;capabilities=null;epoch++;thumbQueue=[];chat=c;mode='messages';query='';messages.clear();before=null;$('chat-title').textContent=c.name;$('chat-source-id').hidden=!panelAdmin||c.type==='private';$('chat-source-id').textContent=panelAdmin&&c.type!=='private'?'ID: '+c.id:'';$('chat-subtitle').textContent={private:'Chat privado',group:'Grupo',channel:'Canal'}[c.type]+' · '+account.name;$('chat-avatar').replaceChildren(...avatar(c.name).childNodes);updateFavoriteStar();if(c.avatar)lazyImage($('chat-avatar'),fileUrl('avatar'),c.name);$('chat-counts').hidden=true;loadChatCounts();$('message-tabs').hidden=false;$('message-search').hidden=true;$('message-query').value='';tabs();view('conversation');notice('');$('thread').replaceChildren(el('p','Cargando conversación…'));renderChats();if(resume)await restoreConversation(resume);else await loadMessages();await loadCapabilities();if(c.forum)await loadTopics();const opened=epoch;requestAnimationFrame(()=>{if(!resume&&opened===epoch&&mode==='messages')$('thread').scrollTop=$('thread').scrollHeight;});startLive();}
 async function loadChatCounts(){if(!chat||chat.type==='private')return;const chosen=epoch,selected=chat;const line=$('chat-counts');line.hidden=false;line.textContent=chat.members!=null?Number(chat.members).toLocaleString('es')+' miembros':'Consultando miembros…';try{const data=await api('chat-counts?account='+account.id+'&peer='+encodeURIComponent(selected.handle));if(chosen!==epoch||chat!==selected)return;line.textContent=(data.members==null?'Miembros: no disponible':Number(data.members).toLocaleString('es')+(chat.type==='channel'?' suscriptores':' miembros'))+(chat.type==='group'?' · '+(data.online==null?'Conectados: no disponible':Number(data.online).toLocaleString('es')+' conectados'):'');}catch{if(chosen===epoch&&chat===selected&&selected.members==null)line.textContent='Miembros: no disponible';}}
 function tabs(){$('gallery-count').hidden=mode!=='gallery';$('messages-tab').classList.toggle('active',mode==='messages');$('gallery-tab').classList.toggle('active',mode==='gallery');$('thread').classList.toggle('gallery',mode==='gallery');$('older').textContent=mode==='gallery'?'Cargar más fotos y videos':'Cargar mensajes anteriores';}
 async function loadGalleryCount(){const chosen=epoch;try{const r=await api('gallery-count?account='+account.id+'&peer='+encodeURIComponent(chat.handle)+(topic?'&topic='+topic:''));if(chosen!==epoch||mode!=='gallery')return;const number=n=>Number(n).toLocaleString('es');$('gallery-count').textContent=(topic?'Total del tema: ':'Total del chat: ')+(r.approximate?'≈ ':'')+number(r.photos)+' fotos · '+number(r.videos)+' videos';}catch(e){if(chosen===epoch&&mode==='gallery')$('gallery-count').textContent='No se pudo consultar el total. Vuelve a abrir la galería para reintentar.';}}
@@ -568,11 +643,23 @@ $('continue-account-search').onclick=()=>{if(overviewMode==='phrases')runAccount
 let persistentJob=null,persistentCursor=0,persistentFetching=false,persistentSeen=new Set(),
     persistentDisplayed=0,persistentMore=null,persistentPollBusy=false;
 function serverSearchState(state){return ['queued','running','waiting'].includes(state);}
+async function pausePersistentSearchForChats(){
+ // A background search should not keep borrowing Telegram sessions while
+ // the administrator is reading a conversation.
+ try{
+  const job=(await api('search-job-status')).job;
+  if(!job||!serverSearchState(job.state))return;
+  const result=await api('search-job-control',{id:job.id,action:'pause'});
+  if(persistentJob?.id===job.id)persistentJob=result.job;
+ }catch(e){notice('No se pudo pausar la búsqueda: '+e.message);}
+}
 function serverSearchNote(job){
  const count=job.completed+'/'+job.total+' cuentas activas revisadas · '+job.found+' resultados';
  if(job.state==='complete')return 'Búsqueda terminada · '+count;
  if(job.state==='incomplete')return 'Búsqueda incompleta · '+count+' · '+job.failures+' cuentas con error. Puedes reintentar.';
- if(job.state==='paused')return 'Búsqueda pausada por ti · '+count;
+ if(job.state==='paused')return 'Búsqueda pausada · '+count;
+ if(job.state==='cancelled')return 'Búsqueda detenida · '+count;
+ if(job.state==='expired')return 'Búsqueda detenida automáticamente tras una hora para liberar las cuentas. Inicia otra búsqueda.';
  if(job.state==='waiting')return 'Esperando a Telegram; la búsqueda seguirá automáticamente · '+count;
  if(job.state==='queued')return 'Búsqueda guardada en el servidor · '+count;
  return 'Búsqueda en segundo plano · '+count+(job.current?' · '+job.current:'');
@@ -590,7 +677,7 @@ function renderServerJob(job){
  $('accounts-progress').textContent=serverSearchNote(job);
  const running=serverSearchState(job.state);
  $('cancel-account-search').hidden=!running;
- $('cancel-account-search').textContent='Pausar búsqueda';
+ $('cancel-account-search').textContent='Detener búsqueda';
  $('continue-account-search').hidden=!(job.state==='paused'||job.state==='incomplete');
  $('continue-account-search').textContent=job.state==='incomplete'?'Reintentar pendientes':'Reanudar búsqueda';
  if(job.state==='complete'&&!job.found&&!persistentDisplayed&&!$('accounts-results').children.length){
@@ -654,14 +741,14 @@ async function controlPersistentSearch(action){
  try{
   const result=await api('search-job-control',{id:persistentJob.id,action});
   renderServerJob(result.job);
-  if(result.job?.state==='complete'||result.job?.state==='paused')
+  if(result.job?.state==='complete'||result.job?.state==='paused'||result.job?.state==='cancelled')
    await loadPersistentResults();
  }catch(e){notice(e.message);}
 }
 // Override only the account-overview search controls. Keep the chat's own
 // per-conversation search and every other account panel feature unchanged.
 $('accounts-search-form').onsubmit=e=>{e.preventDefault();startPersistentSearch();};
-$('cancel-account-search').onclick=()=>controlPersistentSearch('pause');
+$('cancel-account-search').onclick=()=>controlPersistentSearch('cancel');
 $('continue-account-search').onclick=()=>controlPersistentSearch('resume');
 document.addEventListener('visibilitychange',()=>{
  if(!document.hidden)refreshPersistentSearch().catch(e=>notice(e.message));
