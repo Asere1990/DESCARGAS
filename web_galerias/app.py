@@ -11,7 +11,7 @@ from aiohttp import web
 from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
-from . import admin,admin_browser,downloads,payments
+from . import admin,admin_browser,downloads,payments,personal
 
 log=logging.getLogger("web-galerias")
 ROOT=Path(__file__).resolve().parent
@@ -56,12 +56,18 @@ class Gallery(GalleryCore):
         if isinstance(op,str) and op.startswith("admin-"):
             return await admin.admin_op(self,uid,op,data)
         if not await self.entitled(uid):raise web.HTTPForbidden(text="Acceso no autorizado.")
+        if isinstance(op,str) and op.startswith("personal-"):
+            return await personal.operation(self,uid,op,data)
         if op=="items":
-            folder=identifier(data.get("folder"))
             cursor=identifier(data.get("cursor",0),0)
             if not isinstance(data.get("query",""),str):raise web.HTTPBadRequest(text="Consulta incorrecta.")
+            token=lambda u,i,k:downloads.temporary_link(self,u,i,k)
+            if data.get("collection") is not None:
+                return await personal.items(self,uid,data.get("collection"),
+                    data.get("query",""),cursor,data.get("kind","all"),token)
+            folder=identifier(data.get("folder"))
             return await self.list_items(uid,folder,data.get("query",""),cursor,
-                                         lambda u,i,k:downloads.temporary_link(self,u,i,k))
+                                         token,data.get("kind","all"))
         if op=="reserve":return await downloads.reserve(self,uid,data.get("ids"))
         raise web.HTTPNotFound()
 
@@ -119,6 +125,8 @@ def mount(app,service):
         return await downloads.media(g,request)
     async def download(request):
         return await downloads.download(g,request)
+    async def save_file(request):
+        return await downloads.save_file(g,request)
     async def stripe(request):
         return await payments.webhook(g,request)
     app.router.add_get("/web-galerias",page)
@@ -134,6 +142,7 @@ def mount(app,service):
     app.router.add_post("/web-galerias/api",api)
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
     app.router.add_get("/web-galerias/download/{ticket}",download)
+    app.router.add_get("/web-galerias/file/{item}",save_file)
     app.router.add_post("/web-galerias/stripe",stripe)
     async def startup(_):
         g.task=asyncio.create_task(g.setup())

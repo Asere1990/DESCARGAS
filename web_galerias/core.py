@@ -10,6 +10,7 @@ from pathlib import Path
 from aiohttp import web
 from .permissions import is_admin,pilot_allowed
 from .storage import PrivateStorage
+from .personal import PERSONAL_SCHEMA,folders as personal_folders,media_filter
 from .admin_browser import SCHEMA as BROWSER_SCHEMA,authenticate as authenticate_browser
 
 SCHEMA="""
@@ -65,6 +66,7 @@ CREATE TABLE IF NOT EXISTS wg_payment_events(id TEXT PRIMARY KEY,created DOUBLE 
 CREATE TABLE IF NOT EXISTS wg_activity(
  id BIGSERIAL PRIMARY KEY,actor BIGINT NOT NULL,operation TEXT NOT NULL,at DOUBLE PRECISION NOT NULL);
 """
+SCHEMA += PERSONAL_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA",
  "intro_caption":"Explora nuestras galerías privadas","button_color":"#198ee8",
@@ -186,6 +188,7 @@ class GalleryCore:
           last_seen=$2,name=excluded.name""",uid,now,str(name)[:100])
         allowed=await self.entitled(uid)
         folders=await self.folder_list(uid) if allowed else []
+        owned_folders=await personal_folders(self,uid) if allowed else []
         if folders and not is_admin(uid):
             # El estado del respaldo y sus errores solo se entregan al administrador.
             for folder in folders:
@@ -202,7 +205,8 @@ class GalleryCore:
         used=await self.db().fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0
         return {"admin":is_admin(uid),"allowed":allowed,
           "pilot":os.getenv("GALERIAS_PUBLIC","0")!="1","design":await self.design(),
-          "folders":folders,"photos":sum(f["photos"] for f in folders),
+          "folders":folders,"personal_folders":owned_folders,
+          "photos":sum(f["photos"] for f in folders),
           "videos":sum(f["videos"] for f in folders),
           "remaining":max(0,100-used),"used":used,
           "storage_ready":self.storage.ready,
@@ -212,18 +216,21 @@ class GalleryCore:
         await self.db().execute("INSERT INTO wg_activity(actor,operation,at) VALUES($1,$2,$3)",
                                 uid,operation,time.time())
 
-    async def list_items(self,uid,folder,query="",cursor=0,token=None):
+    async def list_items(self,uid,folder,query="",cursor=0,token=None,kind="all"):
         if not await self.permitted(uid,folder):raise web.HTTPForbidden(text="Carpeta no autorizada.")
         query=normal(query.strip())[:100]
+        kind=media_filter(kind)
         if query:
             rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key
               FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
+              AND ($3::text='all' OR kind=$3)
               AND to_tsvector('simple',search_text) @@ plainto_tsquery('simple',$2)
-              AND id<$3 ORDER BY id DESC LIMIT 61""",folder,query,cursor or 2**63-1)
+              AND id<$4 ORDER BY id DESC LIMIT 61""",folder,query,kind,cursor or 2**63-1)
         else:
             rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key
               FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
-              AND id<$2 ORDER BY id DESC LIMIT 61""",folder,cursor or 2**63-1)
+              AND ($2::text='all' OR kind=$2)
+              AND id<$3 ORDER BY id DESC LIMIT 61""",folder,kind,cursor or 2**63-1)
         result=[]
         for x in rows[:60]:
             item=dict(x)

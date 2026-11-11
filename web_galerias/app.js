@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
-const S={me:null,folders:[],folder:null,items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,epoch:0,toastTimer:null};
+const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);};
@@ -43,7 +43,8 @@ async function api(op,data={}){
 }
 async function refresh(lite=false){
  S.me=await api("bootstrap",{name:tg?.initDataUnsafe?.user?.first_name||""});
- if(!lite)applyDesign(S.me.design);S.folders=S.me.folders;renderFolders();
+ if(!lite)applyDesign(S.me.design);S.folders=S.me.folders;
+ S.personal=S.me.personal_folders||[];renderFolders();
  $("admin-open").classList.toggle("hidden",!S.me.admin);
  $("stat-folders").textContent=pretty(S.folders.length);
  $("stat-photos").textContent=pretty(S.me.photos);
@@ -73,11 +74,84 @@ function renderFolders(){
   root.append(card);
  }
  if(!S.folders.length)root.innerHTML='<div class="empty">El administrador todavía no ha publicado carpetas.</div>';
+ renderPersonalFolders();
+}
+function renderPersonalFolders(){
+ $("personal-section").classList.toggle("hidden",!S.me?.allowed);
+ const root=$("personal-folders");root.replaceChildren();
+ for(const folder of S.personal){
+  const card=document.createElement("article");card.className="folder-card personal-folder-card";
+  const cover=document.createElement("div");cover.className="folder-cover";
+  const icon=document.createElement("span");icon.className="folder-icon";icon.textContent="📁";cover.append(icon);
+  const title=document.createElement("h3");title.textContent=folder.name;
+  const count=document.createElement("p");count.textContent=pretty(folder.count)+" archivos";
+  const tools=document.createElement("div");tools.className="personal-folder-tools";
+  const rename=document.createElement("button");rename.textContent="✎";rename.type="button";rename.title="Cambiar nombre";
+  rename.onclick=e=>{e.stopPropagation();renamePersonalFolder(folder);};
+  const erase=document.createElement("button");erase.textContent="×";erase.type="button";erase.title="Eliminar carpeta personal";
+  erase.onclick=e=>{e.stopPropagation();deletePersonalFolder(folder);};
+  tools.append(rename,erase);card.append(cover,tools,title,count);
+  card.onclick=()=>openFolder({...folder,personal:true});
+  root.append(card);
+ }
+ renderDropTargets();
+}
+async function createPersonalFolder(){
+ const name=prompt("Nombre de tu nueva carpeta:");
+ if(!name)return;
+ try{
+  const data=await api("personal-create",{name});
+  await refresh(true);notice("Carpeta creada: "+data.name);
+ }catch(e){notice(e.message);}
+}
+async function renamePersonalFolder(folder){
+ const name=prompt("Nuevo nombre de la carpeta:",folder.name);
+ if(!name||name===folder.name)return;
+ try{
+  await api("personal-rename",{personal_folder:folder.id,name});
+  if(S.folder?.personal&&S.folder.id===folder.id){S.folder.name=name;$("album-title").textContent=name;}
+  await refresh(true);
+ }catch(e){notice(e.message);}
+}
+async function deletePersonalFolder(folder){
+ if(!confirm("¿Eliminar la carpeta '"+folder.name+"'? Las fotos originales no se borrarán."))return;
+ try{await api("personal-delete",{personal_folder:folder.id});await refresh(true);notice("Carpeta personal eliminada.");}
+ catch(e){notice(e.message);}
+}
+function renderDropTargets(){
+ const tray=$("folder-drop-tray"),root=$("folder-drop-targets");
+ root.replaceChildren();
+ tray.classList.toggle("hidden",!S.me?.allowed);
+ for(const folder of S.personal){
+  const b=document.createElement("button");b.type="button";b.textContent="📁 "+folder.name;
+  b.dataset.folderDrop=String(folder.id);
+  b.ondragover=e=>{e.preventDefault();b.classList.add("drag-target");};
+  b.ondragleave=()=>b.classList.remove("drag-target");
+  b.ondrop=e=>{e.preventDefault();b.classList.remove("drag-target");
+   const id=Number(e.dataTransfer.getData("text/plain"));
+   if(Number.isSafeInteger(id)&&id>0)addToPersonalFolder(folder.id,[id]);
+  };
+  b.onclick=()=>{if(S.selected.size)addToPersonalFolder(folder.id,[...S.selected]);};
+  root.append(b);
+ }
+}
+async function addToPersonalFolder(folder,ids){
+ if(!ids.length)return;
+ try{
+  await api("personal-add",{personal_folder:folder,ids:ids.slice(0,10)});
+  S.selection=false;S.selected.clear();updateSelection();renderItems();
+  await refresh(true);notice("Guardado en tu carpeta personal.");
+ }catch(e){notice(e.message);}
 }
 async function openFolder(folder){
- S.folder=folder;S.items=[];S.next=null;S.search="";S.selection=false;S.selected.clear();
+ S.folder=folder;S.items=[];S.next=null;S.search="";S.filter="all";
+ S.selection=false;S.selected.clear();
  $("query").value="";$("album-title").textContent=folder.name;
- $("album-subtitle").textContent=pretty(folder.photos)+" fotos · "+pretty(folder.videos)+" videos";
+ $("album-subtitle").textContent=folder.personal?pretty(folder.count)+" archivos":
+   pretty(folder.photos)+" fotos · "+pretty(folder.videos)+" videos";
+ $("filter-toggle").textContent="Mostrar todo ▾";$("filter-menu").classList.add("hidden");
+ $("filter-toggle").setAttribute("aria-expanded","false");
+ renderDropTargets();
  $("select-mode").textContent="Seleccionar";updateSelection();show("album");await loadItems(false);
 }
 async function loadItems(older=false){
@@ -86,7 +160,8 @@ async function loadItems(older=false){
  $("empty-gallery").classList.add("hidden");
  if(!older){S.items=[];$("album-grid").replaceChildren();}
  try{
-  const data=await api("items",{folder:S.folder.id,query:S.search,cursor:older?(S.next||0):0});
+  const data=await api("items",{...(S.folder.personal?{collection:S.folder.id}:{folder:S.folder.id}),
+    kind:S.filter,query:S.search,cursor:older?(S.next||0):0});
   if(epoch!==S.epoch)return;
   S.items.push(...data.items);S.next=data.next;
   renderItems();$("load-more").classList.toggle("hidden",!S.next);
@@ -98,13 +173,66 @@ function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
   const b=document.createElement("button");b.className="media-tile"+(S.selected.has(m.id)?" selected":"");
+  b.type="button";b.draggable=!!window.matchMedia?.("(pointer:fine)")?.matches;
   b.setAttribute("aria-label",m.kind==="video"?"Abrir video":"Abrir foto");
   if(m.thumb){const img=document.createElement("img");img.src=m.thumb;img.loading="lazy";img.decoding="async";img.alt="";
    img.onerror=()=>{img.remove();fallback(b,m);};b.append(img);}else fallback(b,m);
   if(m.kind==="video"){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
-  b.onclick=()=>S.selection?toggleSelection(m.id):openViewer(index);
+  attachLongPress(b,m,index);
+  b.onclick=()=>{
+   if(S.suppressClick===m.id){S.suppressClick=null;return;}
+   S.selection?toggleSelection(m.id):openViewer(index);
+  };
   grid.append(b);
  });
+}
+function attachLongPress(b,m,index){
+ let timer=null,held=false,active=false,startX=0,startY=0,hover=null;
+ const clear=()=>{clearTimeout(timer);timer=null;if(hover){hover.classList.remove("drag-target");hover=null;}};
+ b.addEventListener("contextmenu",e=>e.preventDefault());
+ b.addEventListener("dragstart",e=>{
+  e.dataTransfer.setData("text/plain",String(m.id));e.dataTransfer.effectAllowed="copy";
+ });
+ b.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse"&&e.button!==0)return;
+  startX=e.clientX;startY=e.clientY;held=false;active=true;
+  clearTimeout(timer);
+  timer=setTimeout(()=>{
+   if(!active)return;
+   if(!S.selected.has(m.id)&&S.selected.size>=10){
+    notice("Puedes seleccionar hasta 10 archivos.");return;
+   }
+   held=true;S.selection=true;
+   S.selected.add(m.id);
+   updateSelection();b.classList.add("selected","dragging");
+   tg?.HapticFeedback?.selectionChanged?.();
+  },450);
+ });
+ b.addEventListener("pointermove",e=>{
+  if(!active)return;
+  if(!held&&Math.hypot(e.clientX-startX,e.clientY-startY)>12){clearTimeout(timer);return;}
+  if(held){
+   const el=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-folder-drop]");
+   if(hover!==el){if(hover)hover.classList.remove("drag-target");
+    hover=el;if(hover)hover.classList.add("drag-target");}
+  }
+ });
+ b.addEventListener("touchmove",e=>{
+  // En iPhone mantener el dedo pulsado permite arrastrar en vez de
+  // desplazarse por la página cuando ya se activó la selección.
+  if(held)e.preventDefault();
+ },{passive:false});
+ b.addEventListener("pointerup",e=>{
+  if(!active)return;active=false;clearTimeout(timer);
+  if(!held)return;
+  const destination=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-folder-drop]");
+  S.suppressClick=m.id;setTimeout(()=>{if(S.suppressClick===m.id)S.suppressClick=null;},450);
+  if(destination){addToPersonalFolder(Number(destination.dataset.folderDrop),[m.id]);}
+  else{b.classList.remove("dragging");renderItems();}
+  clear();
+ });
+ b.addEventListener("pointercancel",()=>{active=false;clear();b.classList.remove("dragging");});
+ b.addEventListener("pointerleave",()=>{if(!held){clearTimeout(timer);}});
 }
 function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"?"▶":"▧";b.prepend(p);}
 function updateSelection(){
@@ -112,11 +240,13 @@ function updateSelection(){
  $("album-actions").classList.toggle("hidden",S.selection);
  $("selection-count").textContent=S.selected.size+" de 10";
  $("select-mode").textContent=S.selection?"Listo":"Seleccionar";
- $("selection-download").disabled=!S.selected.size;
+ $("selection-download").disabled=!S.selected.size||
+   [...S.selected].some(id=>!S.items.find(x=>x.id===id)?.available);
+ $("selection-organize").disabled=!S.selected.size;
 }
 function toggleSelection(id){
  const media=S.items.find(m=>m.id===id);
- if(!media?.available)return notice("El archivo original aún se está preparando.");
+ if(!media)return;
  if(S.selected.has(id))S.selected.delete(id);
  else if(S.selected.size<10)S.selected.add(id);
  else return notice("Puedes seleccionar hasta 10 archivos por operación.");
@@ -125,7 +255,7 @@ function toggleSelection(id){
 function showViewerMedia(){
   if(!S.items.length)return;
   const m=S.items[S.viewer];$("viewer-counter").textContent=(S.viewer+1)+" / "+S.items.length;
-  $("viewer-watermark").textContent="ID "+String(tg?.initDataUnsafe?.user?.id||"")+" · "+new Date().toISOString().slice(0,16)+" UTC";
+  $("viewer-watermark").textContent="Búscame en Google\nhoo.be/Cubanas";
   const img=$("view-image"),video=$("view-video");
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
@@ -147,19 +277,80 @@ function openViewer(index){
 }
 function closeViewer(){$("viewer").classList.add("hidden");$("view-video").pause();}
 function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
+function nativeDownload(data){
+ const url=location.origin+data.url;
+ if(tg?.downloadFile&&tg?.isVersionAtLeast?.("8.0")){
+  tg.downloadFile({url,file_name:data.name||"web-galerias.zip"},accepted=>{
+   if(accepted)notice("Descarga solicitada en Telegram. Para guardarla en Fotos, ábrela y elige Guardar.");
+  });
+ }else{
+  const link=document.createElement("a");link.href=url;
+  link.download=data.name||"web-galerias.zip";
+  document.body.append(link);link.click();link.remove();
+  notice("Archivo solicitado. En iPhone puedes guardarlo desde el menú Compartir.");
+ }
+}
+function closeSaveSheet(){
+ $("save-sheet").classList.add("hidden");S.prepared=null;S.saveData=null;
+}
 async function downloadIds(ids){
  if(!ids.length)return;
+ if(ids.some(id=>!S.items.find(x=>x.id===id)?.available))
+  return notice("Espera a que los originales seleccionados estén disponibles.");
  try{
   const data=await api("reserve",{ids});
   S.me.remaining=data.remaining;$("quota-count").textContent=pretty(data.remaining)+" de 100";
   $("quota-fill").style.width=data.remaining+"%";
   S.selected.clear();S.selection=false;updateSelection();renderItems();
-  const target=location.origin+data.url;
-  // En iOS Telegram abre la descarga en el navegador; no cargar videos completos en RAM.
-  if(tg?.openLink)tg.openLink(target);
-  else{const a=document.createElement("a");a.href=target;a.target="_blank";a.rel="noopener";a.click();}
+  S.saveData=data;S.prepared=null;
+  const total=(data.files||[]).reduce((sum,x)=>sum+Number(x.size||0),0);
+  // Web Share sirve para pasar fotos/videos a la hoja nativa de iOS.
+  // Por seguridad de memoria, los vídeos grandes y ZIP usan descarga nativa.
+  if(!navigator.share||!window.File||total>64*1024*1024){
+    nativeDownload(data);S.saveData=null;return;
+  }
+  try{
+   const files=[];
+   for(const entry of data.files){
+    const r=await fetch(entry.url,{cache:"no-store"});
+    if(!r.ok)throw Error("No se pudo preparar el archivo.");
+    const blob=await r.blob();
+    files.push(new File([blob],entry.name,{type:entry.mime||blob.type||
+     "application/octet-stream"}));
+   }
+   if(navigator.canShare&&!navigator.canShare({files})){
+    nativeDownload(data);S.saveData=null;return;
+   }
+   S.prepared=files;
+   $("save-sheet-message").textContent=files.length===1?
+     "Elige Guardar imagen o Guardar video en el menú de tu iPhone. La web no puede escribir en Fotos sin tu autorización.":
+     "Elige Guardar imágenes o Guardar videos en el menú de tu iPhone. Si no aparece, usa la descarga ZIP.";
+   $("save-share").classList.remove("hidden");
+   $("save-sheet").classList.remove("hidden");
+  }catch(e){
+   notice("Usaremos la descarga de Telegram para este archivo.");
+   nativeDownload(data);S.saveData=null;
+  }
  }catch(e){notice(e.message);}
 }
+function openFolderPicker(){
+ if(!S.selected.size)return;
+ const root=$("folder-picker-list");root.replaceChildren();
+ const newFolder=document.createElement("button");newFolder.type="button";
+ newFolder.textContent="＋ Crear carpeta nueva";
+ newFolder.onclick=async()=>{$("folder-picker").classList.add("hidden");await createPersonalFolder();openFolderPicker();};
+ root.append(newFolder);
+ for(const folder of S.personal){
+  const b=document.createElement("button");b.type="button";b.textContent="📁 "+folder.name;
+  b.onclick=async()=>{
+   $("folder-picker").classList.add("hidden");
+   await addToPersonalFolder(folder.id,[...S.selected]);
+  };
+  root.append(b);
+ }
+ $("folder-picker").classList.remove("hidden");
+}
+
 function previewAdmin(){
  if(!S.admin)return;
  const root=$("admin-folders");root.replaceChildren();
@@ -289,7 +480,38 @@ $("enter").onclick=async()=>{
  catch(e){notice(e.message);}
 };
 $("go-intro").onclick=()=>show("intro");
-$("back-library").onclick=()=>{S.folder=null;S.selected.clear();show("library");};
+$("create-personal-folder").onclick=createPersonalFolder;
+$("album-create-folder").onclick=createPersonalFolder;
+$("selection-organize").onclick=openFolderPicker;
+$("folder-picker-cancel").onclick=()=>$("folder-picker").classList.add("hidden");
+$("save-cancel").onclick=closeSaveSheet;
+$("save-native").onclick=()=>{if(S.saveData)nativeDownload(S.saveData);closeSaveSheet();};
+$("save-share").onclick=()=>{
+ if(!S.prepared?.length)return;
+ const files=S.prepared;
+ // Compartir directamente en respuesta al toque para conservar la activación iOS.
+ navigator.share({files}).then(()=>{
+  notice("Menú de Fotos cerrado. Comprueba que hayas elegido guardar.");
+  closeSaveSheet();
+ }).catch(e=>{
+  if(e?.name!=="AbortError")notice("Si Fotos no está disponible, usa Guardar en Archivos.");
+ });
+};
+$("filter-toggle").onclick=()=>{
+ const menu=$("filter-menu");const open=menu.classList.toggle("hidden")===false;
+ $("filter-toggle").setAttribute("aria-expanded",String(open));
+};
+document.querySelectorAll("#filter-menu [data-kind]").forEach(b=>b.onclick=()=>{
+ S.filter=b.dataset.kind;
+ const labels={all:"Mostrar todo",photo:"Solo fotos",video:"Solo videos"};
+ $("filter-toggle").textContent=labels[S.filter]+" ▾";
+ $("filter-menu").classList.add("hidden");
+ $("filter-toggle").setAttribute("aria-expanded","false");
+ S.selected.clear();S.selection=false;updateSelection();loadItems(false);
+});
+$("back-library").onclick=()=>{
+ S.folder=null;S.selected.clear();$("filter-menu").classList.add("hidden");show("library");
+};
 $("load-more").onclick=()=>loadItems(true);
 $("query").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{
   S.search=$("query").value.trim();S.next=null;S.selected.clear();updateSelection();loadItems(false);

@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=admin-home-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=personal-ios-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=admin-home-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=personal-ios-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -53,6 +53,11 @@
     <div><strong id="stat-videos">0</strong><small>Videos</small></div></div>
    <div class="section-heading"><h2>Álbumes</h2><span id="folder-counter" class="muted"></span></div>
    <div id="folders" class="folders"></div>
+   <div id="personal-section" class="personal-section hidden">
+    <div class="section-heading"><h2>Mis carpetas personales</h2>
+      <button id="create-personal-folder" type="button" class="small-btn">＋ Crear carpeta</button></div>
+    <div id="personal-folders" class="folders personal-folders"></div>
+   </div>
    <div class="quota"><span>Descargas disponibles hoy</span><strong id="quota-count">100 de 100</strong>
     <div class="quota-track"><div id="quota-fill"></div></div></div>
   </main>
@@ -62,8 +67,23 @@
   </nav>
  </section>
  <section id="album" class="screen hidden">
-  <header class="topbar"><div class="album-heading"><strong id="album-title">Carpeta</strong><small id="album-subtitle"></small></div></header>
+  <header class="topbar album-topbar">
+    <div class="album-heading"><strong id="album-title">Carpeta</strong><small id="album-subtitle"></small></div>
+    <div class="filter-wrap">
+     <button id="filter-toggle" type="button" class="small-btn filter-toggle" aria-label="Filtrar fotos y videos" aria-expanded="false">Mostrar todo ▾</button>
+     <div id="filter-menu" class="filter-menu hidden" role="menu">
+      <button type="button" data-kind="all" role="menuitem">Mostrar todo</button>
+      <button type="button" data-kind="photo" role="menuitem">Solo fotos</button>
+      <button type="button" data-kind="video" role="menuitem">Solo videos</button>
+     </div>
+    </div>
+   </header>
   <div class="search"><span>⌕</span><input id="query" type="search" placeholder="Buscar por caption o comentarios" autocomplete="off"></div>
+  <div id="folder-drop-tray" class="folder-drop-tray hidden">
+   <span>Mantén pulsada una foto o video y arrástralo a tu carpeta:</span>
+   <div id="folder-drop-targets" class="folder-drop-targets"></div>
+   <button id="album-create-folder" type="button" class="small-btn">＋ Nueva carpeta</button>
+  </div>
   <div id="album-grid" class="media-grid"></div>
   <button id="load-more" class="load-more hidden">Cargar más</button>
   <div id="empty-gallery" class="empty hidden">Todavía no hay archivos respaldados aquí.</div>
@@ -74,6 +94,7 @@
   <nav id="selection-bar" class="mobile-actions selection-actions hidden" aria-label="Descarga múltiple">
    <span id="selection-count" class="selection-counter">0 de 10</span>
    <button id="selection-cancel" type="button" class="mobile-action" aria-label="Cancelar selección">Cancelar</button>
+   <button id="selection-organize" type="button" class="mobile-action" aria-label="Guardar selección en carpeta personal">A carpeta</button>
    <button id="selection-download" type="button" class="mobile-action mobile-action-primary" aria-label="Descargar archivos seleccionados">Descargar</button>
   </nav>
  </section>
@@ -142,5 +163,20 @@
    <button id="browser-logout" type="button" class="mobile-action hidden" aria-label="Cerrar sesión de este dispositivo"><span aria-hidden="true">⇥</span> Salir</button>
   </nav>
  </section>
+ <div id="folder-picker" class="save-sheet hidden" role="dialog" aria-modal="true" aria-label="Elegir carpeta personal">
+  <div class="sheet-card"><h2>Guardar en mi carpeta</h2>
+   <p>Los originales no se moverán ni se borrarán.</p>
+   <div id="folder-picker-list" class="sheet-choices"></div>
+   <button id="folder-picker-cancel" type="button" class="small-btn">Cancelar</button>
+  </div>
+ </div>
+ <div id="save-sheet" class="save-sheet hidden" role="dialog" aria-modal="true" aria-label="Guardar en el teléfono">
+  <div class="sheet-card"><h2>Guardar en Fotos</h2>
+   <p id="save-sheet-message">Archivos preparados. Elige Guardar imágenes o Guardar video en el menú de tu iPhone.</p>
+   <button id="save-share" type="button" class="primary compact">Abrir menú para guardar en Fotos</button>
+   <button id="save-native" type="button" class="small-btn">Guardar en Archivos de Telegram</button>
+   <button id="save-cancel" type="button" class="small-btn">Cancelar</button>
+  </div>
+ </div>
  <div id="toast" class="toast hidden" role="status"></div>
 </div></body></html>
