@@ -169,7 +169,7 @@ async function refresh(lite=false){
   $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
   $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
  }
- $("intro-notice").classList.toggle("hidden",!S.me.allowed&&!!S.me.checkout_enabled);
+ $("intro-notice").classList.add("hidden");
 }
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
