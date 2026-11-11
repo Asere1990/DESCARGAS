@@ -62,6 +62,10 @@ async def admin_op(g,uid,op,data):
             MAX(m.id) FILTER(WHERE m.state IN ('ready','preview')
               AND m.thumb_key IS NOT NULL) AS automatic_cover,
             COUNT(m.id)::int AS media_total,
+            COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready')
+              AND m.kind='photo')::int AS visible_photos,
+            COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready')
+              AND m.kind='video')::int AS visible_videos,
             COUNT(m.id) FILTER(WHERE m.source_type='photo' OR
               (m.source_type='' AND m.kind='photo'))::int AS photo_native,
             COUNT(m.id) FILTER(WHERE m.source_type='video' OR
