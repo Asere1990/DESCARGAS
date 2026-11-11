@@ -115,3 +115,52 @@
 .admin-login-card .admin-login-error{color:#ffb6aa;font-size:13px;min-height:1.5em;margin:13px 0}
 .admin-login-card .admin-login-help{font-size:12px;line-height:1.5;color:var(--muted);margin:13px 0 0}
 @media (display-mode:standalone){.admin-login{min-height:100svh}}
+
+/* Personalización del catálogo sin alterar las carpetas originales. */
+.personal-section{margin-top:28px;border-top:1px solid var(--line);padding-top:15px}
+.personal-section .section-heading{gap:8px}
+.personal-section .section-heading h2{font-size:17px}
+.personal-folders .folder-cover{background:linear-gradient(145deg,#24465e,#101929)}
+.personal-folder-card{position:relative}
+.personal-folder-card .folder-cover .folder-icon{font-size:49px}
+.personal-folder-tools{display:flex;gap:5px;position:absolute;right:7px;top:7px;z-index:2}
+.personal-folder-tools button{width:32px;height:32px;border:1px solid #fff4;background:#030d18bd;color:#fff;border-radius:9px;font-size:16px}
+#album .album-topbar{justify-content:space-between;gap:8px;z-index:15}
+#album .album-heading{flex:1;text-align:left}
+.filter-wrap{position:relative;flex:none}
+.filter-toggle{min-height:41px;white-space:nowrap;font-size:12px;touch-action:manipulation}
+.filter-menu{position:absolute;right:0;top:calc(100% + 7px);width:165px;z-index:18;
+ background:#1b2433;border:1px solid var(--line);border-radius:14px;padding:5px;
+ box-shadow:0 14px 32px #000a}
+.filter-menu button{display:block;width:100%;text-align:left;background:transparent;color:#fff;
+ border:0;border-radius:9px;padding:12px;font-size:13px;min-height:43px}
+.filter-menu button:active{background:#ffffff24}
+.folder-drop-tray{position:sticky;top:70px;z-index:10;margin:0 7px 12px;padding:9px 10px;
+ background:#141c2aed;border:1px solid var(--line);border-radius:14px;backdrop-filter:blur(14px)}
+.folder-drop-tray>span{display:block;font-size:11px;color:var(--muted);margin-bottom:8px}
+.folder-drop-targets{display:flex;gap:7px;overflow:auto;padding:2px 0 6px;scrollbar-width:none}
+.folder-drop-targets button{flex:0 0 auto;max-width:180px;overflow:hidden;text-overflow:ellipsis;
+ border:1px solid #ffffff40;border-radius:12px;color:#fff;background:#ffffff13;
+ padding:10px 12px;min-height:42px;touch-action:manipulation;font-size:12px}
+.folder-drop-targets button.drag-target{background:var(--accent);border-color:#fff}
+#album-create-folder{margin-top:6px}
+.media-tile{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.media-tile.dragging{opacity:.65;outline:3px solid #fff;outline-offset:-3px;z-index:1}
+#selection-bar{gap:5px;padding-left:7px;padding-right:7px}
+#selection-bar .mobile-action{padding:7px 6px;font-size:12px;min-height:55px}
+#selection-bar .selection-counter{font-size:11px}
+.viewer-watermark{white-space:pre-line;line-height:1.5;text-align:center;
+ letter-spacing:.015em;font-size:clamp(15px,3.4vw,23px);font-weight:800;
+ color:rgba(255,255,255,.30)}
+.save-sheet{position:fixed;inset:0;z-index:55;display:flex;justify-content:center;
+ align-items:end;background:rgba(0,0,0,.7);padding:16px}
+.sheet-card{width:100%;max-width:460px;background:#1b2433;border:1px solid #ffffff30;
+ border-radius:23px;padding:21px 18px calc(18px + env(safe-area-inset-bottom,0px));
+ display:grid;gap:11px;box-shadow:0 12px 50px #0009}
+.sheet-card h2{margin:0;font-size:20px}
+.sheet-card p{margin:0 0 4px;color:#c0cad8;line-height:1.5;font-size:13px}
+.sheet-card button{min-height:48px}
+.sheet-choices{max-height:38dvh;overflow:auto;display:grid;gap:9px}
+.sheet-choices button{padding:13px;text-align:left;background:#ffffff13;color:#fff;
+ border:1px solid #ffffff26;border-radius:13px;font-size:14px}
+@media(max-width:380px){.filter-toggle{padding:8px;font-size:11px}.album-heading strong{font-size:15px}}
