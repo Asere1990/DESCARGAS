@@ -117,6 +117,7 @@ class GalleryCore:
         self.closed=False
         self.task=None
         self.sync_task=None
+        self.intro_poster_task=None
         self.last_error=""
 
     def db(self):
@@ -134,6 +135,11 @@ class GalleryCore:
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     self.ready=True
                     log.warning("Gallery schema ready; storage=%s",self.storage.ready)
+                    # Build a first-frame preview for any existing video that
+                    # predates the poster feature, off the user-request path.
+                    if self.storage.ready:
+                        from .intro_video import backfill_poster
+                        self.intro_poster_task=asyncio.create_task(backfill_poster(self))
                     if os.getenv("GALERIAS_SYNC_ENABLED","0")=="1" and self.storage.ready:
                         from .sync import run
                         self.sync_task=asyncio.create_task(run(self))
