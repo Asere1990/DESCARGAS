@@ -142,7 +142,9 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_customer_bot_user_can_buy_without_opening_the_original_pilot(self):
         from web_galerias import payments, payment_link_checkout
         from web_galerias.core import _CUSTOMER_BOT_UID
-        uid=1609522430
+        from web_galerias.permissions import pilot_allowed
+        uid=8129084202
+        self.assertFalse(pilot_allowed(uid))  # never free, even within pilot
         db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=False),
                            fetchrow=AsyncMock(return_value=None))
         g=SimpleNamespace(db=lambda:db, entitled=AsyncMock(return_value=False),
