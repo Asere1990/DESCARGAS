@@ -396,6 +396,8 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         folder={"id":7,"peer":-1002977998232,"name":"Interno",
                 "public_name":"ALMACÉN CUBANO","active":True,
                 "complete":True,"scan_count":6063,
+                "telegram_photos_total":51443,"telegram_videos_total":35572,
+                "telegram_counts_at":now,"telegram_counts_error":"",
                 "cover_updated":None,"automatic_cover":None,
                 "photo_native":500,"video_native":320,"photo_files":20,
                 "visible_photos":215,"visible_videos":85,
@@ -415,6 +417,10 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(found["gifs"],12)
         self.assertEqual(found["photo_files"],20)
         self.assertEqual(found["video_files"],30)
+        self.assertEqual(found["telegram_photos_total"],51443)
+        self.assertEqual(found["telegram_videos_total"],35572)
+        self.assertIn("f.telegram_photos_total",db.fetch.await_args_list[0].args[0])
+        self.assertIn("f.telegram_videos_total",db.fetch.await_args_list[0].args[0])
         self.assertEqual(found["missing_rechecked"],2)
         self.assertEqual(sum(x["count"] for x in found["missing_reasons"]),32)
         self.assertNotIn("automatic_cover",found)
@@ -474,6 +480,26 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("grid-template-columns:repeat(2",css)
         self.assertIn("grid-column:1 / -1",css)
         self.assertNotIn("root.innerHTML",section)
+
+    def test_telegram_source_totals_are_distinct_from_visible_and_backup_counts(self):
+        from pathlib import Path
+        root=Path(__file__).resolve().parents[1]/"web_galerias"
+        script=(root/"app.js").read_text(encoding="utf-8")
+        css=(root/"style.css").read_text(encoding="utf-8")
+        schema=(root/"core.py").read_text(encoding="utf-8")
+        for label in ("Fotos totales en Telegram","Videos totales en Telegram",
+                      "Fotos + videos en Telegram","Totales consultados",
+                      "En Telegram: "):
+            self.assertIn(label,script)
+        self.assertIn('f.telegram_photos_total!==null',script)
+        self.assertIn('f.telegram_videos_total!==null',script)
+        self.assertIn('pretty(f.visible_photos)',script)
+        self.assertIn('pretty(f.visible_videos)',script)
+        self.assertIn("loadAdmin().catch(()=>{})",script)
+        self.assertIn("#admin .admin-gallery-trigger p.admin-origin-count",css)
+        self.assertIn("telegram_counts_next_attempt",schema)
+        self.assertIn("telegram_photos_total BIGINT;",schema)
+        self.assertIn("telegram_videos_total BIGINT;",schema)
 
     def test_gifs_fallback_to_animated_image_when_video_conversion_unavailable(self):
         js=(Path(__file__).resolve().parents[1]/"web_galerias"/"app.js").read_text()
