@@ -82,15 +82,18 @@ async def backup_gif(g,folder,item,message,client,guard):
                 if thumb_size!=thumb.stat().st_size:
                     raise ValueError("No se verificó thumbnail GIF en R2")
         if not mp4_size and source.is_file():
+            converted=False
             try:
                 await asyncio.to_thread(convert_gif_to_mp4,source,output)
+                converted=True
+            except (subprocess.SubprocessError,OSError,ValueError) as exc:
+                log.warning("GIF kept in original format (%s)",type(exc).__name__)
+            if converted:
                 await guard()
                 await g.storage.upload(output,mp4_key,"video/mp4")
                 mp4_size=await g.storage.object_size(mp4_key)
                 if mp4_size!=output.stat().st_size:
                     raise ValueError("No se verificó video GIF en R2")
-            except (subprocess.SubprocessError,OSError,ValueError) as exc:
-                log.warning("GIF kept in original format (%s)",type(exc).__name__)
     if mp4_size:
         key=mp4_key;size=mp4_size;mime="video/mp4"
         filename=Path(item.get("filename") or "animacion.gif").stem+".mp4"
