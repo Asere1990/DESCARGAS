@@ -446,9 +446,17 @@ async def catalog(g,folder,m):
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       ON CONFLICT(folder,message) DO UPDATE SET
         source_type=excluded.source_type,
-        kind=excluded.kind,mime=excluded.mime,filename=excluded.filename,
-        label=excluded.label,search_text=excluded.search_text
-      WHERE wg_media.state IN ('pending','missing')""",
+        kind=CASE WHEN wg_media.state='ready' THEN wg_media.kind
+             ELSE excluded.kind END,
+        mime=CASE WHEN wg_media.state='ready' THEN wg_media.mime
+             ELSE excluded.mime END,
+        filename=CASE WHEN wg_media.state='ready' THEN wg_media.filename
+             ELSE excluded.filename END,
+        label=CASE WHEN wg_media.state='ready' THEN wg_media.label
+             ELSE excluded.label END,
+        search_text=CASE WHEN wg_media.state='ready' THEN wg_media.search_text
+             ELSE excluded.search_text END
+      WHERE wg_media.source_type='' OR wg_media.state IN ('pending','missing')""",
       folder,m.id,kind,mime,filename,0,0,size,
       m.date.timestamp() if m.date else time.time(),
       caption,normal(caption)[:4000],reply,grouped,time.time(),source_type)
