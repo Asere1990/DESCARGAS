@@ -58,7 +58,7 @@ async def admin_op(g,uid,op,data):
         folders=await db.fetch("""SELECT f.id,f.peer,f.name,
             COALESCE(f.public_name,'') AS public_name,
             f.active,f.error,f.complete,f.scan_count,
-            f.last_check,f.source_uid,
+            f.last_check,f.source_uid,f.preferred_uid,
             f.telegram_photos_total,f.telegram_videos_total,
             f.telegram_counts_at,f.telegram_counts_error,
             MAX(c.updated) AS cover_updated,
@@ -166,18 +166,82 @@ async def admin_op(g,uid,op,data):
             if not isinstance(public_name,str) or not public_name.strip() or len(public_name.strip())>100:
                 raise web.HTTPBadRequest(text="Nombre visible incorrecto.")
             public_name=public_name.strip()
-        row=await db.fetchrow("""INSERT INTO wg_folders(peer,name,public_name,created)
-          VALUES($1,$2,$3,$4)
-          ON CONFLICT(peer) DO UPDATE SET name=excluded.name,
+        account_uid=data.get("account_uid")
+        if account_uid is not None and str(account_uid).strip()!="":
+            account_uid=identifier(account_uid)
+            connected=await db.fetchval("""SELECT EXISTS(
+              SELECT 1 FROM descarga_accounts
+              WHERE uid=$1 AND session IS NOT NULL)""",account_uid)
+            if not connected:
+                raise web.HTTPBadRequest(text="La cuenta Telegram ID indicada no está vinculada.")
+        else:
+            # Permite recuperar las carpetas antiguas sin alterar su cuenta.
+            account_uid=None
+        row=await db.fetchrow("""INSERT INTO wg_folders(
+          peer,name,public_name,created,preferred_uid,source_uid)
+          VALUES($1,$2,$3,$4,$5,$5)
+          ON CONFLICT(peer) DO UPDATE SET
+            name=excluded.name,
             public_name=COALESCE(excluded.public_name,wg_folders.public_name),
-            active=TRUE
-          RETURNING id""",peer,name,public_name,time.time())
+            active=TRUE,
+            preferred_uid=COALESCE(excluded.preferred_uid,wg_folders.preferred_uid),
+            source_uid=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN excluded.preferred_uid ELSE wg_folders.source_uid END,
+            scan_cursor=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN 0 ELSE wg_folders.scan_cursor END,
+            high_water=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN 0 ELSE wg_folders.high_water END,
+            complete=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN FALSE ELSE wg_folders.complete END,
+            telegram_photos_total=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN NULL ELSE wg_folders.telegram_photos_total END,
+            telegram_videos_total=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN NULL ELSE wg_folders.telegram_videos_total END,
+            telegram_counts_at=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN 0 ELSE wg_folders.telegram_counts_at END,
+            telegram_counts_next_attempt=CASE WHEN excluded.preferred_uid IS NOT NULL
+              AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
+              THEN 0 ELSE wg_folders.telegram_counts_next_attempt END
+          RETURNING id""",peer,name,public_name,time.time(),account_uid)
         # Reactivación conserva todas las copias ready en R2 y los cursores.
         # Solo los archivos antes no disponibles pueden volver a intentarse.
         await db.execute("""UPDATE wg_media SET state='pending',
             available=0,error='' WHERE folder=$1 AND state='missing'""",row["id"])
         await g.log(uid,op)
         return {"ok":True,"id":row["id"]}
+    if op=="admin-folder-source":
+        folder=identifier(data.get("folder"))
+        account_uid=identifier(data.get("account_uid"))
+        valid=await db.fetchval("""SELECT EXISTS(
+          SELECT 1 FROM descarga_accounts
+          WHERE uid=$1 AND session IS NOT NULL)""",account_uid)
+        if not valid:
+            raise web.HTTPBadRequest(text="La cuenta Telegram ID no está vinculada.")
+        row=await db.fetchrow("""UPDATE wg_folders SET
+            preferred_uid=$2,source_uid=$2,
+            scan_cursor=0,high_water=0,complete=FALSE,
+            last_check=0,error='',scan_count=0,
+            telegram_photos_total=NULL,telegram_videos_total=NULL,
+            telegram_counts_at=0,telegram_counts_next_attempt=0,
+            telegram_counts_error=''
+          WHERE id=$1 AND preferred_uid IS DISTINCT FROM $2
+          RETURNING id""",folder,account_uid)
+        exists=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
+        if not exists:raise web.HTTPNotFound(text="Carpeta no encontrada.")
+        if row:
+            await db.execute("""UPDATE wg_discovery SET next_after=0
+              WHERE folder=$1 AND uid=$2""",folder,account_uid)
+            # Elimina solo el cursor de exploración. Los originales ya guardados
+            # y las referencias públicas permanecen en R2 y en wg_media.
+            await g.log(uid,op)
+        return {"ok":True,"changed":bool(row),"account_uid":account_uid}
     if op=="admin-folder-cover-remove":
         folder=identifier(data.get("folder"))
         found=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
