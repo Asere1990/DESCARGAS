@@ -173,7 +173,7 @@ function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
   const b=document.createElement("button");b.className="media-tile"+(S.selected.has(m.id)?" selected":"");
-  b.type="button";b.draggable=true;
+  b.type="button";b.draggable=!!window.matchMedia?.("(pointer:fine)")?.matches;
   b.setAttribute("aria-label",m.kind==="video"?"Abrir video":"Abrir foto");
   if(m.thumb){const img=document.createElement("img");img.src=m.thumb;img.loading="lazy";img.decoding="async";img.alt="";
    img.onerror=()=>{img.remove();fallback(b,m);};b.append(img);}else fallback(b,m);
@@ -199,8 +199,11 @@ function attachLongPress(b,m,index){
   clearTimeout(timer);
   timer=setTimeout(()=>{
    if(!active)return;
+   if(!S.selected.has(m.id)&&S.selected.size>=10){
+    notice("Puedes seleccionar hasta 10 archivos.");return;
+   }
    held=true;S.selection=true;
-   if(S.selected.size<10||S.selected.has(m.id))S.selected.add(m.id);
+   S.selected.add(m.id);
    updateSelection();b.classList.add("selected","dragging");
    tg?.HapticFeedback?.selectionChanged?.();
   },450);
@@ -214,6 +217,11 @@ function attachLongPress(b,m,index){
     hover=el;if(hover)hover.classList.add("drag-target");}
   }
  });
+ b.addEventListener("touchmove",e=>{
+  // En iPhone mantener el dedo pulsado permite arrastrar en vez de
+  // desplazarse por la página cuando ya se activó la selección.
+  if(held)e.preventDefault();
+ },{passive:false});
  b.addEventListener("pointerup",e=>{
   if(!active)return;active=false;clearTimeout(timer);
   if(!held)return;
