@@ -118,10 +118,11 @@ _CUSTOMER_BOT_UID=ContextVar("wg_customer_bot_verified_uid",default=0)
 
 def customer_bot_signed(uid):
     # CUSTOMER-SERVICE stays in private pilot even when its miniapp signature
-    # is valid. The allowed IDs are exactly the original acceso.txt testers,
-    # gallery admins and explicitly payment-gated testers.
+    # is valid. The new buyer 8129084202 is allowed only by the signed
+    # CUSTOMER-SERVICE request, never through the free tester entitlement.
     return (_CUSTOMER_BOT_UID.get()==int(uid) and (
         is_admin(uid) or is_tester(uid) or payment_test_user(uid)
+        or int(uid)==8129084202
     ))
 
 
