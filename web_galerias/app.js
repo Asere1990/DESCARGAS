@@ -367,20 +367,89 @@ function renderItems(){
   grid.append(b);
  });
 }
+function showDragPreview(m,ids,x,y){
+ const host=$("drag-preview"),img=$("drag-preview-image");
+ const fallback=$("drag-preview-fallback");
+ img.classList.toggle("hidden",!m.thumb);
+ fallback.classList.toggle("hidden",!!m.thumb);
+ if(m.thumb)img.src=m.thumb;
+ fallback.textContent=m.kind==="video"?"▶":"▧";
+ $("drag-preview-count").textContent=String(ids.length);
+ host.classList.remove("hidden");
+ moveDragPreview(x,y);
+}
+function moveDragPreview(x,y){
+ const ghost=$("drag-preview");
+ ghost.style.left=x+"px";ghost.style.top=y+"px";
+}
+function hideDragPreview(){
+ $("drag-preview").classList.add("hidden");
+ $("folder-drop-toggle").classList.remove("drag-menu-armed");
+}
+function dragMenuScroll(){
+ if(!S.drag)return;
+ const menu=$("folder-drop-menu");
+ if(S.dropMenuOpen&&!menu.classList.contains("hidden")){
+  const rect=menu.getBoundingClientRect();
+  const x=S.drag.x,y=S.drag.y;
+  if(x>=rect.left-12&&x<=rect.right+12&&y>=rect.top-30&&y<=rect.bottom+30){
+   const zone=57;
+   let delta=0;
+   if(y<rect.top+zone)delta=-Math.min(16,Math.ceil((rect.top+zone-y)/3));
+   else if(y>rect.bottom-zone)delta=Math.min(16,Math.ceil((y-(rect.bottom-zone))/3));
+   if(delta){menu.scrollTop+=delta;dragHoverAt(x,y);}
+  }
+ }
+ S.drag.raf=requestAnimationFrame(dragMenuScroll);
+}
+function dragHoverAt(x,y){
+ if(!S.drag)return;
+ S.drag.x=x;S.drag.y=y;
+ const element=document.elementFromPoint(x,y);
+ const toggle=element?.closest("[data-folder-drop-trigger]");
+ if(toggle){
+  setDropMenuOpen(true);
+  $("folder-drop-toggle").classList.add("drag-menu-armed");
+ }else $("folder-drop-toggle").classList.remove("drag-menu-armed");
+ const option=element?.closest("[data-folder-drop]");
+ const next=option&&$("folder-drop-menu").contains(option)?option:null;
+ if(S.drag.hover!==next){
+  if(S.drag.hover)S.drag.hover.classList.remove("drag-target");
+  S.drag.hover=next;
+  if(next)next.classList.add("drag-target");
+ }
+}
+function finishDrag(){
+ if(S.drag){
+  if(S.drag.raf)cancelAnimationFrame(S.drag.raf);
+  if(S.drag.hover)S.drag.hover.classList.remove("drag-target");
+  S.drag=null;
+ }
+ hideDragPreview();
+}
 function attachLongPress(b,m,index){
- let timer=null,held=false,active=false,startX=0,startY=0,hover=null;
- const clear=()=>{clearTimeout(timer);timer=null;if(hover){hover.classList.remove("drag-target");hover=null;}};
+ let timer=null,held=false,active=false,startX=0,startY=0;
+ const clear=()=>{clearTimeout(timer);timer=null;};
  b.addEventListener("contextmenu",e=>e.preventDefault());
  b.addEventListener("dragstart",e=>{
-  // HTML5 drag en Android/desktop: la carpeta resuelve el grupo seleccionado.
+  // Escritorio: el elemento arrastrado representa la selección completa.
   active=false;held=false;clear();
-  e.dataTransfer.setData("text/plain",String(m.id));e.dataTransfer.effectAllowed="copy";
+  const ids=selectedDragIds(m.id);
+  if(!ids.length){e.preventDefault();return;}
+  e.dataTransfer.setData("text/plain",String(m.id));
+  e.dataTransfer.effectAllowed="copy";
+  showDragPreview(m,ids,60,60);
+  e.dataTransfer.setDragImage?.($("drag-preview"),43,43);
+  setTimeout(()=>hideDragPreview(),0);
  });
- b.addEventListener("dragend",()=>{active=false;held=false;clear();b.classList.remove("dragging");});
+ b.addEventListener("dragend",()=>{
+  active=false;held=false;clear();b.classList.remove("dragging");
+  finishDrag();
+ });
  b.addEventListener("pointerdown",e=>{
   if(e.pointerType==="mouse"&&e.button!==0)return;
   startX=e.clientX;startY=e.clientY;held=false;active=true;
-  clearTimeout(timer);
+  clear();
   timer=setTimeout(()=>{
    if(!active)return;
    if(!S.selected.has(m.id)&&S.selected.size>=10){
@@ -388,47 +457,54 @@ function attachLongPress(b,m,index){
    }
    held=true;S.selection=true;
    S.selected.add(m.id);
-   // Capturar el gesto táctil para seguir recibiendo pointerup aunque el
-   // dedo salga de la foto y llegue a una carpeta de destino.
    if(e.pointerType!=="mouse"){try{b.setPointerCapture(e.pointerId);}catch(_){}}
    updateSelection();b.classList.add("selected","dragging");
+   const ids=selectedDragIds(m.id);
+   S.drag={hover:null,x:startX,y:startY,raf:0};
+   showDragPreview(m,ids,startX,startY);
+   S.drag.raf=requestAnimationFrame(dragMenuScroll);
    tg?.HapticFeedback?.selectionChanged?.();
   },450);
  });
  b.addEventListener("pointermove",e=>{
   if(!active)return;
-  if(!held&&Math.hypot(e.clientX-startX,e.clientY-startY)>12){clearTimeout(timer);return;}
+  if(!held&&Math.hypot(e.clientX-startX,e.clientY-startY)>12){
+   clear();return;
+  }
   if(held){
-   const el=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-folder-drop]");
-   if(hover!==el){if(hover)hover.classList.remove("drag-target");
-    hover=el;if(hover)hover.classList.add("drag-target");}
+   moveDragPreview(e.clientX,e.clientY);
+   dragHoverAt(e.clientX,e.clientY);
   }
  });
  b.addEventListener("touchmove",e=>{
-  // En iPhone mantener el dedo pulsado permite arrastrar en vez de
-  // desplazarse por la página cuando ya se activó la selección.
+  // Evitar scroll de la página solo durante arrastre; la lista de carpetas
+  // tiene desplazamiento automático hacia arriba y abajo.
   if(held)e.preventDefault();
  },{passive:false});
  b.addEventListener("pointerup",e=>{
-  if(!active)return;active=false;clearTimeout(timer);
+  if(!active)return;active=false;clear();
   if(!held)return;
   const destination=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-folder-drop]");
   S.suppressClick=m.id;setTimeout(()=>{if(S.suppressClick===m.id)S.suppressClick=null;},450);
-  if(destination){
-   const ids=selectedDragIds(m.id);
-   if(ids.length)addToPersonalFolder(Number(destination.dataset.folderDrop),ids);
-  }else{b.classList.remove("dragging");renderItems();}
-  clear();
+  const ids=selectedDragIds(m.id);
+  finishDrag();
+  b.classList.remove("dragging");
+  if(destination&&$("folder-drop-menu").contains(destination)&&ids.length){
+   if(destination.dataset.folderDrop==="new")createPersonalFolder(ids);
+   else addToPersonalFolder(Number(destination.dataset.folderDrop),ids);
+  }else renderItems();
  });
- b.addEventListener("pointercancel",()=>{active=false;clear();b.classList.remove("dragging");});
- b.addEventListener("pointerleave",()=>{if(!held){clearTimeout(timer);}});
+ b.addEventListener("pointercancel",()=>{
+  active=false;held=false;clear();finishDrag();b.classList.remove("dragging");
+ });
+ b.addEventListener("pointerleave",()=>{if(!held)clear();});
 }
 function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"?"▶":"▧";b.prepend(p);}
 function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
  $("selection-count").textContent=S.selected.size+" de 10";
- const trayText=$("folder-drop-tray").querySelector("span");
+ const trayText=$("folder-drag-help");
  if(trayText)trayText.textContent=S.selected.size>1?
     "Arrastra cualquiera de los "+S.selected.size+" archivos seleccionados a una carpeta:":
     "Mantén pulsada una foto o video y arrástralo a tu carpeta:";
