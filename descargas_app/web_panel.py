@@ -182,6 +182,64 @@ class TelegramPanel:
             items.append({'id':str(row['uid']),'generation':row.get('generation',0),'name':account_label(profile,directory),'username':profile.get('username') or '',
                           **metadata(profile,directory,row.get('country','')), 'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
         return {'items':items,'next':str(rows[page_size-1]['uid']) if len(rows)>page_size else None,'reviewer':limited}
+    async def account_name_search(self,actor,query,after=0):
+        """Fast prefix search of SAVED account names, without a Telegram connection.
+
+        Both the account profile and directory aliases are encrypted at rest.
+        Decrypt them in memory; do not return, inspect, or lock a saved session.
+        This is intentionally independent of active/revoked status for admins.
+        """
+        from .panel_background_search import fold
+        if not authorized(actor):raise web.HTTPForbidden()
+        if not isinstance(query,str) or len(query)>100:raise ValueError('Escribe hasta 100 caracteres.')
+        prefix=fold(query)
+        if not prefix:return {'items':[],'next':None,'total':0}
+        if not 0<=after<=100000:raise ValueError('Página de nombres no válida.')
+        limited=reviewer(actor)
+        # Exactly one read-only SQL query, regardless of how many linked accounts
+        # exist. Neither account_lock(), connected(), client() nor get_me() runs.
+        rows=await self.s.repo.pool.fetch(
+            """SELECT a.uid,a.profile,a.generation,md5(a.session) AS session_tag,
+                      d.name,d.country,st.value AS status_cache
+               FROM descarga_accounts a
+               LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$1
+               LEFT JOIN descarga_settings st
+                 ON st.key='panel-account-status:' || $1::text || ':' || a.uid::text
+               WHERE a.session IS NOT NULL
+               ORDER BY a.uid""",self.s.bot_id)
+        matches=[]
+        for row in rows:
+            profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
+            directory=self.s.repo.decode(row['name']) if row.get('name') else {}
+            if not isinstance(profile,dict):profile={}
+            if not isinstance(directory,dict):directory={}
+            saved=account_label(profile,directory)
+            # Older saved profiles and the newer directory may hold different
+            # names. Search all SAVED name variants, but never captions/chats.
+            alternatives=[saved,profile.get('name'),
+                          ' '.join(filter(None,(profile.get('first_name'),profile.get('last_name')))),
+                          directory.get('name')]
+            found=next((v for v in alternatives
+                        if isinstance(v,str) and fold(v).startswith(prefix)),None)
+            if not found:continue
+            status=self.overview.cached_value(row.get('status_cache'),
+                                               row.get('generation',0),
+                                               row.get('session_tag',''))
+            # A reviewer gets the same confirmed-active privacy boundary,
+            # without forcing a Telegram identity check.
+            if limited and (not status or status.get('state')!='active'):continue
+            try:await require_account(self.s,row['uid'],actor)
+            except ValueError:continue
+            display=saved if fold(saved).startswith(prefix) else ' '.join(found.split())[:160]
+            matches.append({'id':str(row['uid']),'name':display,
+                            'username':profile.get('username') or '',
+                            'generation':row.get('generation',0),
+                            'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
+        matches.sort(key=lambda item:(fold(item['name']),int(item['id'])))
+        return {'items':matches[after:after+60],
+                'next':after+60 if len(matches)>after+60 else None,
+                'total':len(matches)}
+
     async def account_profile(self,actor,uid):
         if not authorized(actor):raise web.HTTPForbidden()
         try:await require_account(self.s,uid,actor)
@@ -374,6 +432,10 @@ class TelegramPanel:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
             if op=='revoke' and post:
                 await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
+            if op=='account-name-search' and request.method=='GET':
+                result=await self.account_name_search(actor,request.query.get('q',''),
+                    integer(request.query.get('after','0'),0))
+                return web.json_response(result,headers=HEADERS)
             if op=='favorites' and request.method=='GET':
                 return web.json_response(await self.favorites.listing(actor),headers=HEADERS)
             if post and op in ('favorite-toggle','favorite-remove'):
@@ -385,6 +447,10 @@ class TelegramPanel:
                     result=await self.favorites.remove(actor,
                         integer(data.get('account')),int(data.get('source')))
                 return web.json_response(result,headers=HEADERS)
+            if post and op=='search-job-clear':
+                return web.json_response(
+                    await self.background_search.clear(actor,session['version']),
+                    headers=HEADERS)
             if post and op in ('search-job-start','search-job-control'):
                 data=await request.json()
                 if not isinstance(data,dict):raise ValueError('Solicitud de búsqueda no válida.')

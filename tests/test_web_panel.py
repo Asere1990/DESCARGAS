@@ -125,6 +125,87 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('session_tag',str(result))
         self.assertNotIn('status_cache',str(result))
 
+    async def test_name_search_uses_one_read_only_database_query_and_no_telegram(self):
+        import time
+        now=time.time()
+        def record(uid,name,directory=None,state='unknown'):
+            return {'uid':uid,'profile':json.dumps({'name':name,'username':'test'+str(uid)}),
+                    'name':json.dumps({'name':directory}) if directory else None,
+                    'generation':3,'session_tag':'test',
+                    'status_cache':json.dumps({'state':state,'reason':'Snapshot',
+                        'checked':now,'generation':3,'session_tag':'test'})}
+        self.pool.fetch.return_value=[
+            record(21,'Realme',state='revoked'),
+            record(22,'Álvaro',state='active'),
+            record(23,'Alba',state='unknown'),
+            record(24,'Salma',state='active'),
+            record(25,'Otro nombre','Realme nuevo',state='unknown'),
+        ]
+        result=await self.panel.account_name_search(111,'AL')
+        self.assertEqual([x['name'] for x in result['items']],['Alba','Álvaro'])
+        self.assertEqual(result['total'],2)
+        self.assertEqual(result['next'],None)
+        self.pool.fetch.assert_awaited_once()
+        sql=self.pool.fetch.await_args.args[0]
+        self.assertIn('FROM descarga_accounts',sql)
+        self.assertIn('a.session IS NOT NULL',sql)
+        self.assertNotIn('account_lock',sql)
+        self.assertNotIn('SELECT a.session',sql)
+        self.assertNotIn('client',str(result))
+        self.client.get_me.assert_not_awaited()
+        self.panel.overview.check=AsyncMock(side_effect=AssertionError(
+            'Name search must not check Telegram sessions'))
+        self.pool.fetch.reset_mock()
+        found=await self.panel.account_name_search(111,'realme')
+        self.assertEqual([(x['id'],x['name']) for x in found['items']],
+                         [('21','Realme'),('25','Realme nuevo')])
+        self.assertEqual(found['items'][0]['status']['state'],'revoked')
+        self.panel.overview.check.assert_not_awaited()
+
+    async def test_name_search_keeps_reviewer_and_protected_account_boundaries(self):
+        import time
+        now=time.time()
+        self.pool.fetch.return_value=[
+            {'uid':22,'profile':json.dumps({'name':'Realme'}),
+             'name':None,'generation':3,'session_tag':'tag',
+             'status_cache':json.dumps({'state':'revoked','reason':'Revoked',
+                  'checked':now,'generation':3,'session_tag':'tag'})},
+            {'uid':33,'profile':json.dumps({'name':'Realme privado'}),
+             'name':None,'generation':3,'session_tag':'tag',
+             'status_cache':json.dumps({'state':'active','reason':'OK',
+                  'checked':now,'generation':3,'session_tag':'tag'})},
+        ]
+        async def block(s,uid,actor):
+            if uid==33:raise ValueError('Protected')
+        self.account_guard.side_effect=block
+        # Protected IDs are excluded, while an admin can find revoked saved names.
+        result=await self.panel.account_name_search(111,'REA')
+        self.assertEqual([a['id'] for a in result['items']],['22'])
+        self.client.get_me.assert_not_awaited()
+        with patch.object(p,'reviewer',return_value=True):
+            result=await self.panel.account_name_search(111,'REA')
+            self.assertEqual(result['items'],[])
+
+    async def test_name_search_and_clear_routes_require_panel_authorization(self):
+        await self.setup_http()
+        self.panel.account_name_search=AsyncMock(return_value={
+            'items':[{'id':'22','name':'Realme'}],'next':None,'total':1})
+        self.panel.background_search.clear=AsyncMock(return_value={'job':None})
+        r=await self.http.get('/panel/api/account-name-search',params={'q':'Re'})
+        self.assertEqual(r.status,200)
+        self.panel.account_name_search.assert_awaited_once_with(111,'Re',0)
+        r=await self.http.post('/panel/api/search-job-clear',
+            headers={'Origin':'http://test'},json={})
+        self.assertEqual(r.status,403)
+        self.panel.background_search.clear.assert_not_awaited()
+        r=await self.http.post('/panel/api/search-job-clear',
+            headers={'Origin':'http://test','X-Panel-CSRF':self.csrf},json={})
+        self.assertEqual(r.status,200)
+        self.panel.background_search.clear.assert_awaited_once_with(111,'0')
+        self.allowed.clear()
+        r=await self.http.get('/panel/api/account-name-search',params={'q':'Re'})
+        self.assertEqual(r.status,403)
+
     async def test_dialogs_include_all_kinds_and_scope_handles_without_access_hash_leaks(self):
         entities=[self.entity,types.Chat(id=100,title='Grupo',photo=types.ChatPhotoEmpty(),participants_count=1,date=datetime.now(timezone.utc),version=1),types.Channel(id=200,title='Canal',photo=types.ChatPhotoEmpty(),date=datetime.now(timezone.utc),broadcast=True,access_hash=789)]
         self.rows=[N(entity=e,id=p.source_id(p.peer_data(e,22)),message=message(5),date=datetime.now(timezone.utc),unread_count=2,pinned=False) for e in entities]

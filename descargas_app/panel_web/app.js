@@ -642,6 +642,77 @@ $('continue-account-search').onclick=()=>{if(overviewMode==='phrases')runAccount
 // and server job continue independently. This view only polls and renders results.
 let persistentJob=null,persistentCursor=0,persistentFetching=false,persistentSeen=new Set(),
     persistentDisplayed=0,persistentMore=null,persistentPollBusy=false;
+let searchEnabled=false,nameSearchGeneration=0,nameSearchTimer=null,nameSearchNext=null,
+    nameSearchQuery='',nameSearchLoading=false;
+
+function clearAccountSearchView(clearInput=true){
+ nameSearchGeneration++;clearTimeout(nameSearchTimer);nameSearchTimer=null;
+ nameSearchQuery='';nameSearchNext=null;nameSearchLoading=false;
+ searchEnabled=false;persistentJob=null;persistentCursor=0;persistentDisplayed=0;
+ persistentSeen.clear();persistentMore=null;
+ if(clearInput)$('accounts-query').value='';
+ $('accounts-results').replaceChildren();$('accounts-results').hidden=true;
+ $('cancel-account-search').hidden=true;$('continue-account-search').hidden=true;
+ $('accounts-progress').textContent='Selecciona una cuenta vinculada';
+}
+async function clearAccountSearch(){
+ clearAccountSearchView();
+ try{await api('search-job-clear',{});}
+ catch(e){notice('No se pudo limpiar la búsqueda anterior: '+e.message);}
+}
+function nameSearchHit(a){
+ const button=el('button');button.className='account-search-hit';
+ button.append(el('strong',a.name),el('small','Telegram ID: '+a.id));
+ if(a.username)button.append(el('small','@'+a.username.replace(/^@/,'')));
+ button.onclick=()=>selectAccount(a).catch(e=>notice(e.message));
+ $('accounts-results').append(button);
+}
+async function runFastNameSearch(append=false){
+ if($('accounts-search-mode').value!=='name')return;
+ const needle=$('accounts-query').value.trim();
+ if(!needle){clearAccountSearchView(false);return;}
+ if(append&&(!nameSearchNext||nameSearchLoading))return;
+ clearTimeout(nameSearchTimer);nameSearchTimer=null;
+ const generation=++nameSearchGeneration;
+ const after=append?nameSearchNext:0;
+ nameSearchQuery=needle;
+ if(!append){
+  $('accounts-results').replaceChildren();$('accounts-results').hidden=false;
+  nameSearchNext=null;
+ }
+ nameSearchLoading=true;
+ $('accounts-progress').textContent='Buscando nombres de cuentas vinculadas…';
+ $('cancel-account-search').hidden=true;$('continue-account-search').hidden=true;
+ try{
+  // This endpoint consults only saved encrypted profile metadata. Bypass the
+  // shared Telegram-traffic request queue to keep typing responsive on iOS.
+  const url=base+'/api/account-name-search?q='+encodeURIComponent(needle)+'&after='+after;
+  const response=await fetch(url,{cache:'no-store',credentials:'same-origin'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||'No se pudo buscar por nombre.');
+  if(generation!==nameSearchGeneration||$('accounts-search-mode').value!=='name'
+    ||$('accounts-query').value.trim()!==needle)return;
+  for(const account of data.items||[])nameSearchHit(account);
+  nameSearchNext=data.next;
+  const total=Number(data.total||0);
+  $('accounts-progress').textContent=total
+    ?total+' cuenta'+(total===1?'':'s')+' cuyo nombre comienza con «'+needle+'».'
+    :'No se encontraron cuentas que empiecen con «'+needle+'».';
+  $('continue-account-search').textContent='Mostrar más nombres';
+  $('continue-account-search').hidden=!nameSearchNext;
+  if(!total)$('accounts-results').append(el('p','No hay coincidencias de nombres.'));
+ }catch(e){
+  if(generation===nameSearchGeneration)notice(e.message);
+ }finally{
+  if(generation===nameSearchGeneration)nameSearchLoading=false;
+ }
+}
+function scheduleFastNameSearch(){
+ ++nameSearchGeneration;clearTimeout(nameSearchTimer);
+ if(!$('accounts-query').value.trim()){clearAccountSearchView(false);return;}
+ nameSearchTimer=setTimeout(()=>runFastNameSearch(false),190);
+}
+
 function serverSearchState(state){return ['queued','running','waiting'].includes(state);}
 async function pausePersistentSearchForChats(){
  // A background search should not keep borrowing Telegram sessions while
@@ -671,7 +742,8 @@ function renderServerJob(job){
  if(persistentJob?.id!==job.id){
   persistentCursor=0;persistentDisplayed=0;persistentSeen.clear();persistentMore=null;
   $('accounts-results').replaceChildren();$('accounts-results').hidden=false;
-  $('accounts-search-mode').value=job.mode;$('accounts-query').value=job.query;
+  // The last saved query is history, not the browser's current search field.
+  // Never reinsert a previous name (such as Realme) into the input.
  }
  persistentJob=job;
  $('accounts-progress').textContent=serverSearchNote(job);
@@ -714,7 +786,8 @@ async function loadPersistentResults(){
  }finally{persistentFetching=false;}
 }
 async function refreshPersistentSearch(){
- if(persistentPollBusy||document.hidden||$('workspace').hidden)return;
+ if(!searchEnabled||persistentPollBusy||document.hidden||$('workspace').hidden
+   ||$('accounts-search-mode').value==='name')return;
  persistentPollBusy=true;
  try{
   const response=await api('search-job-status');
@@ -730,8 +803,11 @@ async function refreshPersistentSearch(){
 async function startPersistentSearch(){
  const searchMode=$('accounts-search-mode').value,needle=$('accounts-query').value.trim();
  if(!needle&&!isEntitySearchMode(searchMode))return;
+ if(searchMode==='name')return runFastNameSearch(false);
+ searchEnabled=true;
  try{
   const data=await api('search-job-start',{mode:searchMode,query:needle});
+  if(!searchEnabled)return;
   renderServerJob(data.job);
   await refreshPersistentSearch();
  }catch(e){notice(e.message);}
@@ -749,11 +825,35 @@ async function controlPersistentSearch(action){
 // per-conversation search and every other account panel feature unchanged.
 $('accounts-search-form').onsubmit=e=>{e.preventDefault();startPersistentSearch();};
 $('cancel-account-search').onclick=()=>controlPersistentSearch('cancel');
-$('continue-account-search').onclick=()=>controlPersistentSearch('resume');
+$('continue-account-search').onclick=()=>$('accounts-search-mode').value==='name'
+ ?runFastNameSearch(true):controlPersistentSearch('resume');
+$('clear-account-search').onclick=clearAccountSearch;
+// Keep ordinary phrase/channel search unchanged; only the name option receives
+// instant, prefix-only lookup with no per-account Telegram session checks.
+const previousSearchModeChange=$('accounts-search-mode').onchange;
+$('accounts-search-mode').onchange=()=>{
+ previousSearchModeChange?.();
+ const hadJob=searchEnabled||!!persistentJob;
+ clearAccountSearchView(false);
+ if(hadJob)api('search-job-clear',{}).catch(e=>notice(e.message));
+ if($('accounts-search-mode').value==='name')scheduleFastNameSearch();
+};
+$('accounts-query').oninput=()=>{
+ if($('accounts-search-mode').value==='name'){
+  if(searchEnabled||persistentJob){
+   searchEnabled=false;persistentJob=null;
+   api('search-job-clear',{}).catch(e=>notice(e.message));
+  }
+  scheduleFastNameSearch();
+ }else if(overviewSearching||!$('accounts-query').value.trim())resetAccountSearch();
+};
 document.addEventListener('visibilitychange',()=>{
  if(!document.hidden)refreshPersistentSearch().catch(e=>notice(e.message));
 });
-window.addEventListener('pageshow',()=>refreshPersistentSearch().catch(e=>notice(e.message)));
+window.addEventListener('pageshow',event=>{
+ if(event.persisted)clearAccountSearch().catch(e=>notice(e.message));
+ else refreshPersistentSearch().catch(e=>notice(e.message));
+});
 setInterval(()=>{
  if(!document.hidden&&$('workspace').dataset.view==='accounts')
   refreshPersistentSearch().catch(()=>{});
@@ -859,5 +959,10 @@ async function openPurchases(){
  await load();
 }
 
-(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();await refreshPersistentSearch();}catch(e){locked(e.message);}})();
+(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
+ // Every fresh visit begins with an EMPTY name/query field and NO zombie job.
+ // This deletes ONLY old search jobs/hits, never a linked Telegram session.
+ clearAccountSearchView();
+ await api('search-job-clear',{}).catch(e=>notice('Búsqueda previa no borrada: '+e.message));
+ }catch(e){locked(e.message);}})();
 })();
