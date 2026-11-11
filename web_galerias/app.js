@@ -1155,7 +1155,9 @@ let searchTimer=null;
 $("enter").onclick=async()=>{
  if(!S.me)return notice("La Mini App aún se está configurando.");
  if(S.me.allowed){show("library");return;}
- if(S.me.pilot)return notice("Acceso reservado a los usuarios de prueba.");
+ if(!S.me.checkout_enabled)return notice("Acceso reservado a los usuarios de prueba.");
+ if(!S.me.checkout_ready)return notice("Los pagos de Web Galerías todavía no están configurados.");
+ const enter=$("enter");enter.disabled=true;
  try{const data=await api("checkout");if(data.allowed){await refresh();show("library");}
   else if(data.url){tg?.openLink?tg.openLink(data.url):location.assign(data.url);}}
  catch(e){notice(e.message);}
