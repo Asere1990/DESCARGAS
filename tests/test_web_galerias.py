@@ -2,12 +2,15 @@
 import json
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from pathlib import Path
 from cryptography.fernet import Fernet
 from aiohttp import web
 from web_galerias.permissions import is_admin,is_tester,pilot_allowed,button_visible
 from web_galerias.admin import cleaned_design
-from web_galerias.downloads import temporary_link,validate_link
+from web_galerias.downloads import temporary_link,validate_link,safe_filename
+from web_galerias.personal import folder_name,media_filter,items as personal_items
 from web_galerias.core import DEFAULTS,normal,identifier
 
 class FakeService:
@@ -71,5 +74,61 @@ class AccessTests(unittest.TestCase):
         self.assertFalse(is_admin(12345))
         self.assertFalse(is_tester(12345))
         self.assertFalse(pilot_allowed(12345))
+
+class PersonalFoldersTests(unittest.IsolatedAsyncioTestCase):
+    def test_names_are_clean_and_limited(self):
+        self.assertEqual(folder_name("  Viajes   Cuba  "),"Viajes Cuba")
+        for value in ("", " "*8, "a"*61, "\\x00test", None):
+            with self.assertRaises(web.HTTPBadRequest):
+                folder_name(value)
+
+    def test_filters_are_restricted_to_photo_video_all(self):
+        for kind in ("all","photo","video"):
+            self.assertEqual(media_filter(kind),kind)
+        for kind in ("GIF","document","admin",""):
+            with self.assertRaises(web.HTTPBadRequest):
+                media_filter(kind)
+
+    async def test_no_other_users_personal_folder_is_visible(self):
+        pool=SimpleNamespace(fetchval=AsyncMock(return_value=None),
+                             fetch=AsyncMock())
+        g=SimpleNamespace(db=lambda:pool)
+        with self.assertRaises(web.HTTPForbidden):
+            await personal_items(g,12345,777,"",0,"all",lambda *x:"")
+        pool.fetch.assert_not_awaited()
+
+    def test_save_links_are_short_lived_and_purpose_bound(self):
+        g=type("G",(),{"s":FakeService()})()
+        token=temporary_link(g,7539025033,77,"save")
+        self.assertEqual(validate_link(g,token,"save")["item"],77)
+        with self.assertRaises(web.HTTPForbidden):
+            validate_link(g,token,"view")
+
+    def test_attachment_filenames_are_sanitized(self):
+        self.assertEqual(safe_filename("../../foto 1.jpg"),"foto_1.jpg")
+        self.assertEqual(safe_filename("","video/mp4"),"video.mp4")
+
+class IOSGalleryUXTests(unittest.TestCase):
+    def test_watermark_longpress_filters_and_folders_available(self):
+        root=Path(__file__).resolve().parents[1]/"web_galerias"
+        js=(root/"app.js").read_text(encoding="utf-8")
+        html=(root/"index.html").read_text(encoding="utf-8")
+        for expected in ("Búscame en Google","hoo.be/Cubanas",
+                         "attachLongPress","pointerdown","pointermove",
+                         'data-kind="photo"','data-kind="video"',
+                         'id="create-personal-folder"','id="folder-drop-targets"'):
+            self.assertIn(expected,js+html)
+        self.assertIn("navigator.share({files})",js)
+        self.assertIn("tg.downloadFile",js)
+        self.assertIn('id="selection-organize"',html)
+
+    def test_single_file_download_never_redirects_to_cloudflare(self):
+        p=Path(__file__).resolve().parents[1]/"web_galerias"/"downloads.py"
+        src=p.read_text(encoding="utf-8")
+        start=src.index("async def download(g,request):")
+        self.assertIn("return await stream_object(",src[start:])
+        self.assertNotIn("raise web.HTTPFound",src[start:])
+        self.assertIn("max(0,100-used-len(ids))" if False else
+                      '"remaining":100-used-len(ids)',src)
 
 if __name__=="__main__":unittest.main()
