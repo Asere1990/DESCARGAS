@@ -120,5 +120,75 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(data["folders"],[])
 
 
+    async def test_customer_bot_identity_is_scoped_to_a_signed_request(self):
+        uid=987654321
+        from web_galerias.core import customer_bot_signed, _CUSTOMER_BOT_UID
+        from descargas_app import security
+        request=SimpleNamespace(headers={"X-Telegram-Init-Data": "signed-for-customer-bot"})
+        g=SimpleNamespace(s=SimpleNamespace(token="unrelated-bot"))
+        with patch.object(security,"validate_init_data",side_effect=ValueError("different bot")):
+            with patch.object(customer_bridge,"ready",return_value=True):
+                with patch.object(customer_bridge,"verify_customer_bot",
+                                  new=AsyncMock(return_value=uid)):
+                    token=_CUSTOMER_BOT_UID.set(0)
+                    try:
+                        self.assertEqual(await core.GalleryCore.auth(g,request),uid)
+                        self.assertTrue(customer_bot_signed(uid))
+                        self.assertFalse(customer_bot_signed(uid+1))
+                    finally:
+                        _CUSTOMER_BOT_UID.reset(token)
+        self.assertFalse(customer_bot_signed(uid))
+
+    async def test_new_customer_bot_user_can_buy_without_opening_the_original_pilot(self):
+        from web_galerias import payments, payment_link_checkout
+        from web_galerias.core import _CUSTOMER_BOT_UID
+        uid=987654321
+        db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=False),
+                           fetchrow=AsyncMock(return_value=None))
+        g=SimpleNamespace(db=lambda:db, entitled=AsyncMock(return_value=False),
+            design=AsyncMock(return_value={}),folder_list=AsyncMock(),
+            storage=SimpleNamespace(ready=True))
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":""}):
+            token=_CUSTOMER_BOT_UID.set(0)
+            try:
+                # Original private pilot remains closed to unsigned/new customers.
+                self.assertFalse((await core.GalleryCore.bootstrap(g,uid, "Tester"))["checkout_enabled"])
+                with self.assertRaises(web.HTTPForbidden):
+                    await payments.checkout(g,uid)
+                # Only the previously authenticated CUSTOMER-SERVICE request gets checkout.
+                _CUSTOMER_BOT_UID.set(uid)
+                data=await core.GalleryCore.bootstrap(g,uid,"Tester")
+                self.assertTrue(data["checkout_enabled"])
+                with patch.object(payment_link_checkout,"configured",return_value=True):
+                    with patch.object(payment_link_checkout,"checkout",
+                                      new=AsyncMock(return_value={"url":"https://buy.stripe.com/test"})):
+                        self.assertEqual((await payments.checkout(g,uid))["url"],
+                                         "https://buy.stripe.com/test")
+                # A dispute blocks checkout without touching the Stripe API.
+                db.fetchval.return_value=True
+                with self.assertRaises(web.HTTPForbidden):
+                    await payments.checkout(g,uid)
+            finally:
+                _CUSTOMER_BOT_UID.reset(token)
+
+    async def test_paid_customer_bot_user_gets_verified_access(self):
+        from web_galerias.core import _CUSTOMER_BOT_UID
+        uid=987654321
+        db=SimpleNamespace(fetchrow=AsyncMock(return_value={
+            "state":"active","paid_until":time.time()+900,"blocked":False}))
+        g=SimpleNamespace(db=lambda:db)
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":""}):
+            token=_CUSTOMER_BOT_UID.set(0)
+            try:
+                self.assertFalse(await core.GalleryCore.entitled(g,uid))
+                db.fetchrow.assert_not_awaited()
+                _CUSTOMER_BOT_UID.set(uid)
+                self.assertTrue(await core.GalleryCore.entitled(g,uid))
+                db.fetchrow.return_value={**db.fetchrow.return_value,"blocked":True}
+                self.assertFalse(await core.GalleryCore.entitled(g,uid))
+            finally:
+                _CUSTOMER_BOT_UID.reset(token)
+
+
 if __name__ == "__main__":
     unittest.main()
