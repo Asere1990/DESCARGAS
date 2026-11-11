@@ -123,7 +123,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('className="admin-data-label"',section)
         self.assertIn('className="admin-data-value"',section)
         for label in ("Nombre público","Origen de Telegram","Estado del respaldo",
-                      "Archivos respaldados","Archivos pendientes","Mensajes revisados",
+                      "Archivos respaldados","Archivos pendientes","Mensajes recorridos",
                       "Historial","Archivos no disponibles"):
             self.assertIn('addAdminDatum("'+label+'"',section)
         self.assertNotIn('info.textContent="Nombre público:',section)
