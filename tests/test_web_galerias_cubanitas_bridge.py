@@ -109,7 +109,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_disputed_user_sees_no_checkout_button(self):
         uid=7536216348
         db=SimpleNamespace(execute=AsyncMock(),
-            fetchval=AsyncMock(side_effect=[True,0]))
+            fetchval=AsyncMock(side_effect=[0,True]))
         g=SimpleNamespace(db=lambda:db,
                           entitled=AsyncMock(return_value=False),
                           design=AsyncMock(return_value={}),
