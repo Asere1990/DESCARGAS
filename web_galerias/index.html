@@ -11,10 +11,10 @@
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/intro-poster">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=admin-users-20261111-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=free-user-menu-gif-20261111-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-admin-users-20261111"></script>
-<script defer src="/web-galerias/static/admin_tools.js?v=admin-users-20261111-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-free-user-menu-gif-20261111"></script>
+<script defer src="/web-galerias/static/admin_tools.js?v=free-user-menu-gif-20261111-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -48,8 +48,7 @@
   </div>
   <div class="intro-bottom">
     <button id="intro-sound" type="button" class="intro-sound hidden" aria-label="Activar sonido del video de presentación">🔊 Activar sonido</button>
-    <div id="intro-logo" class="intro-logo">▦</div>
-   <div id="intro-headline" class="intro-headline">Web Galerías</div>
+    <div id="intro-headline" class="intro-headline">Web Galerías</div>
    <p id="intro-subtitle">Explora nuestras galerías privadas</p>
    <button id="enter" class="primary">ENTRAR A LA GALERÍA</button>
    <p id="intro-notice" class="quiet hidden" aria-hidden="true"></p>
@@ -150,11 +149,16 @@
   <header class="topbar"><strong>Administración · Web Galerías</strong></header>
   <main class="container editor">
    <p class="eyebrow">PANEL PRIVADO</p><h1>Configuración</h1>
+   <p id="admin-members-summary" class="admin-members-summary" role="status">
+    Membresías activas: <strong id="admin-paid-count">—</strong>
+    <span aria-hidden="true"> · </span>En línea: <strong id="admin-online-count">—</strong>
+   </p>
    <nav class="admin-tabs"><button data-tab="carpetas" class="active">Carpetas</button>
-    <button data-tab="usuarios">Usuarios</button><button data-tab="diseno">Editor visual</button>
+    <button data-tab="usuarios">Usuarios ▾</button><button data-tab="diseno">Editor visual</button>
     <button data-tab="estado">Respaldo</button></nav>
    <div id="tab-carpetas" class="tab">
-    <div class="panel-card"><h2>Agregar carpeta</h2>
+    <div class="admin-folder-first"><h2>Galerías</h2><div id="admin-folders"></div></div>
+    <details class="panel-card admin-tools-fold"><summary>＋ Agregar carpeta ▾</summary>
      <label>Group ID o Channel ID<input id="new-peer" placeholder="-1001234567890" inputmode="numeric"></label>
      <label>Telegram ID de la cuenta que ve el historial completo
       <input id="new-source-uid" inputmode="numeric" pattern="[1-9][0-9]{4,18}" maxlength="19"
@@ -169,9 +173,9 @@
      <img id="new-cover-preview" class="new-cover-preview hidden" alt="Vista previa de portada seleccionada">
      <p class="muted">JPEG, PNG o WebP · hasta 5 MB. Podrás cambiarla después.</p>
      <p id="new-cover-status" class="muted" role="status"></p>
-     <button id="add-folder" class="primary compact">Agregar a la galería</button></div>
-    <div id="admin-media-manager" class="panel-card admin-media-manager">
-     <h2>Moderar fotos y videos</h2>
+     <button id="add-folder" class="primary compact">Agregar a la galería</button></details>
+    <details id="admin-media-manager" class="panel-card admin-media-manager admin-tools-fold">
+     <summary>Moderar fotos y videos ▾</summary>
      <p class="muted">Selecciona archivos de cualquier galería. Ocultarlos no los borra de Telegram. El respaldo de Cloudflare es opcional.</p>
      <label for="admin-media-folder">Galería
       <select id="admin-media-folder"><option value="">Elegir galería…</option></select>
@@ -185,13 +189,35 @@
      <label class="admin-r2-choice"><input type="checkbox" id="admin-media-r2"> Eliminar también los originales y miniaturas del respaldo Cloudflare R2</label>
      <button id="admin-media-delete" type="button" class="small-btn admin-delete-media" disabled>Eliminar seleccionados del sistema</button>
      <p id="admin-media-status" class="muted" aria-live="polite"></p>
-    </div>
-    <div id="admin-folders"></div>
+    </details>
    </div>
    <div id="tab-usuarios" class="tab hidden">
-     <section id="admin-users-details" class="panel-card admin-users-details" aria-label="Listado de usuarios">
-      <h2>Usuarios de Web Galerías</h2>
-      <p class="muted">Lista por páginas. Un punto verde significa que está viendo la galería en este momento; «Activo» indica membresía pagada vigente.</p>
+     <div class="panel-card admin-users-menu">
+       <label for="admin-user-section">¿Qué quieres consultar?
+        <select id="admin-user-section" aria-label="Seleccionar sección de usuarios">
+         <option value="">Seleccionar una opción…</option>
+         <option value="paid">Membresías activas</option>
+         <option value="expired">Membresías vencidas o canceladas</option>
+         <option value="free">⭐ Accesos gratuitos</option>
+         <option value="permissions">Permisos por usuario</option>
+         <option value="profiles">Fichas de usuarios</option>
+         <option value="recent">Últimos accesos</option>
+         <option value="visitors">Visitantes sin membresía</option>
+         <option value="all">Todos los usuarios de la web</option>
+        </select>
+       </label>
+     </div>
+     <section id="admin-users-details" class="panel-card admin-users-details hidden" aria-label="Listado de usuarios">
+      <h2 id="admin-users-heading">Usuarios de Web Galerías</h2>
+      <p id="admin-users-explainer" class="muted">Lista paginada; selecciona un nombre para abrir la ficha.</p>
+      <label id="admin-users-since-wrap" class="hidden" for="admin-users-since">Mostrar accesos de
+       <select id="admin-users-since">
+        <option value="24">Últimas 24 horas</option>
+        <option value="168">Últimos 7 días</option>
+        <option value="720">Últimos 30 días</option>
+        <option value="0">Cualquier fecha</option>
+       </select>
+      </label>
       <div class="search admin-users-search"><span>⌕</span><input id="admin-users-query" type="search" maxlength="100" autocomplete="off" placeholder="Buscar nombre de Telegram o ID" aria-label="Buscar usuarios"></div>
       <div id="admin-users" class="admin-users-list" role="list" aria-live="polite"></div>
       <div class="admin-users-pager">
@@ -201,7 +227,7 @@
       </div>
       <section id="admin-user-profile" class="admin-user-profile hidden" aria-label="Ficha del usuario" aria-live="polite"></section>
      </section>
-     <div class="panel-card"><h2>Permisos por usuario</h2>
+     <div id="admin-user-permissions" class="panel-card hidden"><h2>Permisos por usuario</h2>
       <label>Telegram ID<input id="permission-uid" inputmode="numeric" placeholder="Telegram ID"></label>
       <button id="load-permissions" class="small-btn strong">Consultar permisos</button>
       <label>Visibilidad<select id="permission-mode"><option value="all">Todas las carpetas</option><option value="selected">Solo las seleccionadas</option></select></label>
@@ -220,7 +246,8 @@
       <label>Fondo de la portada principal
         <select id="edit-intro_media">
           <option value="video">Video publicitario</option>
-          <option value="photo">Foto de presentación</option>
+          <option value="photo">Foto promocional</option>
+          <option value="gif">GIF animado promocional</option>
         </select>
       </label>
       <label>Encuadre de foto o video
@@ -273,12 +300,12 @@
     <div class="panel-card"><h2>Imágenes y video</h2>
       <label>Logo<input id="upload-logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
       <label>Cabecera diseñada<input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp"></label>
-      <label>Foto principal de presentación
-        <input id="upload-intro-photo" type="file" accept="image/png,image/jpeg,image/webp">
+      <label>Foto o GIF promocional
+        <input id="upload-intro-photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
       </label>
       <label>Video publicitario<input id="upload-intro" type="file" accept="video/mp4,video/quicktime,video/webm"></label>
-      <p class="muted">Logo hasta 3 MB · cabecera hasta 5 MB · foto principal hasta 5 MB · video hasta 80 MB.</p>
-      <p class="muted">El video mostrará su primer fotograma mientras comienza la reproducción. La foto aparecerá como fondo directamente.</p>
+      <p class="muted">Logo hasta 3 MB · cabecera hasta 5 MB · foto o GIF hasta 5 MB · video hasta 80 MB.</p>
+      <p class="muted">Escoge video, foto o GIF animado. El video conserva su primer fotograma mientras comienza la reproducción; el GIF se anima sin reproductor.</p>
       <p class="muted">El video MOV, MP4 o WebM se convertirá automáticamente a MP4 compatible. Para publicarlo, pulsa Confirmar cambios.</p>
       <div id="upload-progress" class="muted" role="status" aria-live="polite">Sin archivos pendientes de guardar.</div>
       <button id="confirm-editor" type="button" class="primary compact">✓ Confirmar cambios</button>

@@ -4,7 +4,8 @@
  const $=id=>document.getElementById(id);
  const state={folder:null,media:[],next:null,selected:new Set(),usersNext:null,usersLoaded:false,busy:false,
    userPage:1,userPages:[null],userQuery:"",usersBusy:false,userItems:[],selectedUid:null,
-   folders:[],folderOpened:null,folderNext:null,folderItems:[],mediaBusy:false};
+   folders:[],folderOpened:null,folderNext:null,folderItems:[],mediaBusy:false,
+   userScope:"",userLoadGeneration:0};
  const fmt=n=>Number(n||0).toLocaleString("es-ES");
 
  function adminRefreshed(admin){
@@ -126,7 +127,53 @@
   const ids=[...state.selected];if(!ids.length)return;
   await deleteMediaIds(ids,$("admin-media-r2").checked);
  }
+ async function refreshUserStats(){
+  if(!S.me?.admin)return;
+  try{
+   const stats=await api("admin-user-stats");
+   $("admin-paid-count").textContent=fmt(stats.paid);
+   $("admin-online-count").textContent=fmt(stats.online);
+  }catch(e){
+   $("admin-paid-count").textContent="—";
+   $("admin-online-count").textContent="—";
+  }
+ }
  function usersLoaded(){return state.usersLoaded;}
+ function showUserSectionMenu(){
+  state.userScope="";state.usersLoaded=false;state.userItems=[];
+  state.userLoadGeneration++;
+  $("admin-user-section").value="";
+  $("admin-users-details").classList.add("hidden");
+  $("admin-user-permissions").classList.add("hidden");
+  $("admin-user-profile").classList.add("hidden");
+  $("admin-users").replaceChildren();
+ }
+ function changeUserSection(){
+  const section=$("admin-user-section").value;
+  state.userScope=section;
+  state.userLoadGeneration++;
+  state.usersLoaded=false;
+  $("admin-users-details").classList.toggle("hidden",!section||section==="permissions");
+  $("admin-user-permissions").classList.toggle("hidden",section!=="permissions");
+  $("admin-user-profile").classList.add("hidden");
+  if(!section||section==="permissions")return;
+  const titles={paid:"Membresías activas",expired:"Membresías vencidas",
+   free:"⭐ Accesos gratuitos",profiles:"Fichas de usuarios",
+   recent:"Últimos accesos",visitors:"Visitantes sin membresía",
+   all:"Todos los usuarios de la web"};
+  const explain={paid:"Miembros que pagaron y mantienen una suscripción Web vigente.",
+   expired:"Miembros que pagaron anteriormente, pero su membresía ya no está vigente.",
+   free:"Personas autorizadas gratuitamente mediante acceso.txt. Descargas diarias ilimitadas.",
+   profiles:"Busca y toca un nombre para consultar datos, carpetas y permisos.",
+   recent:"Última actividad registrada por usuario. No es un historial de todas las visitas.",
+   visitors:"Personas que abrieron la web sin haber comprado una membresía.",
+   all:"Listado general por páginas; no se carga hasta que lo solicitas."};
+  $("admin-users-heading").textContent=titles[section]||"Usuarios";
+  $("admin-users-explainer").textContent=explain[section]||"";
+  $("admin-users-since-wrap").classList.toggle("hidden",section!=="recent");
+  $("admin-users-query").value="";
+  loadUserPage(true);
+ }
  function renderUserRows(){
   const root=$("admin-users");root.replaceChildren();
   for(const u of state.userItems){
@@ -140,6 +187,10 @@
    if(u.blocked){
     const badge=document.createElement("small");badge.className="admin-user-retired";
     badge.textContent="Retirado";right.append(badge);
+   }else if(u.free_access){
+    const badge=document.createElement("small");badge.className="admin-user-free";
+    badge.textContent="★";badge.title="Acceso gratuito · descargas ilimitadas";
+    badge.setAttribute("aria-label","Acceso gratuito");right.append(badge);
    }else if(u.paid){
     const badge=document.createElement("small");badge.className="admin-user-active";
     badge.textContent="Activo";right.append(badge);
@@ -150,6 +201,11 @@
     dot.setAttribute("aria-label","Conectado");right.append(dot);
    }
    b.append(name,right);
+   if(state.userScope==="recent"){
+    const last=document.createElement("small");last.className="admin-user-recent";
+    last.textContent=new Date(u.last_seen*1000).toLocaleString("es-US");
+    b.append(last);
+   }
    b.onclick=()=>showUserProfile(u.telegram_id);
    root.append(b);
   }
@@ -162,23 +218,26 @@
   $("admin-user-more").disabled=!state.usersNext;
  }
  async function loadUserPage(reset=false){
-  if(state.usersBusy)return;
+  if(!state.userScope||state.userScope==="permissions"||(state.usersBusy&&!reset))return;
+  const token=++state.userLoadGeneration;
   state.usersBusy=true;
   if(reset){state.userPage=1;state.userPages=[null];state.selectedUid=null;
    $("admin-user-profile").classList.add("hidden");}
   const requestQuery=$("admin-users-query").value.trim();
   const page=state.userPage;
+  const scope=state.userScope;
   const after=state.userPages[page-1]||null;
+  const hours=scope==="recent"?Number($("admin-users-since").value):0;
   try{
-   const result=await api("admin-users-page",{query:requestQuery,after});
-   if(page!==state.userPage||requestQuery!==$("admin-users-query").value.trim())return;
+   const result=await api("admin-users-page",{query:requestQuery,after,scope,hours});
+   if(token!==state.userLoadGeneration||page!==state.userPage||
+      scope!==state.userScope||requestQuery!==$("admin-users-query").value.trim())return;
    state.userItems=result.users||[];state.usersNext=result.next||null;
    state.userPages[page]=state.usersNext;
    state.usersLoaded=true;renderUserRows();
-  }catch(e){notice(e.message);}
-  finally{state.usersBusy=false;}
+  }catch(e){if(token===state.userLoadGeneration)notice(e.message);}
+  finally{if(token===state.userLoadGeneration)state.usersBusy=false;}
  }
- function openUsers(){if(!state.usersLoaded)loadUserPage(true);}
  function rowDatum(root,label,value){
   const row=document.createElement("div");row.className="admin-data-row";
   const key=document.createElement("span");key.className="admin-data-label";key.textContent=label;
@@ -237,6 +296,8 @@
    rowDatum(root,"Telegram ID",uid);
    rowDatum(root,"Membresía pagada",
      ["active","trialing"].includes(local.state)&&local.paid_until>Date.now()/1000?"Activo":"Sin pago vigente");
+   rowDatum(root,"Acceso gratuito",
+     local.free_access?"★ acceso.txt · descargas ilimitadas":"No");
    rowDatum(root,"Estado en la web",local.blocked?"Retirado del sistema":"Autorización según membresía");
    rowDatum(root,"Último acceso",local.last_seen?
      new Date(local.last_seen*1000).toLocaleString("es-US"):"—");
@@ -246,7 +307,12 @@
    folders.onclick=()=>loadUserFolders(uid);
    const perms=document.createElement("button");perms.className="small-btn";
    perms.textContent="Asignar carpetas de acceso";
-   perms.onclick=()=>{$("permission-uid").value=uid;loadPermissions();};
+   perms.onclick=()=>{
+    $("admin-user-section").value="permissions";
+    changeUserSection();
+    $("permission-uid").value=uid;
+    loadPermissions();
+   };
    const toggle=document.createElement("button");toggle.className="small-btn admin-user-access-action";
    toggle.textContent=local.blocked?"Volver a agregar al sistema":"Eliminar usuario del sistema";
    toggle.onclick=async()=>{
@@ -472,6 +538,8 @@
   };
   $("admin-media-kind").onchange=()=>{if(state.folder)loadAdminMedia(false);};
   let userTimer;
+  $("admin-user-section").onchange=changeUserSection;
+  $("admin-users-since").onchange=()=>loadUserPage(true);
   $("admin-users-query").oninput=()=>{
    clearTimeout(userTimer);
    userTimer=setTimeout(()=>loadUserPage(true),350);
@@ -485,12 +553,15 @@
    state.userPage--;loadUserPage(false);
   };
   setInterval(()=>{
-   if(state.usersLoaded&&!document.hidden&&!$("tab-usuarios").classList.contains("hidden"))
+   if(state.usersLoaded&&state.userScope&&!document.hidden
+      &&!$("tab-usuarios").classList.contains("hidden")
+      &&!$("admin-users-details").classList.contains("hidden"))
     loadUserPage(false);
   },30000);
   $("media-context-close").onclick=closeActions;
   $("media-context-sheet").onclick=e=>{if(e.target===$("media-context-sheet"))closeActions();};
  }
- window.CubanitasTools={adminRefreshed,mediaActions,adminDeleteSelection,openUsers,usersLoaded};
+ window.CubanitasTools={adminRefreshed,mediaActions,adminDeleteSelection,
+    showUserSectionMenu,refreshUserStats,usersLoaded};
  initialize();
 })();

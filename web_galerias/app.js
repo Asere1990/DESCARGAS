@@ -39,6 +39,20 @@ function renderWatermark(element,config){
  const color=String(config?.wm_color??"#FFFFFF");
  element.style.color=/^#[0-9a-f]{6}$/i.test(color)?color:"#FFFFFF";
 }
+function renderViewerWatermark(config=S.me?.design){
+ if(S.me?.free_access){
+  $("viewer-watermark").classList.add("hidden");
+  $("viewer-watermark").textContent="";
+  return;
+ }
+ renderWatermark($("viewer-watermark"),config);
+}
+function updateQuotaStatus(){
+ if(!S.me)return;
+ const unlimited=!!S.me.quota_unlimited;
+ $("quota-count").textContent=unlimited?"Ilimitadas":pretty(S.me.remaining)+" de 100";
+ $("quota-fill").style.width=unlimited?"100%":Math.max(0,Number(S.me.remaining)||0)+"%";
+}
 function watermarkFromEditor(){
  return {
   wm_enabled:$("edit-wm-enabled").checked,
@@ -70,7 +84,7 @@ async function saveWatermark(){
  try{
   const result=await api("admin-watermark",{watermark:watermarkFromEditor()});
   S.me.design=result.design;
-  renderWatermark($("viewer-watermark"),result.design);
+  renderViewerWatermark(result.design);
   populateWatermarkEditor(result.design);
   notice("Marca de agua actualizada en fotos y videos.");
  }catch(e){notice(e.message);}
@@ -79,7 +93,7 @@ async function saveWatermark(){
 function applyDesign(d){const r=document.documentElement.style;
  r.setProperty("--accent",d.accent);r.setProperty("--bg",d.background);r.setProperty("--text",d.text_color);
  r.setProperty("--button",d.button_color);r.setProperty("--tile-aspect",d.tile_shape==="rectangle"?"4 / 3":"1");
- renderWatermark($("viewer-watermark"),d);
+ renderViewerWatermark(d);
  $("intro-headline").textContent=d.title;$("brand-name").textContent=d.title;
  $("intro-subtitle").textContent=d.intro_caption;$("enter").textContent=d.button_label;
  $("intro-placeholder").lastElementChild.textContent=d.intro_label;
@@ -94,7 +108,7 @@ function applyDesign(d){const r=document.documentElement.style;
    image.src="/web-galerias/assets/header?t="+Date.now();}
  const video=$("intro-video"),placeholder=$("intro-placeholder");
  const intro=$("intro"),sound=$("intro-sound"),poster=$("intro-hero-poster");
- const mode=d.intro_media==="photo"?"photo":"video";
+ const mode=["photo","gif"].includes(d.intro_media)?"photo":"video";
  const fit=d.intro_fit==="contain"?"contain":"cover";
  video.style.objectFit=fit;poster.style.objectFit=fit;
  const posterReady=()=>poster.complete&&poster.naturalWidth>0;
@@ -168,8 +182,7 @@ async function refresh(lite=false){
  $("stat-folders").textContent=pretty(S.folders.length);
  $("stat-photos").textContent=pretty(S.me.photos);
  $("stat-videos").textContent=pretty(S.me.videos);
- $("quota-count").textContent=pretty(S.me.remaining)+" de 100";
- $("quota-fill").style.width=(S.me.remaining)+"%";
+ updateQuotaStatus();
  if(!S.me.allowed){
   if(S.me.checkout_enabled){
    $("enter").textContent="COMPRAR MEMBRESÍA";
@@ -625,7 +638,7 @@ function toggleSelection(id){
 function showViewerMedia(){
   if(!S.items.length)return;
   const m=S.items[S.viewer];$("viewer-counter").textContent=(S.viewer+1)+" / "+S.items.length;
-  renderWatermark($("viewer-watermark"),S.me?.design);
+  renderViewerWatermark();
   const img=$("view-image"),video=$("view-video");
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
@@ -674,8 +687,9 @@ async function downloadIds(ids){
   return notice("Espera a que los originales seleccionados estén disponibles.");
  try{
   const data=await api("reserve",{ids});
-  S.me.remaining=data.remaining;$("quota-count").textContent=pretty(data.remaining)+" de 100";
-  $("quota-fill").style.width=data.remaining+"%";
+  S.me.quota_unlimited=!!data.quota_unlimited||!!S.me.quota_unlimited;
+  S.me.remaining=data.remaining==null?100:data.remaining;
+  updateQuotaStatus();
   S.selected.clear();S.selection=false;updateSelection();renderItems();
   S.saveData=data;S.prepared=null;
   const total=(data.files||[]).reduce((sum,x)=>sum+Number(x.size||0),0);
@@ -1003,12 +1017,17 @@ function previewAdmin(){
   "</p><p>Agregar carpeta → comenzar; ocultar carpeta → pausar; restaurar → continuar. No se borran archivos de R2.</p>";
 }
 async function loadAdmin(){
- try{S.admin=await api("admin-overview");previewAdmin();window.CubanitasTools?.adminRefreshed?.(S.admin);}catch(e){notice(e.message);}
+ try{
+  S.admin=await api("admin-overview");
+  previewAdmin();
+  window.CubanitasTools?.adminRefreshed?.(S.admin);
+  await window.CubanitasTools?.refreshUserStats?.();
+ }catch(e){notice(e.message);}
 }
 function switchAdminTab(tab){
  document.querySelectorAll(".admin-tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("hidden",x.id!=="tab-"+tab));
- if(tab==="usuarios")window.CubanitasTools?.openUsers?.();
+ if(tab==="usuarios")window.CubanitasTools?.showUserSectionMenu?.();
 }
 function populateEditor(){
  const d=S.me.design;
@@ -1359,7 +1378,7 @@ for(const key of ["logo","header","intro","intro-photo"])
   }
   if(key==="intro-photo"&&$("upload-intro-photo").files?.length){
    $("upload-intro").value="";
-   $("edit-intro_media").value="photo";
+   $("edit-intro_media").value=file.type==="image/gif"?"gif":"photo";
   }
   editorPendingFilesMessage();
  };

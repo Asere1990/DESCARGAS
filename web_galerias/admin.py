@@ -1,6 +1,7 @@
 """Acciones administrativas y editor visual de Web Galerías, solo admins.txt."""
 import asyncio
 import base64
+import io
 import json
 import re
 import time
@@ -16,7 +17,7 @@ WATERMARK_KEYS={"wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity","w
 COLORS={"button_color","accent","background","text_color","wm_color"}
 CHOICES={"header_mode":{"text","image"},"tile_shape":{"square","rectangle"},
          "intro_fit":{"cover","contain"},
-         "intro_media":{"video","photo"},
+         "intro_media":{"video","photo","gif"},
          "wm_position":{"center","top","bottom"}}
 
 def cleaned_design(value):
@@ -58,7 +59,7 @@ async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
     if op in ("admin-media-list","admin-media-remove","admin-media-r2-status",
-              "admin-active-users","admin-user-profile","admin-users-page",
+              "admin-active-users","admin-user-profile","admin-users-page","admin-user-stats",
               "admin-user-access-status","admin-user-access-change",
               "admin-user-personal-folders","admin-user-personal-items",
               "admin-user-personal-remove","admin-user-personal-delete"):
@@ -108,11 +109,6 @@ async def admin_op(g,uid,op,data):
         for entry in reasons:
             reason_map.setdefault(entry["folder"],[]).append({
               "code":entry["error"] or "sin_motivo","count":entry["amount"]})
-        users=await db.fetch("""SELECT u.uid,u.name,u.first_seen,u.last_seen,
-            s.state,s.paid_until,p.mode
-            FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
-            LEFT JOIN wg_user_prefs p ON p.uid=u.uid
-            ORDER BY u.last_seen DESC LIMIT 500""")
         remote=await db.fetchval("SELECT value FROM wg_config WHERE key='backup_status'")
         if isinstance(remote,str):
             remote=json.loads(remote)
@@ -137,7 +133,7 @@ async def admin_op(g,uid,op,data):
             folder["missing_reasons"]=reason_map.get(folder["id"],[])
             result_folders.append(folder)
         return {"folders":result_folders,
-            "users":[{**dict(x),"admin":is_admin(x["uid"]),"tester":is_tester(x["uid"])} for x in users],
+            "users":[],  # Never preload thousands of visitors on overview.
             "storage_ready":g.storage.ready or bool(remote.get("storage") and running),
             "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",
             "sync_folder":remote.get("folder") if running else None,
@@ -322,12 +318,17 @@ async def admin_op(g,uid,op,data):
             # Una versión anterior del editor no debe borrar la marca de agua guardada.
             saved={k:current.get(k,DEFAULTS[k]) for k in WATERMARK_KEYS}
             design=cleaned_design({**saved,**changes})
-        if op=="admin-design" and design.get("intro_media")=="photo":
+        if op=="admin-design" and design.get("intro_media") in ("photo","gif"):
+            required=design["intro_media"]
             exists=await db.fetchval(
-                "SELECT 1 FROM wg_assets WHERE key='intro-photo'")
+                """SELECT 1 FROM wg_assets
+                  WHERE key='intro-photo' AND
+                   ($1='gif' AND mime='image/gif' OR
+                    $1='photo' AND mime IN ('image/jpeg','image/png','image/webp'))""",
+                required)
             if not exists:
                 raise web.HTTPBadRequest(
-                    text="Primero sube la foto de portada y confirma los cambios.")
+                    text="Primero sube una foto o GIF válido de portada y confirma los cambios.")
         await db.execute("""INSERT INTO wg_config(key,value) VALUES('design',$1::jsonb)
             ON CONFLICT(key) DO UPDATE SET value=excluded.value""",json.dumps(design))
         await g.log(uid,op)
@@ -384,10 +385,28 @@ async def upload(g,uid,data):
                body=excluded.body,updated=excluded.updated""",folder,image,time.time())
         else:
             if key=="intro-photo":
-                # The web's background is a small JPEG, not a multi-MB original.
-                # A small first-paint image is essential for the opening animation.
-                blob=await asyncio.to_thread(optimized_cover,blob,mime)
-                mime="image/jpeg"
+                if mime=="image/gif":
+                    # Preserve GIF animation, but strictly bound dimensions,
+                    # frame count and size. Do not touch existing video R2.
+                    if not blob.startswith((b"GIF87a",b"GIF89a")):
+                        raise web.HTTPBadRequest(text="El archivo no es un GIF válido.")
+                    def check_gif():
+                        from PIL import Image
+                        with Image.open(io.BytesIO(blob)) as picture:
+                            if picture.format!="GIF" or not 1<=picture.n_frames<=300:
+                                raise ValueError("GIF con demasiados fotogramas.")
+                            width,height=picture.size
+                            if not 1<=width<=1920 or not 1<=height<=1920:
+                                raise ValueError("Dimensiones de GIF no permitidas.")
+                    try:
+                        await asyncio.to_thread(check_gif)
+                    except (ValueError,OSError):
+                        raise web.HTTPBadRequest(text="GIF no admitido: revisa dimensiones y duración.") from None
+                else:
+                    # Still photos are optimized as before; GIFs are not
+                    # converted to JPEG, so their animation remains intact.
+                    blob=await asyncio.to_thread(optimized_cover,blob,mime)
+                    mime="image/jpeg"
             if mime=="image/png" and not blob.startswith(b"\x89PNG\r\n\x1a\n"):
                 raise web.HTTPBadRequest(text="Formato PNG inválido.")
             if mime=="image/jpeg" and not blob.startswith(b"\xff\xd8\xff"):

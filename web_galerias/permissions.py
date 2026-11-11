@@ -40,8 +40,16 @@ def payment_test_user(uid):
     }
 
 
+def free_access(uid):
+    """Explicit, reversible no-charge gallery entitlement from acceso.txt.
+
+    Payment-gated tester IDs must pay and never receive unlimited privileges.
+    """
+    return is_tester(uid) and not payment_test_user(uid)
+
+
 def pilot_allowed(uid):
-    return is_admin(uid) or (is_tester(uid) and not payment_test_user(uid))
+    return is_admin(uid) or free_access(uid)
 
 
 def button_visible(uid):

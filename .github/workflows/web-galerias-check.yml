@@ -18,6 +18,7 @@ on:
       - 'tests/test_web_galerias_paid_recovery.py'
       - 'tests/test_web_galerias_browser_admin.py'
       - 'tests/test_web_galerias_admin_user_controls.py'
+      - 'tests/test_web_galerias_free_and_promo.py'
       - 'galerias_standalone.py'
       - 'descargas_app/subscription_actions.py'
       - 'tests/test_subscription_actions.py'
@@ -63,3 +64,4 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_admin_tools.py -v
           python -m unittest discover -s tests -p test_web_galerias_browser_admin.py -v
           python -m unittest discover -s tests -p test_web_galerias_admin_user_controls.py -v
+          python -m unittest discover -s tests -p test_web_galerias_free_and_promo.py -v

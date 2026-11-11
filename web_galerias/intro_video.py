@@ -196,7 +196,7 @@ async def poster_asset(g,request):
     from botocore.exceptions import ClientError
     raw=await g.db().fetchval("SELECT value FROM wg_config WHERE key='design'")
     design=json.loads(raw) if isinstance(raw,str) else (raw or {})
-    if design.get("intro_media","video")=="photo":
+    if design.get("intro_media","video") in ("photo","gif"):
         asset=await g.db().fetchrow(
             "SELECT mime,body FROM wg_assets WHERE key='intro-photo'")
         if not asset:raise web.HTTPNotFound(text="Foto de portada no disponible.")

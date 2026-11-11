@@ -9,7 +9,7 @@ import unicodedata
 from datetime import datetime,timezone
 from pathlib import Path
 from aiohttp import web
-from .permissions import is_admin,pilot_allowed,is_tester,payment_test_user
+from .permissions import is_admin,pilot_allowed,is_tester,payment_test_user,free_access
 from .storage import PrivateStorage
 from .moderation import SCHEMA as MODERATION_SCHEMA, run_deletions
 from .personal import PERSONAL_SCHEMA,folders as personal_folders,media_filter
@@ -110,7 +110,7 @@ DEFAULTS={
 ASSET_MIME={
  "logo":{"image/png","image/jpeg","image/webp"},
  "header":{"image/png","image/jpeg","image/webp"},
- "intro-photo":{"image/png","image/jpeg","image/webp"},
+ "intro-photo":{"image/png","image/jpeg","image/webp","image/gif"},
  "intro":{"video/mp4","video/quicktime","video/webm"}}
 MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro-photo":5_000_000,"intro":25_000_000}
 
@@ -313,7 +313,9 @@ class GalleryCore:
                   ORDER BY date DESC LIMIT 1""",folder["id"])
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
                   temporary_link(self,uid,cover,"thumb")) if cover else None
-        used=await self.db().fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0
+        unlimited=bool(allowed and free_access(uid))
+        used=0 if unlimited else (await self.db().fetchval(
+            "SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0)
         from .permissions import payment_test_user
         from .payments import ready as stripe_ready
         checkout_enabled=(not allowed and (payment_test_user(uid)
@@ -329,6 +331,7 @@ class GalleryCore:
           "photos":sum(f["photos"] for f in folders),
           "videos":sum(f["videos"] for f in folders),
           "remaining":max(0,100-used),"used":used,
+          "free_access":unlimited,"quota_unlimited":unlimited,
           "storage_ready":self.storage.ready,
           "sync_enabled":os.getenv("GALERIAS_SYNC_ENABLED","0")=="1"}
 

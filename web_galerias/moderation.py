@@ -167,8 +167,31 @@ async def operation(g, uid, op, data):
           "next":int(rows[199]["uid"]) if len(rows)>200 else None
         }
 
+    if op == "admin-user-stats":
+        # Counts paid, valid Web memberships separately from live presence.
+        # No Telegram connection, customer profile fetch, or history preload.
+        now=time.time()
+        row=await db.fetchrow("""
+           SELECT
+             (SELECT COUNT(*)::int FROM wg_subscriptions s
+               LEFT JOIN wg_access_blocks b ON b.uid=s.uid
+               WHERE s.state IN ('active','trialing') AND s.paid_until>$1
+                 AND NOT COALESCE(b.blocked,FALSE)) AS paid,
+             (SELECT COUNT(*)::int FROM wg_gallery_presence p
+               LEFT JOIN wg_access_blocks b ON b.uid=p.uid
+               WHERE p.updated>$2 AND p.view IN ('library','album','viewer')
+                 AND NOT COALESCE(b.blocked,FALSE)) AS online
+        """,now,now-75)
+        return {"paid":int(row["paid"] or 0),"online":int(row["online"] or 0)}
+
     if op == "admin-users-page":
-        # A bounded page, never a thousand customer profiles in the DOM.
+        # Load only the selected list; never enumerate all user records first.
+        scope=data.get("scope","all")
+        if scope not in ("all","paid","expired","free","visitors","profiles","recent"):
+            raise web.HTTPBadRequest(text="Sección de usuarios no válida.")
+        hours=data.get("hours",0)
+        if type(hours) is not int or hours not in (0,24,168,720):
+            raise web.HTTPBadRequest(text="Período no válido.")
         query=data.get("query","")
         if not isinstance(query,str) or len(query)>100:
             raise web.HTTPBadRequest(text="Búsqueda de usuarios inválida.")
@@ -185,6 +208,9 @@ async def operation(g, uid, op, data):
                 raise web.HTTPBadRequest(text="Página de usuarios inválida.")
             after_uid=identifier(after.get("uid"))
         now=time.time()
+        free_ids=sorted(value for value in file_ids(ACCESS)
+                        if not payment_test_user(value))
+        admins=sorted(file_ids(ROOT/"admins.txt"))
         rows=await db.fetch("""
           SELECT u.uid,u.name,u.last_seen,
                  COALESCE(s.state IN ('active','trialing') AND s.paid_until>$1,FALSE) AS paid,
@@ -198,13 +224,28 @@ async def operation(g, uid, op, data):
                         OR POSITION($3 IN u.uid::text)>0)
             AND ($4::double precision IS NULL
               OR (u.last_seen,u.uid)<($4,$5::bigint))
+            AND (
+               $6::text IN ('all','profiles','recent')
+               OR ($6='paid' AND s.state IN ('active','trialing')
+                     AND s.paid_until>$1 AND NOT COALESCE(b.blocked,FALSE))
+               OR ($6='expired' AND s.paid_until>0
+                     AND (s.state NOT IN ('active','trialing') OR s.paid_until<=$1))
+               OR ($6='free' AND u.uid=ANY($7::bigint[])
+                     AND NOT COALESCE(b.blocked,FALSE))
+               OR ($6='visitors' AND (s.uid IS NULL OR s.paid_until<=0)
+                     AND NOT (u.uid=ANY($7::bigint[]))
+                     AND NOT (u.uid=ANY($9::bigint[])))
+            )
+            AND ($8::int=0 OR u.last_seen>=$1-($8::int*3600))
           ORDER BY u.last_seen DESC,u.uid DESC LIMIT 41
-        """,now,now-75,query,last_seen,after_uid)
+        """,now,now-75,query,last_seen,after_uid,scope,free_ids,hours,admins)
         page=rows[:40]
         return {"users":[{
             "telegram_id":int(r["uid"]),"name":str(r["name"] or "Usuario"),
             "paid":bool(r["paid"]),"blocked":bool(r["blocked"]),
-            "online":bool(r["online"]),"last_seen":r["last_seen"],
+            "free_access":int(r["uid"]) in free_ids and not r["blocked"],
+            "online":bool(r["online"]) and not r["blocked"],
+            "last_seen":r["last_seen"],
         } for r in page],
             "next":{"seen":float(page[-1]["last_seen"]),"uid":int(page[-1]["uid"])}
               if len(rows)>40 else None}
@@ -217,7 +258,9 @@ async def operation(g, uid, op, data):
             FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
             LEFT JOIN wg_access_blocks b ON b.uid=u.uid WHERE u.uid=$1""",target)
         if not row:raise web.HTTPNotFound(text="Usuario no registrado.")
-        return {**dict(row),"telegram_id":target}
+        return {**dict(row),"telegram_id":target,
+                "free_access":bool(is_tester(target) and not payment_test_user(target)
+                                   and not row["blocked"])}
 
     if op == "admin-user-access-change":
         target=identifier(data.get("telegram_id"))
