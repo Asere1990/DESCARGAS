@@ -8,8 +8,11 @@ from .permissions import is_admin,is_tester
 from .core import DEFAULTS,ASSET_MIME,MAX_ASSET,identifier
 
 TEXTS={"title","button_label","intro_caption","intro_label"}
-COLORS={"button_color","accent","background","text_color"}
-CHOICES={"header_mode":{"text","image"},"tile_shape":{"square","rectangle"}}
+WATERMARK_TEXTS={"wm_line1","wm_line2"}
+WATERMARK_KEYS={"wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity","wm_size","wm_color"}
+COLORS={"button_color","accent","background","text_color","wm_color"}
+CHOICES={"header_mode":{"text","image"},"tile_shape":{"square","rectangle"},
+         "wm_position":{"center","top","bottom"}}
 
 def cleaned_design(value):
     if not isinstance(value,dict) or set(value)-set(DEFAULTS):
@@ -21,6 +24,20 @@ def cleaned_design(value):
         elif key in TEXTS:
             if not isinstance(val,str) or len(val)>160 or any(ord(c)<32 for c in val):
                 raise web.HTTPBadRequest(text="Texto inválido.")
+            result[key]=val
+        elif key in WATERMARK_TEXTS:
+            if not isinstance(val,str) or len(val)>90 or any(ord(c)<32 for c in val):
+                raise web.HTTPBadRequest(text="Texto de marca de agua inválido.")
+            result[key]=val
+        elif key=="wm_enabled":
+            if type(val) is not bool:
+                raise web.HTTPBadRequest(text="Estado de marca de agua inválido.")
+            result[key]=val
+        elif key in ("wm_opacity","wm_size"):
+            limits={"wm_opacity":(0,100),"wm_size":(12,42)}
+            lo,hi=limits[key]
+            if type(val) is not int or not lo<=val<=hi:
+                raise web.HTTPBadRequest(text="Valor de marca de agua inválido.")
             result[key]=val
         elif key in COLORS:
             if not isinstance(val,str) or not re.fullmatch(r"#[0-9a-fA-F]{6}",val):
@@ -127,8 +144,21 @@ async def admin_op(g,uid,op,data):
                                      [(target,r["id"]) for r in valid])
         await g.log(uid,op)
         return {"ok":True}
-    if op=="admin-design":
-        design=cleaned_design(data.get("design"))
+    if op in ("admin-design","admin-watermark"):
+        current=await g.design()
+        if op=="admin-watermark":
+            changes=data.get("watermark")
+            if not isinstance(changes,dict) or set(changes)!=WATERMARK_KEYS:
+                raise web.HTTPBadRequest(text="Datos de marca de agua inválidos.")
+            # Solo actualiza la marca de agua: mantiene colores, textos y demás diseño.
+            design=cleaned_design({**current,**changes})
+        else:
+            changes=data.get("design")
+            if not isinstance(changes,dict):
+                raise web.HTTPBadRequest(text="Configuración del editor incorrecta.")
+            # Una versión anterior del editor no debe borrar la marca de agua guardada.
+            saved={k:current.get(k,DEFAULTS[k]) for k in WATERMARK_KEYS}
+            design=cleaned_design({**saved,**changes})
         await db.execute("""INSERT INTO wg_config(key,value) VALUES('design',$1::jsonb)
             ON CONFLICT(key) DO UPDATE SET value=excluded.value""",json.dumps(design))
         await g.log(uid,op)
