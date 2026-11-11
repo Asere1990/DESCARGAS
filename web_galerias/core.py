@@ -170,7 +170,11 @@ class GalleryCore:
 
     async def entitled(self,uid):
         if pilot_allowed(uid):return True
-        if os.getenv("GALERIAS_PUBLIC","0")!="1":return False
+        from .permissions import payment_test_user
+        # Payment-test users retain access only through a verified active
+        # gallery subscription, even while the public launch is disabled.
+        if os.getenv("GALERIAS_PUBLIC","0")!="1" and not payment_test_user(uid):
+            return False
         row=await self.db().fetchrow("SELECT state,paid_until FROM wg_subscriptions WHERE uid=$1",uid)
         return bool(row and row["state"] in ("active","trialing") and row["paid_until"]>time.time())
 
@@ -233,7 +237,13 @@ class GalleryCore:
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
                   temporary_link(self,uid,cover,"thumb")) if cover else None
         used=await self.db().fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0
+        from .permissions import payment_test_user
+        from .payments import ready as stripe_ready
+        checkout_enabled=(not allowed and (payment_test_user(uid)
+                         or os.getenv("GALERIAS_PUBLIC","0")=="1"))
         return {"admin":is_admin(uid),"allowed":allowed,
+          "checkout_enabled":checkout_enabled,
+          "checkout_ready":stripe_ready() if checkout_enabled else False,
           "pilot":os.getenv("GALERIAS_PUBLIC","0")!="1","design":await self.design(),
           "folders":folders,"personal_folders":owned_folders,
           "photos":sum(f["photos"] for f in folders),

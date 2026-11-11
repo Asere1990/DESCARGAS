@@ -18,7 +18,8 @@ def from_subscription(sub):
 
 async def checkout(g,uid):
     if await g.entitled(uid):return {"allowed":True}
-    if os.getenv("GALERIAS_PUBLIC","0")!="1":
+    from .permissions import payment_test_user
+    if os.getenv("GALERIAS_PUBLIC","0")!="1" and not payment_test_user(uid):
         raise web.HTTPForbidden(text="El acceso todavía está en prueba privada.")
     if not ready():
         raise web.HTTPServiceUnavailable(text="Pagar con tarjeta aún no está configurado.")

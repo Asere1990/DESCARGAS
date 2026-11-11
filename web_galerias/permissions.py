@@ -26,9 +26,25 @@ def is_tester(uid):
     return int(uid) in file_ids(ACCESS)
 
 
+def payment_test_user(uid):
+    """Reversible, strictly scoped payment-gate test; no file changes needed.
+
+    Configured on the CLOUDFLARE service only, not on DESCARGAS. A listed
+    tester remains visible in /start but does not get free gallery access.
+    """
+    value=str(int(uid))
+    return value in {
+        part.strip() for part in
+        os.getenv("GALERIAS_PAYMENT_TEST_UIDS","").split(",")
+        if part.strip().isdigit()
+    }
+
+
 def pilot_allowed(uid):
-    return is_admin(uid) or is_tester(uid)
+    return is_admin(uid) or (is_tester(uid) and not payment_test_user(uid))
 
 
 def button_visible(uid):
-    return pilot_allowed(uid) or os.getenv("GALERIAS_PUBLIC", "0") == "1"
+    # Keep the existing /start button even if this tester must purchase.
+    return (is_admin(uid) or is_tester(uid) or payment_test_user(uid)
+            or os.getenv("GALERIAS_PUBLIC", "0") == "1")

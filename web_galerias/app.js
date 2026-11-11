@@ -155,9 +155,21 @@ async function refresh(lite=false){
  $("stat-videos").textContent=pretty(S.me.videos);
  $("quota-count").textContent=pretty(S.me.remaining)+" de 100";
  $("quota-fill").style.width=(S.me.remaining)+"%";
- if(!S.me.allowed)$("intro-notice").textContent=S.me.pilot?
-  "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
- else $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
+ if(!S.me.allowed){
+  if(S.me.checkout_enabled){
+   $("enter").textContent="COMPRAR MEMBRESÍA";
+   $("intro-notice").textContent=S.me.checkout_ready?
+    "Compra segura mediante Stripe · Acceso al confirmar tu pago":
+    "La compra se habilitará cuando Stripe esté configurado";
+  }else{
+   $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
+   $("intro-notice").textContent=S.me.pilot?
+    "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
+  }
+ }else{
+  $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
+  $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
+ }
 }
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
@@ -1143,10 +1155,13 @@ let searchTimer=null;
 $("enter").onclick=async()=>{
  if(!S.me)return notice("La Mini App aún se está configurando.");
  if(S.me.allowed){show("library");return;}
- if(S.me.pilot)return notice("Acceso reservado a los usuarios de prueba.");
+ if(!S.me.checkout_enabled)return notice("Acceso reservado a los usuarios de prueba.");
+ if(!S.me.checkout_ready)return notice("Los pagos de Web Galerías todavía no están configurados.");
+ const enter=$("enter");enter.disabled=true;
  try{const data=await api("checkout");if(data.allowed){await refresh();show("library");}
   else if(data.url){tg?.openLink?tg.openLink(data.url):location.assign(data.url);}}
  catch(e){notice(e.message);}
+ finally{enter.disabled=false;}
 };
 $("go-intro").onclick=()=>show("intro");
 $("personal-folders-toggle").onclick=()=>setPersonalMenuOpen(!S.personalMenuOpen);
