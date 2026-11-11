@@ -86,14 +86,15 @@ DEFAULTS={
  "intro_caption":"Explora nuestras galerías privadas","button_color":"#198ee8",
  "accent":"#2196f3","background":"#0b0d12","text_color":"#ffffff",
  "tile_shape":"square","daily_limit":100,"intro_label":"Descubre nuestras galerías",
- "intro_fit":"cover",
+ "intro_fit":"cover","intro_media":"video",
  "wm_enabled":True,"wm_line1":"Búscame en Google","wm_line2":"hoo.be/Cubanas",
  "wm_position":"center","wm_opacity":30,"wm_size":20,"wm_color":"#FFFFFF"}
 ASSET_MIME={
  "logo":{"image/png","image/jpeg","image/webp"},
  "header":{"image/png","image/jpeg","image/webp"},
+ "intro-photo":{"image/png","image/jpeg","image/webp"},
  "intro":{"video/mp4","video/quicktime","video/webm"}}
-MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro":25_000_000}
+MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro-photo":5_000_000,"intro":25_000_000}
 
 def identifier(value,minimum=1):
     try:n=int(value)
@@ -116,6 +117,7 @@ class GalleryCore:
         self.closed=False
         self.task=None
         self.sync_task=None
+        self.intro_poster_task=None
         self.last_error=""
 
     def db(self):
@@ -133,6 +135,11 @@ class GalleryCore:
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     self.ready=True
                     log.warning("Gallery schema ready; storage=%s",self.storage.ready)
+                    # Build a first-frame preview for any existing video that
+                    # predates the poster feature, off the user-request path.
+                    if self.storage.ready:
+                        from .intro_video import backfill_poster
+                        self.intro_poster_task=asyncio.create_task(backfill_poster(self))
                     if os.getenv("GALERIAS_SYNC_ENABLED","0")=="1" and self.storage.ready:
                         from .sync import run
                         self.sync_task=asyncio.create_task(run(self))

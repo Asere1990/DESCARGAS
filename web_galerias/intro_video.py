@@ -70,6 +70,133 @@ def transcode_intro(source,output):
             raise web.HTTPUnprocessableEntity(text="No se generó un MP4 compatible.")
 
 
+def extract_poster(source,output):
+    """Small first-frame JPEG, generated once, never re-encoded per visitor."""
+    from imageio_ffmpeg import get_ffmpeg_exe
+    from PIL import Image,ImageOps
+    args=[get_ffmpeg_exe(),"-nostdin","-hide_banner","-loglevel","error","-y",
+          "-threads","1","-filter_threads","1","-i",str(source),
+          "-an","-frames:v","1",
+          "-vf","scale=960:960:force_original_aspect_ratio=decrease:force_divisible_by=2",
+          "-q:v","5",str(output)]
+    try:
+        subprocess.run(args,check=True,timeout=35,stdout=subprocess.DEVNULL,
+                       stderr=subprocess.PIPE)
+        with Image.open(output) as raw:
+            photo=ImageOps.exif_transpose(raw)
+            photo.thumbnail((960,960))
+            if photo.mode!="RGB":photo=photo.convert("RGB")
+            photo.save(output,format="JPEG",quality=76,optimize=True)
+        if not output.is_file() or not 0<output.stat().st_size<=1024*1024:
+            raise ValueError("JPEG poster out of range")
+    except (subprocess.CalledProcessError,subprocess.TimeoutExpired,OSError,ValueError):
+        raise web.HTTPUnprocessableEntity(
+            text="No se pudo preparar el primer fotograma del video.") from None
+
+
+def fetch_video_to_disk(storage,key,path,limit):
+    """Bounded streaming from private R2 for one-time legacy poster generation."""
+    obj=storage._client().get_object(Bucket=storage.bucket,Key=storage.safe_key(key))
+    stream=obj["Body"]
+    total=0
+    try:
+        with path.open("wb") as target:
+            for block in stream.iter_chunks(chunk_size=256*1024):
+                if block:
+                    total+=len(block)
+                    if total>limit:raise ValueError("Video exceeds poster limit")
+                    target.write(block)
+        if not total:raise ValueError("Empty video in R2")
+    finally:
+        stream.close()
+
+
+async def backfill_poster(g):
+    """One-time migration for an already uploaded promotional video.
+
+    Run off the request path so the Mini App never waits for FFmpeg or R2.
+    A failed attempt leaves the last video and all existing metadata intact.
+    """
+    import logging
+    log=logging.getLogger("web-galerias")
+    try:
+        await asyncio.sleep(3)
+        if g.closed or not g.storage.ready:return
+        raw=await g.db().fetchval("SELECT value FROM wg_config WHERE key='intro_promo'")
+        if not raw:return
+        metadata=json.loads(raw) if isinstance(raw,str) else dict(raw)
+        if metadata.get("poster_key") or metadata.get("mime")!="video/mp4":
+            return
+        key=g.storage.safe_key(metadata.get("key",""))
+        if not key.startswith("web-galerias/presentation/"):return
+        if UPLOAD_LOCK.locked():return
+        require_video_memory()
+        async with UPLOAD_LOCK:
+            with tempfile.TemporaryDirectory(prefix="wg-poster-backfill-") as dirname:
+                original=Path(dirname)/"original.mp4"
+                poster=Path(dirname)/"first-frame.jpg"
+                size=metadata.get("size")
+                if type(size) is not int or not 0<size<=MAX_INTRO_OUTPUT:
+                    return
+                await asyncio.to_thread(fetch_video_to_disk,g.storage,key,original,MAX_INTRO_OUTPUT)
+                await asyncio.to_thread(extract_poster,original,poster)
+                poster_key=key[:-4]+".jpg"
+                await g.storage.upload(poster,poster_key,"image/jpeg")
+                poster_size=poster.stat().st_size
+                if await g.storage.object_size(poster_key)!=poster_size:
+                    raise ValueError("Poster not verified in R2")
+                metadata["poster_key"]=poster_key
+                metadata["poster_size"]=poster_size
+                await g.db().execute("""UPDATE wg_config SET value=$2::jsonb
+                    WHERE key='intro_promo' AND value->>'key'=$1
+                      AND NOT (value ? 'poster_key')""",
+                    key,json.dumps(metadata))
+                log.info("Promo poster cached from current video")
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        log.warning("Existing promo poster pending (%s)",type(exc).__name__)
+
+
+async def poster_asset(g,request):
+    """Same-origin lightweight image preloaded before Telegram initialization."""
+    from botocore.exceptions import ClientError
+    raw=await g.db().fetchval("SELECT value FROM wg_config WHERE key='design'")
+    design=json.loads(raw) if isinstance(raw,str) else (raw or {})
+    if design.get("intro_media","video")=="photo":
+        asset=await g.db().fetchrow(
+            "SELECT mime,body FROM wg_assets WHERE key='intro-photo'")
+        if not asset:raise web.HTTPNotFound(text="Foto de portada no disponible.")
+        return web.Response(body=bytes(asset["body"]),content_type=asset["mime"],
+            headers={"Cache-Control":"public, max-age=30, stale-while-revalidate=120",
+                     "X-Content-Type-Options":"nosniff"})
+    raw=await g.db().fetchval("SELECT value FROM wg_config WHERE key='intro_promo'")
+    if not raw:raise web.HTTPNotFound(text="Video de portada no configurado.")
+    metadata=json.loads(raw) if isinstance(raw,str) else dict(raw)
+    key=metadata.get("poster_key")
+    size=metadata.get("poster_size")
+    if not isinstance(key,str) or not key.startswith("web-galerias/presentation/"):
+        raise web.HTTPNotFound(text="Imagen inicial todavía no preparada.")
+    if type(size) is not int or not 0<size<=1024*1024:
+        raise web.HTTPNotFound()
+    key=g.storage.safe_key(key)
+    try:
+        obj=await asyncio.to_thread(
+            lambda:g.storage._client().get_object(Bucket=g.storage.bucket,Key=key))
+        stream=obj["Body"]
+        try:
+            content=await asyncio.to_thread(stream.read,1024*1024+1)
+        finally:
+            await asyncio.to_thread(stream.close)
+    except ClientError:
+        raise web.HTTPNotFound(text="Fotograma inicial no disponible.") from None
+    if len(content)!=size or len(content)>1024*1024:
+        raise web.HTTPServiceUnavailable(text="Fotograma de portada incompleto.")
+    return web.Response(body=content,content_type="image/jpeg",
+        headers={"Cache-Control":"public, max-age=30, stale-while-revalidate=120",
+                 "X-Content-Type-Options":"nosniff"})
+
+
 async def upload(g,request):
     from .permissions import is_admin
     uid=await g.auth(request)
@@ -108,15 +235,28 @@ async def upload(g,request):
             if not good:raise web.HTTPBadRequest(text="Formato del video incorrecto.")
             require_video_memory()
             await asyncio.to_thread(transcode_intro,source,output)
-            key="web-galerias/presentation/"+secrets.token_hex(16)+".mp4"
+            poster=folder/"first-frame.jpg"
+            await asyncio.to_thread(extract_poster,output,poster)
+            stem="web-galerias/presentation/"+secrets.token_hex(16)
+            key=stem+".mp4"
+            poster_key=stem+".jpg"
             await g.storage.upload(output,key,"video/mp4")
             size=output.stat().st_size
             checked=await g.storage.object_size(key)
             if checked!=size:
                 raise web.HTTPServiceUnavailable(
                     text="No se pudo verificar el video guardado en Cloudflare.")
-            # Publish only after the new video is fully uploaded and verified.
-            metadata={"key":key,"mime":"video/mp4","size":size,"updated":time.time()}
+            # Upload the first frame independently. The visible poster must be
+            # verified before publishing the new video to users.
+            await g.storage.upload(poster,poster_key,"image/jpeg")
+            poster_size=poster.stat().st_size
+            if await g.storage.object_size(poster_key)!=poster_size:
+                raise web.HTTPServiceUnavailable(
+                    text="No se pudo verificar el fotograma inicial en Cloudflare.")
+            # Publish only after the video AND poster are fully verified.
+            metadata={"key":key,"mime":"video/mp4","size":size,
+                      "poster_key":poster_key,"poster_size":poster_size,
+                      "updated":time.time()}
             await g.db().execute("""INSERT INTO wg_config(key,value)
               VALUES('intro_promo',$1::jsonb)
               ON CONFLICT(key) DO UPDATE SET value=excluded.value""",json.dumps(metadata))

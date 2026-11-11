@@ -15,6 +15,7 @@ WATERMARK_KEYS={"wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity","w
 COLORS={"button_color","accent","background","text_color","wm_color"}
 CHOICES={"header_mode":{"text","image"},"tile_shape":{"square","rectangle"},
          "intro_fit":{"cover","contain"},
+         "intro_media":{"video","photo"},
          "wm_position":{"center","top","bottom"}}
 
 def cleaned_design(value):
@@ -314,6 +315,12 @@ async def admin_op(g,uid,op,data):
             # Una versión anterior del editor no debe borrar la marca de agua guardada.
             saved={k:current.get(k,DEFAULTS[k]) for k in WATERMARK_KEYS}
             design=cleaned_design({**saved,**changes})
+        if op=="admin-design" and design.get("intro_media")=="photo":
+            exists=await db.fetchval(
+                "SELECT 1 FROM wg_assets WHERE key='intro-photo'")
+            if not exists:
+                raise web.HTTPBadRequest(
+                    text="Primero sube la foto de portada y confirma los cambios.")
         await db.execute("""INSERT INTO wg_config(key,value) VALUES('design',$1::jsonb)
             ON CONFLICT(key) DO UPDATE SET value=excluded.value""",json.dumps(design))
         await g.log(uid,op)
@@ -369,6 +376,11 @@ async def upload(g,uid,data):
               ON CONFLICT(folder) DO UPDATE SET mime=excluded.mime,
                body=excluded.body,updated=excluded.updated""",folder,image,time.time())
         else:
+            if key=="intro-photo":
+                # The web's background is a small JPEG, not a multi-MB original.
+                # A small first-paint image is essential for the opening animation.
+                blob=await asyncio.to_thread(optimized_cover,blob,mime)
+                mime="image/jpeg"
             if mime=="image/png" and not blob.startswith(b"\x89PNG\r\n\x1a\n"):
                 raise web.HTTPBadRequest(text="Formato PNG inválido.")
             if mime=="image/jpeg" and not blob.startswith(b"\xff\xd8\xff"):
@@ -387,6 +399,9 @@ async def upload(g,uid,data):
 
 async def asset(g,request):
     key=request.match_info["key"]
+    if key=="intro-poster":
+        from .intro_video import poster_asset
+        return await poster_asset(g,request)
     if key not in ASSET_MIME:raise web.HTTPNotFound()
     if key=="intro":
         metadata=await g.db().fetchval(
