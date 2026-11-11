@@ -123,6 +123,14 @@ async def admin_op(g,uid,op,data):
             "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",
             "sync_folder":remote.get("folder") if running else None,
             "last_error":g.last_error}
+    if op=="admin-missing-samples":
+        folder=identifier(data.get("folder"))
+        exists=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
+        if not exists:raise web.HTTPNotFound(text="Galería no encontrada.")
+        rows=await db.fetch("""SELECT message,kind,mime,source_type,error
+          FROM wg_media WHERE folder=$1 AND state='missing'
+          ORDER BY id DESC LIMIT 10""",folder)
+        return {"items":[dict(row) for row in rows]}
     if op=="admin-recheck-missing":
         # La base de datos externa permanece privada. Volver a consultar
         # diez incidencias desde el sincronizador normal, sin conexiones
