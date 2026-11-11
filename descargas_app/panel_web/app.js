@@ -562,11 +562,20 @@ $('accounts-search-form').onsubmit=e=>{
 $('continue-account-search').onclick=()=>{if(overviewMode==='phrases')runAccountSearch(true);else if(isEntitySearchMode(overviewMode))runAccountEntitySearch(true);else runAccountMetadataSearch(true);};
 
 
-// Search execution lives on the authenticated web server, not in this browser.
-// iOS may suspend JavaScript in the background; the encrypted database checkpoint
-// and server job continue independently. This view only polls and renders results.
+// A single server-side account search: previous jobs are closed on replacement.
 let persistentJob=null,persistentCursor=0,persistentFetching=false,persistentSeen=new Set(),
-    persistentDisplayed=0,persistentMore=null,persistentPollBusy=false;
+    persistentDisplayed=0,persistentMore=null,persistentPollBusy=false,
+    persistentSerial=0,persistentStartBusy=false,persistentKnownEmpty=false;
+function clearPersistentUI(clearInput=false){
+ persistentJob=null;persistentCursor=0;persistentDisplayed=0;
+ persistentSeen.clear();persistentMore=null;
+ $('accounts-results').replaceChildren();$('accounts-results').hidden=true;
+ $('cancel-account-search').hidden=true;$('continue-account-search').hidden=true;
+ $('close-account-search').hidden=true;
+ $('accounts-progress').textContent='Selecciona una cuenta vinculada';
+ if(clearInput)$('accounts-query').value='';
+}
+
 function serverSearchState(state){return ['queued','running','waiting'].includes(state);}
 function serverSearchNote(job){
  const count=job.completed+'/'+job.total+' cuentas activas revisadas · '+job.found+' resultados';
@@ -578,16 +587,15 @@ function serverSearchNote(job){
  return 'Búsqueda en segundo plano · '+count+(job.current?' · '+job.current:'');
 }
 function renderServerJob(job){
- if(!job){
-  persistentJob=null;return;
- }
+ if(!job){clearPersistentUI();return;}
  if(persistentJob?.id!==job.id){
   persistentCursor=0;persistentDisplayed=0;persistentSeen.clear();persistentMore=null;
   $('accounts-results').replaceChildren();$('accounts-results').hidden=false;
   $('accounts-search-mode').value=job.mode;$('accounts-query').value=job.query;
  }
- persistentJob=job;
+ persistentJob=job;persistentKnownEmpty=false;
  $('accounts-progress').textContent=serverSearchNote(job);
+ $('close-account-search').hidden=false;
  const running=serverSearchState(job.state);
  $('cancel-account-search').hidden=!running;
  $('cancel-account-search').textContent='Pausar búsqueda';
@@ -607,12 +615,12 @@ function renderServerHit(job,row){
  persistentDisplayed++;
 }
 async function loadPersistentResults(){
- const job=persistentJob;
+ const job=persistentJob,serial=persistentSerial;
  if(!job||persistentFetching)return;
  persistentFetching=true;
  try{
   const r=await api('search-job-results?id='+encodeURIComponent(job.id)+'&after='+persistentCursor);
-  if(persistentJob?.id!==job.id)return;
+  if(persistentJob?.id!==job.id||serial!==persistentSerial)return;
   const box=$('accounts-results'),more=box.querySelector('[data-server-more]');
   if(more)more.remove();
   for(const row of r.items||[])renderServerHit(job,row);
@@ -627,12 +635,16 @@ async function loadPersistentResults(){
  }finally{persistentFetching=false;}
 }
 async function refreshPersistentSearch(){
- if(persistentPollBusy||document.hidden||$('workspace').hidden)return;
+ if(persistentPollBusy||persistentStartBusy||persistentKnownEmpty||
+    document.hidden||$('workspace').hidden||
+    $('workspace').dataset.view!=='accounts')return;
  persistentPollBusy=true;
+ const serial=persistentSerial;
  try{
   const response=await api('search-job-status');
+  if(serial!==persistentSerial)return; // A stale poll must not restore old results.
   const job=response.job;
-  if(!job){persistentJob=null;return;}
+  if(!job){persistentKnownEmpty=true;clearPersistentUI();return;}
   const changed=persistentJob?.id!==job.id;
   renderServerJob(job);
   if(changed||(!persistentMore&&job.found>persistentDisplayed)||
@@ -643,26 +655,58 @@ async function refreshPersistentSearch(){
 async function startPersistentSearch(){
  const searchMode=$('accounts-search-mode').value,needle=$('accounts-query').value.trim();
  if(!needle&&!isEntitySearchMode(searchMode))return;
+ if(persistentStartBusy)return;
+ const serial=++persistentSerial;
+ persistentStartBusy=true;persistentKnownEmpty=false;
+ clearPersistentUI();
+ $('accounts-progress').textContent='Iniciando nueva búsqueda…';
  try{
   const data=await api('search-job-start',{mode:searchMode,query:needle});
+  if(serial!==persistentSerial)return;
   renderServerJob(data.job);
-  await refreshPersistentSearch();
- }catch(e){notice(e.message);}
+ }catch(e){
+  if(serial===persistentSerial){
+   $('accounts-progress').textContent='No se pudo iniciar la búsqueda.';
+   notice(e.message);
+  }
+ }finally{if(serial===persistentSerial)persistentStartBusy=false;}
 }
 async function controlPersistentSearch(action){
  if(!persistentJob)return;
+ const job=persistentJob,serial=persistentSerial;
  try{
-  const result=await api('search-job-control',{id:persistentJob.id,action});
+  const result=await api('search-job-control',{id:job.id,action});
+  if(serial!==persistentSerial||persistentJob?.id!==job.id)return;
   renderServerJob(result.job);
   if(result.job?.state==='complete'||result.job?.state==='paused')
    await loadPersistentResults();
- }catch(e){notice(e.message);}
+ }catch(e){if(serial===persistentSerial)notice(e.message);}
+}
+async function closePersistentSearch(keepInput=false){
+ const job=persistentJob,serial=++persistentSerial;
+ persistentKnownEmpty=true;clearPersistentUI(!keepInput);
+ if(!job)return;
+ try{await api('search-job-control',{id:job.id,action:'close'});}
+ catch(e){
+  if(serial===persistentSerial){
+   renderServerJob(job);
+   notice('No se pudo cerrar la búsqueda en el servidor: '+e.message);
+  }
+ }
 }
 // Override only the account-overview search controls. Keep the chat's own
 // per-conversation search and every other account panel feature unchanged.
 $('accounts-search-form').onsubmit=e=>{e.preventDefault();startPersistentSearch();};
 $('cancel-account-search').onclick=()=>controlPersistentSearch('pause');
 $('continue-account-search').onclick=()=>controlPersistentSearch('resume');
+$('close-account-search').onclick=()=>closePersistentSearch();
+$('accounts-query').addEventListener('input',()=>{
+ if(persistentJob&&$('accounts-query').value.trim()!==persistentJob.query)
+  closePersistentSearch(true).catch(e=>notice(e.message));
+});
+$('accounts-search-mode').addEventListener('change',()=>{
+ if(persistentJob)closePersistentSearch(true).catch(e=>notice(e.message));
+});
 document.addEventListener('visibilitychange',()=>{
  if(!document.hidden)refreshPersistentSearch().catch(e=>notice(e.message));
 });
@@ -670,7 +714,7 @@ window.addEventListener('pageshow',()=>refreshPersistentSearch().catch(e=>notice
 setInterval(()=>{
  if(!document.hidden&&$('workspace').dataset.view==='accounts')
   refreshPersistentSearch().catch(()=>{});
-},3000);
+},6000);
 
 // Panel-only continuity. No credentials, drafts, protected content or Telegram sessions are stored.
 let resumeKey='',resumeReady=false,resumeRestoring=false,resumeTimer=null;
