@@ -149,7 +149,7 @@ class WatermarkEditorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(design[key],value)
         invalid=(
             ("wm_enabled","false"),("wm_enabled",1),
-            ("wm_line1","a"*91),("wm_line1","línea\\notra"),
+            ("wm_line1","a"*91),("wm_line1","línea\notra"),
             ("wm_position","left"),("wm_position",[]),
             ("wm_opacity",-1),("wm_opacity",101),("wm_opacity",True),
             ("wm_size",11),("wm_size",43),("wm_size",28.5),
