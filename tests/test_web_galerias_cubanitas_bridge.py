@@ -142,7 +142,9 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_customer_bot_user_can_buy_without_opening_the_original_pilot(self):
         from web_galerias import payments, payment_link_checkout
         from web_galerias.core import _CUSTOMER_BOT_UID
-        uid=1609522430
+        from web_galerias.permissions import pilot_allowed
+        uid=8129084202
+        self.assertFalse(pilot_allowed(uid))  # never free, even within pilot
         db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=False),
                            fetchrow=AsyncMock(return_value=None))
         g=SimpleNamespace(db=lambda:db, entitled=AsyncMock(return_value=False),
@@ -214,10 +216,10 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 _CUSTOMER_BOT_UID.reset(token)
 
-    async def test_signed_customer_bot_only_original_four_pilot_ids(self):
+    async def test_signed_customer_bot_only_five_pilot_ids(self):
         from web_galerias.core import _CUSTOMER_BOT_UID,customer_bot_signed
         with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":"7536216348"}):
-            for uid in (1609522430,5662710947,7536216348,7539025033):
+            for uid in (1609522430,5662710947,7536216348,7539025033,8129084202):
                 token=_CUSTOMER_BOT_UID.set(uid)
                 try:self.assertTrue(customer_bot_signed(uid))
                 finally:_CUSTOMER_BOT_UID.reset(token)
@@ -230,7 +232,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
         js=(Path(__file__).resolve().parents[1]/"web_galerias"/"app.js").read_text()
         self.assertNotIn("Compra segura mediante Stripe",js)
         self.assertNotIn("La compra se habilitará cuando Stripe esté configurado",js)
-        self.assertIn('$("intro-notice").classList.toggle("hidden"',js)
+        self.assertIn('$("intro-notice").classList.add("hidden")',js)
 
 
 if __name__ == "__main__":
