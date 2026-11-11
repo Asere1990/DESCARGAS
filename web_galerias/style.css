@@ -562,3 +562,48 @@
 }
 #tab-diseno #confirm-editor{margin-top:13px;min-height:54px}
 #tab-diseno #confirm-editor:disabled{opacity:.65}
+
+
+/* Swiftgram/Telegram: nada de marca visible debajo de sus controles superiores.
+   Conservar el espacio de navegación, pero poner el logo dentro del contenido,
+   después de esa zona; se aplica igual a iPhone, Android y navegadores. */
+#library .library-safe-spacer{
+  position:static;top:auto;z-index:auto;
+  min-height:70px;height:70px;
+  padding:0;border:0;background:transparent;backdrop-filter:none;
+}
+#library .library-branding{
+  display:flex;align-items:center;gap:13px;
+  width:100%;margin:0 0 19px;padding:7px 0 5px;
+  min-height:60px;
+}
+#library .library-branding #brand-logo{
+  flex:0 0 auto;width:49px;height:49px;object-fit:contain;
+  border-radius:13px;
+}
+#library .library-branding #brand-icon{
+  flex:0 0 auto;font-size:34px;color:var(--accent);
+}
+#library .library-branding #brand-name{
+  min-width:0;font-size:clamp(19px,5vw,24px);line-height:1.25;
+  font-weight:780;letter-spacing:-.035em;
+  overflow-wrap:anywhere;
+}
+@media(max-width:370px){
+  #library .library-branding{gap:10px;margin-bottom:15px}
+  #library .library-branding #brand-logo{width:44px;height:44px}
+}
+
+/* El símbolo ✦ central era el placeholder del video: el atributo hidden
+   estaba siendo sobreescrito por .intro-placeholder {display:flex}.
+   Ahora no hay logo en el video, ni siquiera si carga lentamente. */
+#intro .intro-placeholder[hidden],
+#intro.has-intro-video #intro-placeholder,
+#intro #intro-video[hidden]{
+  display:none!important;
+}
+#intro .intro-placeholder .intro-placeholder-label{
+  font-size:12px;letter-spacing:.24em;
+  line-height:1.5;color:#c9d5e7;
+  text-shadow:none;filter:none;
+}
