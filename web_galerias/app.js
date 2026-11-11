@@ -183,19 +183,35 @@ function renderDropTargets(){
   b.ondragleave=()=>b.classList.remove("drag-target");
   b.ondrop=e=>{e.preventDefault();b.classList.remove("drag-target");
    const id=Number(e.dataTransfer.getData("text/plain"));
-   if(Number.isSafeInteger(id)&&id>0)addToPersonalFolder(folder.id,[id]);
+   const ids=selectedDragIds(id);
+   if(ids.length)addToPersonalFolder(folder.id,ids);
   };
   b.onclick=()=>{if(S.selected.size)addToPersonalFolder(folder.id,[...S.selected]);};
   root.append(b);
  }
 }
+function selectedDragIds(id){
+ // Arrastrar cualquiera de los elementos seleccionados mueve la selección
+ // completa; sin selección previa, se mueve solamente el archivo arrastrado.
+ const mediaId=Number(id);
+ if(!Number.isSafeInteger(mediaId)||mediaId<=0)return [];
+ const ids=S.selected.has(mediaId)?[...S.selected]:[mediaId];
+ return ids.length<=10?ids:[];
+}
 async function addToPersonalFolder(folder,ids){
- if(!ids.length)return;
+ const unique=[...new Set(ids)].filter(id=>Number.isSafeInteger(id)&&id>0);
+ if(!unique.length)return;
+ if(unique.length>10)return notice("Puedes guardar hasta 10 archivos a la vez.");
+ if(S.personalSaving)return;
+ S.personalSaving=true;
  try{
-  await api("personal-add",{personal_folder:folder,ids:ids.slice(0,10)});
+  await api("personal-add",{personal_folder:folder,ids:unique});
   S.selection=false;S.selected.clear();updateSelection();renderItems();
-  await refresh(true);notice("Guardado en tu carpeta personal.");
+  await refresh(true);
+  notice(unique.length===1?"Archivo guardado en tu carpeta personal.":
+     unique.length+" archivos guardados en tu carpeta personal.");
  }catch(e){notice(e.message);}
+ finally{S.personalSaving=false;}
 }
 async function openFolder(folder){
  S.folder=folder;S.items=[];S.next=null;S.search="";S.filter="all";
@@ -245,8 +261,11 @@ function attachLongPress(b,m,index){
  const clear=()=>{clearTimeout(timer);timer=null;if(hover){hover.classList.remove("drag-target");hover=null;}};
  b.addEventListener("contextmenu",e=>e.preventDefault());
  b.addEventListener("dragstart",e=>{
+  // HTML5 drag en Android/desktop: la carpeta resuelve el grupo seleccionado.
+  active=false;held=false;clear();
   e.dataTransfer.setData("text/plain",String(m.id));e.dataTransfer.effectAllowed="copy";
  });
+ b.addEventListener("dragend",()=>{active=false;held=false;clear();b.classList.remove("dragging");});
  b.addEventListener("pointerdown",e=>{
   if(e.pointerType==="mouse"&&e.button!==0)return;
   startX=e.clientX;startY=e.clientY;held=false;active=true;
@@ -258,6 +277,9 @@ function attachLongPress(b,m,index){
    }
    held=true;S.selection=true;
    S.selected.add(m.id);
+   // Capturar el gesto táctil para seguir recibiendo pointerup aunque el
+   // dedo salga de la foto y llegue a una carpeta de destino.
+   if(e.pointerType!=="mouse"){try{b.setPointerCapture(e.pointerId);}catch(_){}}
    updateSelection();b.classList.add("selected","dragging");
    tg?.HapticFeedback?.selectionChanged?.();
   },450);
@@ -281,8 +303,10 @@ function attachLongPress(b,m,index){
   if(!held)return;
   const destination=document.elementFromPoint(e.clientX,e.clientY)?.closest("[data-folder-drop]");
   S.suppressClick=m.id;setTimeout(()=>{if(S.suppressClick===m.id)S.suppressClick=null;},450);
-  if(destination){addToPersonalFolder(Number(destination.dataset.folderDrop),[m.id]);}
-  else{b.classList.remove("dragging");renderItems();}
+  if(destination){
+   const ids=selectedDragIds(m.id);
+   if(ids.length)addToPersonalFolder(Number(destination.dataset.folderDrop),ids);
+  }else{b.classList.remove("dragging");renderItems();}
   clear();
  });
  b.addEventListener("pointercancel",()=>{active=false;clear();b.classList.remove("dragging");});
@@ -293,6 +317,10 @@ function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
  $("selection-count").textContent=S.selected.size+" de 10";
+ const trayText=$("folder-drop-tray").querySelector("span");
+ if(trayText)trayText.textContent=S.selected.size>1?
+    "Arrastra cualquiera de los "+S.selected.size+" archivos seleccionados a una carpeta:":
+    "Mantén pulsada una foto o video y arrástralo a tu carpeta:";
  $("select-mode").textContent=S.selection?"Listo":"Seleccionar";
  $("selection-download").disabled=!S.selected.size||
    [...S.selected].some(id=>!S.items.find(x=>x.id===id)?.available);
