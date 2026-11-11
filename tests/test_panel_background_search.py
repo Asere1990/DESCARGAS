@@ -114,6 +114,45 @@ class BackgroundSearchDatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(done['state'],'complete')
         self.assertEqual(done['completed'],1)
 
+    async def test_clear_removes_only_search_history_and_keeps_linked_session(self):
+        self.p.chats.return_value={'items':[{
+            'id':'-10013','type':'channel','name':'Mi canal','handle':'opaque'}],
+            'next':None,'generation':0}
+        original=(await self.repo.account(22))['session']
+        started=(await self.job.begin(111,'0','channels','canal'))['job']
+        claimed=await self.job.claim()
+        await self.job.run_claimed(claimed)
+        self.assertEqual((await self.job.status(111,'0'))['job']['found'],1)
+        self.assertEqual(await self.job.clear(111,'0'),{'job':None})
+        self.assertIsNone((await self.job.status(111,'0'))['job'])
+        self.assertEqual(await self.repo.pool.fetchval(
+            'SELECT count(*) FROM descarga_panel_search_hits WHERE job_id=$1',
+            started['id']),0)
+        self.assertEqual((await self.repo.account(22))['session'],original)
+        self.assertIsNone(await self.job.claim())
+
+    async def test_clear_inflight_prevents_old_results_from_reappearing(self):
+        entered=asyncio.Event()
+        release=asyncio.Event()
+        async def delayed(*args):
+            entered.set()
+            await release.wait()
+            return {'items':[{'id':'-10015','type':'group','name':'Antigua'}],
+                    'next':None,'generation':0}
+        self.p.chats.side_effect=delayed
+        started=(await self.job.begin(111,'0','groups','anterior'))['job']
+        claimed=await self.job.claim()
+        task=asyncio.create_task(self.job.run_claimed(claimed))
+        await asyncio.wait_for(entered.wait(),2)
+        await self.job.clear(111,'0')
+        release.set()
+        await asyncio.wait_for(task,3)
+        self.assertIsNone((await self.job.status(111,'0'))['job'])
+        self.assertEqual(await self.repo.pool.fetchval(
+            'SELECT count(*) FROM descarga_panel_search_hits WHERE job_id=$1',
+            started['id']),0)
+        self.assertIsNotNone((await self.repo.account(22))['session'])
+
     async def test_new_search_supersedes_previous_without_touching_session(self):
         old=(await self.job.begin(111,'0','groups','antigua'))['job']
         new=(await self.job.begin(111,'0','channels','nueva'))['job']
