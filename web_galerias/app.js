@@ -8,9 +8,63 @@ const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);};
 function notice(message){const t=$("toast");t.textContent=message;t.classList.remove("hidden");clearTimeout(S.toastTimer);S.toastTimer=setTimeout(()=>t.classList.add("hidden"),4200);}
+function renderWatermark(element,config){
+ const line1=String(config?.wm_line1??"Búscame en Google").trim();
+ const line2=String(config?.wm_line2??"hoo.be/Cubanas").trim();
+ const text=[line1,line2].filter(Boolean).join("\n");
+ const active=config?.wm_enabled!==false&&!!text;
+ element.classList.toggle("hidden",!active);
+ element.textContent=text;
+ const position=config?.wm_position;
+ element.style.alignItems=position==="top"?"flex-start":position==="bottom"?"flex-end":"center";
+ const opacity=Number(config?.wm_opacity??30);
+ element.style.opacity=String(Number.isFinite(opacity)?Math.min(100,Math.max(0,opacity))/100:0.3);
+ const size=Number(config?.wm_size??20);
+ element.style.fontSize=(Number.isFinite(size)?Math.min(42,Math.max(12,size)):20)+"px";
+ const color=String(config?.wm_color??"#FFFFFF");
+ element.style.color=/^#[0-9a-f]{6}$/i.test(color)?color:"#FFFFFF";
+}
+function watermarkFromEditor(){
+ return {
+  wm_enabled:$("edit-wm-enabled").checked,
+  wm_line1:$("edit-wm-line1").value,
+  wm_line2:$("edit-wm-line2").value,
+  wm_position:$("edit-wm-position").value,
+  wm_opacity:Number($("edit-wm-opacity").value),
+  wm_size:Number($("edit-wm-size").value),
+  wm_color:$("edit-wm-color").value
+ };
+}
+function previewWatermark(){
+ const w=watermarkFromEditor();
+ $("wm-opacity-value").textContent=w.wm_opacity+" %";
+ $("wm-size-value").textContent=w.wm_size+" px";
+ renderWatermark($("wm-preview-text"),w);
+}
+function populateWatermarkEditor(d){
+ $("edit-wm-enabled").checked=d.wm_enabled!==false;
+ for(const k of ["line1","line2","position","opacity","size","color"]){
+  const key="wm_"+k,element=$("edit-wm-"+k);
+  if(d[key]!==undefined)element.value=d[key];
+ }
+ previewWatermark();
+}
+async function saveWatermark(){
+ const button=$("save-watermark");
+ button.disabled=true;
+ try{
+  const result=await api("admin-watermark",{watermark:watermarkFromEditor()});
+  S.me.design=result.design;
+  renderWatermark($("viewer-watermark"),result.design);
+  populateWatermarkEditor(result.design);
+  notice("Marca de agua actualizada en fotos y videos.");
+ }catch(e){notice(e.message);}
+ finally{button.disabled=false;}
+}
 function applyDesign(d){const r=document.documentElement.style;
  r.setProperty("--accent",d.accent);r.setProperty("--bg",d.background);r.setProperty("--text",d.text_color);
  r.setProperty("--button",d.button_color);r.setProperty("--tile-aspect",d.tile_shape==="rectangle"?"4 / 3":"1");
+ renderWatermark($("viewer-watermark"),d);
  $("intro-headline").textContent=d.title;$("brand-name").textContent=d.title;
  $("intro-subtitle").textContent=d.intro_caption;$("enter").textContent=d.button_label;
  $("intro-placeholder").lastElementChild.textContent=d.intro_label;
@@ -255,7 +309,7 @@ function toggleSelection(id){
 function showViewerMedia(){
   if(!S.items.length)return;
   const m=S.items[S.viewer];$("viewer-counter").textContent=(S.viewer+1)+" / "+S.items.length;
-  $("viewer-watermark").textContent="Búscame en Google\nhoo.be/Cubanas";
+  renderWatermark($("viewer-watermark"),S.me?.design);
   const img=$("view-image"),video=$("view-video");
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
@@ -422,6 +476,7 @@ function populateEditor(){
  const d=S.me.design;
  for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
                  "button_color","accent","background","text_color"])$("edit-"+k).value=d[k]||"";
+ populateWatermarkEditor(d);
 }
 async function saveDesign(){
  const design={};for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
@@ -562,6 +617,12 @@ $("add-folder").onclick=async()=>{
 $("load-permissions").onclick=loadPermissions;
 $("save-permissions").onclick=savePermissions;
 $("save-design").onclick=saveDesign;
+$("save-watermark").onclick=saveWatermark;
+for(const key of ["enabled","line1","line2","position","opacity","size","color"]){
+ const input=$("edit-wm-"+key);
+ input.addEventListener("input",previewWatermark);
+ input.addEventListener("change",previewWatermark);
+}
 for(const key of ["logo","header","intro"])$("upload-"+key).onchange=e=>uploadAsset(key,e.target.files[0]);
 async function browserLogin(uid,password){
  const response=await fetch("/web-galerias/admin/login",{

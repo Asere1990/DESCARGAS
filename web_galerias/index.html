@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=personal-ios-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=watermark-editor-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=personal-ios-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=watermark-editor-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -146,6 +146,41 @@
        <label>Fondo<input type="color" id="edit-background"></label>
        <label>Textos<input type="color" id="edit-text_color"></label></div>
       <button id="save-design" class="primary compact">Guardar diseño</button></div>
+    <div class="panel-card wm-editor"><h2>Marca de agua</h2>
+      <p class="muted">Personaliza la marca de agua visible sobre fotos y videos en el visor.</p>
+      <label class="wm-toggle" for="edit-wm-enabled">
+        <input id="edit-wm-enabled" type="checkbox" checked> Activar marca de agua
+      </label>
+      <label for="edit-wm-line1">Texto · línea 1
+        <input id="edit-wm-line1" type="text" maxlength="90" placeholder="Búscame en Google" autocomplete="off">
+      </label>
+      <label for="edit-wm-line2">Texto · línea 2
+        <input id="edit-wm-line2" type="text" maxlength="90" placeholder="hoo.be/Cubanas" autocomplete="off">
+      </label>
+      <div class="wm-settings">
+        <label for="edit-wm-position">Posición
+          <select id="edit-wm-position">
+            <option value="center">Centro</option>
+            <option value="top">Arriba</option>
+            <option value="bottom">Abajo</option>
+          </select>
+        </label>
+        <label for="edit-wm-color">Color
+          <input id="edit-wm-color" type="color" value="#ffffff">
+        </label>
+      </div>
+      <label class="wm-range" for="edit-wm-opacity">Opacidad <output id="wm-opacity-value">30 %</output>
+        <input id="edit-wm-opacity" type="range" min="0" max="100" step="1" value="30">
+      </label>
+      <label class="wm-range" for="edit-wm-size">Tamaño <output id="wm-size-value">20 px</output>
+        <input id="edit-wm-size" type="range" min="12" max="42" step="1" value="20">
+      </label>
+      <div class="wm-preview-caption">Vista previa</div>
+      <div id="wm-preview-stage" class="wm-preview-stage" aria-label="Vista previa de marca de agua">
+        <div id="wm-preview-text" class="wm-preview-text"></div>
+      </div>
+      <button id="save-watermark" type="button" class="primary compact">Guardar marca de agua</button>
+    </div>
     <div class="panel-card"><h2>Imágenes y video</h2>
       <label>Logo<input id="upload-logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
       <label>Cabecera diseñada<input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp"></label>

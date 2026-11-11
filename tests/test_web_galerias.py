@@ -3,12 +3,12 @@ import json
 import time
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock,patch
 from pathlib import Path
 from cryptography.fernet import Fernet
 from aiohttp import web
 from web_galerias.permissions import is_admin,is_tester,pilot_allowed,button_visible
-from web_galerias.admin import cleaned_design
+from web_galerias.admin import cleaned_design,admin_op
 from web_galerias.downloads import temporary_link,validate_link,safe_filename
 from web_galerias.personal import folder_name,media_filter,items as personal_items
 from web_galerias.core import DEFAULTS,normal,identifier
@@ -130,5 +130,92 @@ class IOSGalleryUXTests(unittest.TestCase):
         self.assertNotIn("raise web.HTTPFound",src[start:])
         self.assertIn("max(0,100-used-len(ids))" if False else
                       '"remaining":100-used-len(ids)',src)
+
+class WatermarkEditorTests(unittest.IsolatedAsyncioTestCase):
+    def test_defaults_match_requested_mark_and_work_on_both_media(self):
+        self.assertTrue(DEFAULTS["wm_enabled"])
+        self.assertEqual(DEFAULTS["wm_line1"],"Búscame en Google")
+        self.assertEqual(DEFAULTS["wm_line2"],"hoo.be/Cubanas")
+        self.assertEqual(DEFAULTS["wm_position"],"center")
+        self.assertEqual(DEFAULTS["wm_opacity"],30)
+        self.assertEqual(DEFAULTS["wm_size"],20)
+
+    def test_watermark_is_validated_separately_from_other_design(self):
+        valid={"wm_enabled":False,"wm_line1":"","wm_line2":"Texto libre",
+               "wm_position":"bottom","wm_opacity":52,"wm_size":28,
+               "wm_color":"#92abC1"}
+        design=cleaned_design(valid)
+        for key,value in valid.items():
+            self.assertEqual(design[key],value)
+        invalid=(
+            ("wm_enabled","false"),("wm_enabled",1),
+            ("wm_line1","a"*91),("wm_line1","línea\notra"),
+            ("wm_position","left"),("wm_position",[]),
+            ("wm_opacity",-1),("wm_opacity",101),("wm_opacity",True),
+            ("wm_size",11),("wm_size",43),("wm_size",28.5),
+            ("wm_color","red"),("wm_color","#123456;url()"),
+        )
+        for key,value in invalid:
+            with self.subTest(key=key,value=value):
+                with self.assertRaises(web.HTTPBadRequest):
+                    cleaned_design({key:value})
+
+    def make_admin(self):
+        db=SimpleNamespace(execute=AsyncMock())
+        current={**DEFAULTS,"title":"Galerías especiales",
+                 "accent":"#112233","wm_line1":"Texto anterior",
+                 "wm_size":26}
+        g=SimpleNamespace(db=lambda:db,design=AsyncMock(return_value=current),
+                          log=AsyncMock())
+        return g,db,current
+
+    async def test_watermark_only_updates_its_own_fields(self):
+        g,db,current=self.make_admin()
+        patch_data={key:current[key] for key in (
+            "wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity",
+            "wm_size","wm_color")}
+        patch_data["wm_line1"]="Nueva marca"
+        patch_data["wm_position"]="top"
+        patch_data["wm_enabled"]=False
+        result=await admin_op(g,7539025033,"admin-watermark",{"watermark":patch_data})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["design"]["title"],current["title"])
+        self.assertEqual(result["design"]["accent"],current["accent"])
+        self.assertEqual(result["design"]["wm_line1"],"Nueva marca")
+        self.assertFalse(result["design"]["wm_enabled"])
+        self.assertEqual(json.loads(db.execute.await_args.args[1])["wm_position"],"top")
+        g.log.assert_awaited_once_with(7539025033,"admin-watermark")
+
+    async def test_old_editor_save_does_not_reset_watermark(self):
+        g,db,current=self.make_admin()
+        result=await admin_op(g,7539025033,"admin-design",
+                              {"design":{"title":"Nombre nuevo"}})
+        self.assertEqual(result["design"]["title"],"Nombre nuevo")
+        self.assertEqual(result["design"]["wm_line1"],"Texto anterior")
+        self.assertEqual(result["design"]["wm_size"],26)
+
+    async def test_watermark_rejects_nonadmin_and_incomplete_patch(self):
+        g,db,current=self.make_admin()
+        with self.assertRaises(web.HTTPForbidden):
+            await admin_op(g,123456,"admin-watermark",{"watermark":{}})
+        db.execute.assert_not_awaited()
+        with self.assertRaises(web.HTTPBadRequest):
+            await admin_op(g,7539025033,"admin-watermark",
+                           {"watermark":{"wm_line1":"Solo uno"}})
+        db.execute.assert_not_awaited()
+
+    def test_frontend_has_realtime_preview_and_separate_save(self):
+        root=Path(__file__).resolve().parents[1]/"web_galerias"
+        html=(root/"index.html").read_text(encoding="utf-8")
+        js=(root/"app.js").read_text(encoding="utf-8")
+        for control in ("wm-enabled","wm-line1","wm-line2","wm-position",
+                        "wm-opacity","wm-size","wm-color"):
+            self.assertIn('id="edit-'+control+'"',html)
+        self.assertIn('id="wm-preview-text"',html)
+        self.assertIn('id="save-watermark"',html)
+        self.assertIn('api("admin-watermark"',js)
+        self.assertIn('renderWatermark($("viewer-watermark"),S.me?.design)',js)
+        self.assertIn('input.addEventListener("input",previewWatermark)',js)
+
 
 if __name__=="__main__":unittest.main()
