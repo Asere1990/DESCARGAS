@@ -245,6 +245,50 @@ async def media_retry(g,folder,message,exc):
       type(exc).__name__)
 
 
+async def inspect_source(g,folder,item,message):
+    """No confundir un fallo temporal, un formato nuevo o una protección con un borrado.
+
+    Devuelve True si el archivo puede procesarse ahora. Reintenta los ausentes
+    hasta tres veces, con separación; nunca borra datos de R2.
+    """
+    expected=item["kind"]
+    old_mime=item["mime"]
+    state=item["state"]
+    current=classify(message) if message else (None,None,None)
+    kind,mime,source_type=current
+    if message and (getattr(message,"noforwards",False)
+                    or getattr(message,"ttl_period",None)
+                    or getattr(getattr(message,"media",None),"ttl_seconds",None)):
+        await g.db().execute("""UPDATE wg_media SET state='skipped',
+           error='protected_or_temporary' WHERE folder=$1 AND message=$2
+           AND state=$3""",folder,item["message"],state)
+        return False
+    if not kind:
+        count=max(0,int(item["source_checks"] or 0))+1
+        reason="message_absent" if not message else "media_removed"
+        confirmed=count>=3
+        next_state="missing" if confirmed else state
+        next_error=reason+"_after_rechecks" if confirmed else reason+"_pending_recheck"
+        # Al haber varios miles, nunca hacer las tres comprobaciones seguidas.
+        wait=0 if confirmed else (300 if count==1 else 1800)
+        await g.db().execute("""UPDATE wg_media SET state=$4,
+          error=$5,source_checks=$6,available=$7
+          WHERE folder=$1 AND message=$2 AND state=$3""",
+          folder,item["message"],state,next_state,next_error,count,time.time()+wait)
+        return False
+    if kind!=expected or mime!=old_mime:
+        await g.db().execute("""UPDATE wg_media SET kind=$4,mime=$5,
+           source_type=$6,source_checks=0,available=0,state='pending',
+           error='tipo_actualizado'
+           WHERE folder=$1 AND message=$2 AND state=$3""",
+           folder,item["message"],state,kind,mime,source_type)
+        return False
+    if item.get("source_type","")!=source_type:
+        await g.db().execute("""UPDATE wg_media SET source_type=$3,source_checks=0
+           WHERE folder=$1 AND message=$2""",folder,item["message"],source_type)
+    return True
+
+
 async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,phase="combined"):
     """Un turno de lectura + copia, con lock exclusivo de cuenta ya existente."""
     from descargas_app.account_chat import connected
@@ -283,18 +327,15 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             if phase in ("combined","preview","prime"):
                 for _ in range(batch):
                     await guard()
-                    item=await g.db().fetchrow("""SELECT message,kind,mime,size
+                    item=await g.db().fetchrow("""SELECT message,kind,mime,size,
+                         attempts,source_checks,source_type,'pending'::text AS state
                        FROM wg_media WHERE folder=$1 AND state='pending'
                          AND available<=$2 ORDER BY id DESC LIMIT 1""",
                          folder,time.time())
                     if not item:break
                     m=await client.get_messages(entity,ids=item["message"])
                     await guard()
-                    if not m or media_kind(m)[0]!=item["kind"] or getattr(m,"noforwards",False):
-                        await g.db().execute("""UPDATE wg_media SET state='missing',
-                           error='no_disponible_en_origen'
-                           WHERE folder=$1 AND message=$2 AND state='pending'""",
-                           folder,item["message"])
+                    if not await inspect_source(g,folder,item,m):
                         continue
                     await checkpoint(g,folder,"preparando_vistas_previas")
                     try:
@@ -307,7 +348,8 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             if phase in ("combined","archive"):
                 for _ in range(batch):
                     await guard()
-                    item=await g.db().fetchrow("""SELECT message,kind,mime,size
+                    item=await g.db().fetchrow("""SELECT message,kind,mime,size,
+                         attempts,source_checks,source_type,'preview'::text AS state
                        FROM wg_media WHERE folder=$1 AND state='preview'
                          AND available<=$2
                          ORDER BY CASE WHEN kind='photo' THEN 0 ELSE 1 END,
@@ -315,11 +357,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
                     if not item:break
                     m=await client.get_messages(entity,ids=item["message"])
                     await guard()
-                    if not m or media_kind(m)[0]!=item["kind"] or getattr(m,"noforwards",False):
-                        await g.db().execute("""UPDATE wg_media SET state='missing',
-                           error='no_disponible_en_origen'
-                           WHERE folder=$1 AND message=$2 AND state='preview'""",
-                           folder,item["message"])
+                    if not await inspect_source(g,folder,item,m):
                         continue
                     await checkpoint(g,folder,"respaldando")
                     try:
