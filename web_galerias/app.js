@@ -78,8 +78,19 @@ function applyDesign(d){const r=document.documentElement.style;
      $("intro-headline").append(image);};
    image.src="/web-galerias/assets/header?t="+Date.now();}
  const video=$("intro-video"),placeholder=$("intro-placeholder");
- video.onloadedmetadata=()=>{video.hidden=false;placeholder.hidden=true;};
- video.onerror=()=>{video.hidden=true;placeholder.hidden=false;};
+ const intro=$("intro"),sound=$("intro-sound");
+ video.muted=true;video.autoplay=true;video.loop=true;video.playsInline=true;
+ video.style.objectFit=d.intro_fit==="contain"?"contain":"cover";
+ video.onloadedmetadata=()=>{
+  video.hidden=false;placeholder.hidden=true;
+  intro.classList.add("has-intro-video");sound.classList.remove("hidden");
+  sound.textContent="🔊 Activar sonido";
+  video.play().catch(()=>{sound.textContent="▶ Reproducir video";});
+ };
+ video.onerror=()=>{
+  video.hidden=true;placeholder.hidden=false;
+  intro.classList.remove("has-intro-video");sound.classList.add("hidden");
+ };
  video.src="/web-galerias/assets/intro?t="+Date.now();
 }
 async function api(op,data={}){
@@ -926,12 +937,13 @@ function switchAdminTab(tab){
 function populateEditor(){
  const d=S.me.design;
  for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
-                 "button_color","accent","background","text_color"])$("edit-"+k).value=d[k]||"";
+                 "intro_fit","button_color","accent","background","text_color"])
+  $("edit-"+k).value=d[k]||"";
  populateWatermarkEditor(d);
 }
 async function saveDesign(){
  const design={};for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
-               "button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
+               "intro_fit","button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
  design.daily_limit=100;
  try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
 }
@@ -962,7 +974,7 @@ async function uploadAsset(key,file,folder=null){
    (key==="header"||key==="folder-cover")?5_000_000:3_000_000;
  const progress=key==="folder-cover"?$("new-cover-status"):$("upload-progress");
  if(!file.size||file.size>allowed){
-  progress.textContent="La foto debe tener como máximo 5 MB.";
+  progress.textContent="Archivo demasiado grande. Límite: "+(allowed/1_000_000)+" MB.";
   notice("El archivo es demasiado grande.");return false;
  }
  const mime=file.type;
