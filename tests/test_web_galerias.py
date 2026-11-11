@@ -398,6 +398,7 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
                 "complete":True,"scan_count":6063,
                 "cover_updated":None,"automatic_cover":None,
                 "photo_native":500,"video_native":320,"photo_files":20,
+                "visible_photos":215,"visible_videos":85,
                 "video_files":30,"gifs":12,"media_total":882,
                 "legacy_uncategorized":400,
                 "ready":300,"pending":550,"missing":32,
