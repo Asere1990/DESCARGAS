@@ -11,10 +11,10 @@
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/intro-poster">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=instant-hero-poster-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=admin-users-20261111-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1"></script>
-<script defer src="/web-galerias/static/admin_tools.js?v=pilot-admin-actions-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-admin-users-20261111"></script>
+<script defer src="/web-galerias/static/admin_tools.js?v=admin-users-20261111-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -131,11 +131,12 @@
    <span id="selection-count" class="selection-counter">0 de 10</span>
    <button id="selection-cancel" type="button" class="mobile-action" aria-label="Cancelar selección">Cancelar</button>
    <button id="selection-organize" type="button" class="mobile-action" aria-label="Guardar selección en carpeta personal">A carpeta</button>
+   <button id="selection-admin-delete" type="button" class="mobile-action mobile-action-danger hidden" aria-label="Eliminar fotos o videos seleccionados de la galería">Eliminar</button>
    <button id="selection-download" type="button" class="mobile-action mobile-action-primary" aria-label="Descargar archivos seleccionados">Descargar</button>
   </nav>
  </section>
  <section id="viewer" class="viewer hidden" aria-label="Visor de fotos y videos">
-   <div class="viewer-top"><span id="viewer-counter"></span></div>
+   <div class="viewer-top"><span id="viewer-counter"></span><button id="viewer-admin-delete" class="viewer-admin-delete hidden" type="button" aria-label="Eliminar este archivo de la galería">Eliminar</button></div>
    <div id="viewer-stage" class="viewer-stage"><img id="view-image" alt="" hidden><video id="view-video" controls playsinline hidden></video><div id="viewer-watermark" class="viewer-watermark" aria-hidden="true"></div></div>
    <nav class="viewer-bottom" aria-label="Controles del visor">
     <button id="close-viewer" class="viewer-action" type="button" aria-label="Cerrar visor">✕ Cerrar</button>
@@ -175,6 +176,8 @@
      <label for="admin-media-folder">Galería
       <select id="admin-media-folder"><option value="">Elegir galería…</option></select>
      </label>
+     <div class="search admin-media-search"><span>⌕</span><input id="admin-media-query" type="search" maxlength="100" autocomplete="off" placeholder="Buscar por caption o comentarios" aria-label="Buscar dentro de la galería"></div>
+     <label for="admin-media-kind">Mostrar <select id="admin-media-kind"><option value="all">Fotos y videos</option><option value="photo">Solo fotos</option><option value="video">Solo videos</option></select></label>
      <button id="admin-media-load" type="button" class="small-btn strong">Ver fotos y videos</button>
      <div id="admin-media-grid" class="admin-media-grid" aria-label="Multimedia de la galería"></div>
      <button id="admin-media-more" type="button" class="small-btn hidden">Mostrar más archivos</button>
@@ -186,24 +189,25 @@
     <div id="admin-folders"></div>
    </div>
    <div id="tab-usuarios" class="tab hidden">
-    <div class="panel-card"><h2>Permisos por usuario</h2>
+     <section id="admin-users-details" class="panel-card admin-users-details" aria-label="Listado de usuarios">
+      <h2>Usuarios de Web Galerías</h2>
+      <p class="muted">Lista por páginas. Un punto verde significa que está viendo la galería en este momento; «Activo» indica membresía pagada vigente.</p>
+      <div class="search admin-users-search"><span>⌕</span><input id="admin-users-query" type="search" maxlength="100" autocomplete="off" placeholder="Buscar nombre de Telegram o ID" aria-label="Buscar usuarios"></div>
+      <div id="admin-users" class="admin-users-list" role="list" aria-live="polite"></div>
+      <div class="admin-users-pager">
+       <button id="admin-user-back-page" type="button" class="small-btn" disabled>‹ Anterior</button>
+       <span id="admin-users-page">Página 1</span>
+       <button id="admin-user-more" type="button" class="small-btn" disabled>Siguiente ›</button>
+      </div>
+      <section id="admin-user-profile" class="admin-user-profile hidden" aria-label="Ficha del usuario" aria-live="polite"></section>
+     </section>
+     <div class="panel-card"><h2>Permisos por usuario</h2>
       <label>Telegram ID<input id="permission-uid" inputmode="numeric" placeholder="Telegram ID"></label>
       <button id="load-permissions" class="small-btn strong">Consultar permisos</button>
       <label>Visibilidad<select id="permission-mode"><option value="all">Todas las carpetas</option><option value="selected">Solo las seleccionadas</option></select></label>
       <div id="permission-folders" class="check-folders"></div>
       <button id="save-permissions" class="primary compact">Guardar permisos</button>
      </div>
-     <details id="admin-users-details" class="panel-card admin-users-details">
-      <summary>Usuarios activos y fichas completas ▾</summary>
-      <p class="muted">Los datos privados se consultan en CUSTOMER-SERVICE.</p>
-      <label for="admin-user-selector">Elegir usuario
-       <select id="admin-user-selector"><option value="">Seleccionar usuario…</option></select>
-      </label>
-      <button id="admin-user-more" class="small-btn hidden" type="button">Cargar más usuarios</button>
-      <button id="admin-user-open" class="small-btn strong" type="button">Revisar ficha</button>
-      <div id="admin-user-profile" class="admin-user-profile" aria-live="polite"></div>
-     </details>
-     <h2>Usuarios e historial</h2><div id="admin-users"></div>
    </div>
    <div id="tab-diseno" class="tab hidden">
     <div class="panel-card"><h2>Identidad de la Mini App</h2>

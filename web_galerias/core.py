@@ -230,7 +230,13 @@ class GalleryCore:
         raise web.HTTPUnauthorized(text="Identidad Telegram no verificada.")
 
     async def entitled(self,uid):
-        if pilot_allowed(uid):return True
+        # Administrators cannot be retired through the user-management UI.
+        if is_admin(uid):return True
+        # Free testers can also be explicitly retired. Paid entitlement
+        # retains its existing single-query fast path below.
+        if pilot_allowed(uid):
+            return not bool(await self.db().fetchval(
+                "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
         from .permissions import payment_test_user
         # Payment-test users retain access only through a verified active
         # gallery subscription, even while the public launch is disabled.

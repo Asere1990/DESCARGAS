@@ -92,8 +92,10 @@ async def save_file(g,request):
 async def reserve(g,uid,ids):
     if not await g.entitled(uid):raise web.HTTPForbidden(text="Acceso no vigente.")
     if not g.storage.ready:raise web.HTTPServiceUnavailable(text="El respaldo aún no está disponible.")
-    if not isinstance(ids,list) or not 1<=len(ids)<=10:
-        raise web.HTTPBadRequest(text="Selecciona de 1 a 10 archivos.")
+    from .permissions import is_admin
+    limit=100 if is_admin(uid) else 10
+    if not isinstance(ids,list) or not 1<=len(ids)<=limit:
+        raise web.HTTPBadRequest(text=f"Selecciona de 1 a {limit} archivos.")
     ids=list(dict.fromkeys(identifier(x) for x in ids))
     db=g.db();day=utc_day()
     async with db.acquire() as c,c.transaction():

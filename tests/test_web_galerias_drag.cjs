@@ -8,10 +8,11 @@ const source=fs.readFileSync(path.join(__dirname,"../web_galerias/app.js"),"utf8
 const start=source.indexOf("function selectedDragIds(id){");
 const end=source.indexOf("\nasync function addToPersonalFolder(",start);
 assert.ok(start>=0&&end>start,"La función de arrastre múltiple debe existir");
-const context=vm.createContext({S:{selected:new Set()}});
+const context=vm.createContext({S:{selected:new Set(),me:{admin:false}},selectionLimit:()=>context.S.me.admin?100:10});
 vm.runInContext(source.slice(start,end),context);
 
-function dragged(selection,id){
+function dragged(selection,id,admin=false){
+ context.S.me.admin=admin;
  context.S.selected=new Set(selection);
  context.dragged=id;
  return Array.from(vm.runInContext("selectedDragIds(dragged)",context));
@@ -41,11 +42,18 @@ test("no permite lotes superiores a 10 ni identificadores inválidos",()=>{
  assert.deepEqual(dragged([],"invalido"),[]);
 });
 
+test("el administrador puede arrastrar hasta 100, sin aumentar el límite de clientes",()=>{
+ const hundred=Array.from({length:100},(_,i)=>i+1);
+ assert.deepEqual(dragged(hundred,47,true),hundred);
+ assert.deepEqual(dragged([...hundred,101],47,true),[]);
+ assert.deepEqual(dragged(hundred,47,false),[]);
+});
+
 test("gestos táctiles y de mouse usan el mismo grupo seleccionado",()=>{
  assert.match(source,/b\.ondrop=e=>\{[\s\S]*?const ids=selectedDragIds\(id\);[\s\S]*?addToPersonalFolder\(folder\.id,ids\)/);
  assert.match(source,/const destination=document\.elementFromPoint[\s\S]*?const ids=selectedDragIds\(m\.id\);[\s\S]*?addToPersonalFolder\(Number\(destination\.dataset\.folderDrop\),ids\)/);
  assert.match(source,/b\.setPointerCapture\(e\.pointerId\)/);
- assert.match(source,/if\(unique\.length>10\)return notice/);
+ assert.match(source,/if\(unique\.length>selectionLimit\(\)\)return notice/);
 });
 
 

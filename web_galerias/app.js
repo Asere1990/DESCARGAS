@@ -5,8 +5,23 @@ const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
 const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
+const selectionLimit=()=>S.me?.admin?100:10;
+let lastPresence=0;
+function galleryPresence(){
+ if(BROWSER_ADMIN||!S.me?.allowed||document.hidden)return;
+ const view=$("viewer").classList.contains("hidden")?
+   (["album","library"].find(id=>!$(id).classList.contains("hidden"))||""):"viewer";
+ if(!view||Date.now()-lastPresence<18000)return;
+ lastPresence=Date.now();
+ api("presence",{view}).catch(()=>{lastPresence=0;});
+}
+setInterval(galleryPresence,25000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){lastPresence=0;galleryPresence();}});
+
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);};
+const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);
+ if(id==="album"||id==="library"){lastPresence=0;galleryPresence();}
+};
 function notice(message){const t=$("toast");t.textContent=message;t.classList.remove("hidden");clearTimeout(S.toastTimer);S.toastTimer=setTimeout(()=>t.classList.add("hidden"),4200);}
 function renderWatermark(element,config){
  const line1=String(config?.wm_line1??"Búscame en Google").trim();
@@ -252,7 +267,7 @@ function renderPersonalFolders(){
 }
 async function createPersonalFolder(ids=[]){
  const selected=Array.isArray(ids)?[...new Set(ids)]:[];
- if(selected.length>10)return notice("Puedes agregar hasta 10 archivos.");
+ if(selected.length>selectionLimit())return notice("Puedes agregar hasta "+selectionLimit()+" archivos.");
  if(S.personalSaving)return;
  const name=prompt(selected.length?"Nombre de la carpeta para estos "+selected.length+" archivos:":
                             "Nombre de tu nueva carpeta:");
@@ -367,12 +382,12 @@ function selectedDragIds(id){
  const mediaId=Number(id);
  if(!Number.isSafeInteger(mediaId)||mediaId<=0)return [];
  const ids=S.selected.has(mediaId)?[...S.selected]:[mediaId];
- return ids.length<=10?ids:[];
+ return ids.length<=selectionLimit()?ids:[];
 }
 async function addToPersonalFolder(folder,ids){
  const unique=[...new Set(ids)].filter(id=>Number.isSafeInteger(id)&&id>0);
  if(!unique.length)return;
- if(unique.length>10)return notice("Puedes guardar hasta 10 archivos a la vez.");
+ if(unique.length>selectionLimit())return notice("Puedes guardar hasta "+selectionLimit()+" archivos a la vez.");
  if(S.personalSaving)return;
  S.personalSaving=true;
  try{
@@ -536,8 +551,8 @@ function attachLongPress(b,m,index){
     tg?.HapticFeedback?.selectionChanged?.();
     return;
    }
-   if(!S.selected.has(m.id)&&S.selected.size>=10){
-    notice("Puedes seleccionar hasta 10 archivos.");return;
+   if(!S.selected.has(m.id)&&S.selected.size>=selectionLimit()){
+    notice("Puedes seleccionar hasta "+selectionLimit()+" archivos.");return;
    }
    held=true;S.selection=true;
    S.selected.add(m.id);
@@ -587,7 +602,9 @@ function fallback(b,m){const p=document.createElement("div");p.className="fallba
 function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
- $("selection-count").textContent=S.selected.size+" de 10";
+ $("selection-count").textContent=S.selected.size+" de "+selectionLimit();
+ $("selection-admin-delete").classList.toggle("hidden",!S.me?.admin);
+ $("selection-admin-delete").disabled=!S.selected.size;
  const trayText=$("folder-drag-help");
  if(trayText)trayText.textContent=S.selected.size>1?
     "Arrastra cualquiera de los "+S.selected.size+" archivos seleccionados a una carpeta:":
@@ -601,8 +618,8 @@ function toggleSelection(id){
  const media=S.items.find(m=>m.id===id);
  if(!media)return;
  if(S.selected.has(id))S.selected.delete(id);
- else if(S.selected.size<10)S.selected.add(id);
- else return notice("Puedes seleccionar hasta 10 archivos por operación.");
+ else if(S.selected.size<selectionLimit())S.selected.add(id);
+ else return notice("Puedes seleccionar hasta "+selectionLimit()+" archivos por operación.");
  updateSelection();renderItems();
 }
 function showViewerMedia(){
@@ -625,13 +642,15 @@ function showViewerMedia(){
   document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
+  $("viewer-admin-delete").classList.toggle("hidden",!S.me?.admin);
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
 }
 function openViewer(index){
   S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
+  document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
   if(!S.items[index].available)notice("El original se está preparando; la miniatura se muestra si está disponible.");
 }
-function closeViewer(){$("viewer").classList.add("hidden");$("view-video").pause();}
+function closeViewer(){$("viewer").classList.add("hidden");document.body.classList.remove("gallery-viewer-open");$("view-video").pause();}
 function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
 function nativeDownload(data){
  const url=location.origin+data.url;
@@ -895,7 +914,12 @@ function previewAdmin(){
     }catch(e){notice(e.message);}
     finally{sourceButton.disabled=false;}
   };
-  buttons.append(edit,publicEdit,sourceButton,choose);
+  const browse=document.createElement("button");browse.type="button";browse.className="small-btn strong";
+  browse.textContent="Abrir galería y buscar";
+  browse.onclick=()=>{S.returnFromAdmin=true;openFolder({
+    id:f.id,name:f.public_name||("Galería "+f.id),photos:f.visible_photos,videos:f.visible_videos
+  });};
+  buttons.append(browse,edit,publicEdit,sourceButton,choose);
   if(f.has_custom_cover){
    const resetPhoto=document.createElement("button");resetPhoto.type="button";
    resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
@@ -967,19 +991,9 @@ function previewAdmin(){
   setExpanded(S.adminExpanded.has(f.id));
   card.append(trigger,details);root.append(card);
  }
- const users=$("admin-users");users.replaceChildren();
- for(const u of S.admin.users){
-  const item=document.createElement("div");item.className="admin-row";
-  const title=document.createElement("h3");title.textContent=(u.name||"Usuario")+" · "+u.uid;
-  const p=document.createElement("p");
-  const active=u.admin?"Administrador":u.tester?"Prueba gratuita":
-    (u.state==="active"&&u.paid_until>Date.now()/1000)?"Membresía vigente":
-      u.state||"Sin membresía";
-  p.textContent=active+" · Último acceso: "+new Date(u.last_seen*1000).toLocaleString("es-US");
-  const b=document.createElement("button");b.textContent="Asignar carpetas";b.className="small-btn";
-  b.onclick=()=>{$("permission-uid").value=u.uid;loadPermissions();window.scrollTo({top:0,behavior:"smooth"});};
-  item.append(title,p,b);users.append(item);
- }
+ const users=$("admin-users");
+ // Personal records are now loaded on demand in bounded pages by admin_tools.js.
+ if(!window.CubanitasTools?.usersLoaded?.())users.replaceChildren();
  const h=$("admin-health");
  h.innerHTML="<h2>Estado del respaldo</h2><p>"+(S.admin.storage_ready?
   "✓ Almacenamiento R2 conectado":"⚠ Almacenamiento privado pendiente")+
@@ -994,6 +1008,7 @@ async function loadAdmin(){
 function switchAdminTab(tab){
  document.querySelectorAll(".admin-tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("hidden",x.id!=="tab-"+tab));
+ if(tab==="usuarios")window.CubanitasTools?.openUsers?.();
 }
 function populateEditor(){
  const d=S.me.design;
@@ -1231,7 +1246,9 @@ document.querySelectorAll("#filter-menu [data-kind]").forEach(b=>b.onclick=()=>{
  S.selected.clear();S.selection=false;updateSelection();loadItems(false);
 });
 $("back-library").onclick=()=>{
- S.folder=null;S.selected.clear();$("filter-menu").classList.add("hidden");show("library");
+ S.folder=null;S.selected.clear();$("filter-menu").classList.add("hidden");
+ if(S.returnFromAdmin){S.returnFromAdmin=false;show("admin");switchAdminTab("carpetas");}
+ else show("library");
 };
 $("load-more").onclick=()=>loadItems(true);
 $("query").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{
@@ -1240,10 +1257,12 @@ $("query").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{
 $("select-mode").onclick=()=>{S.selection=!S.selection;S.selected.clear();updateSelection();renderItems();};
 $("selection-cancel").onclick=()=>{S.selection=false;S.selected.clear();updateSelection();renderItems();};
 $("selection-download").onclick=()=>downloadIds([...S.selected]);
+$("selection-admin-delete").onclick=()=>window.CubanitasTools?.adminDeleteSelection?.([...S.selected]);
 $("viewer-prev").onclick=()=>moveViewer(-1);
 $("viewer-next").onclick=()=>moveViewer(1);
 $("close-viewer").onclick=closeViewer;
 $("viewer-download").onclick=()=>downloadIds([S.items[S.viewer]?.id].filter(Boolean));
+$("viewer-admin-delete").onclick=()=>window.CubanitasTools?.adminDeleteSelection?.([S.items[S.viewer]?.id].filter(Boolean));
 $("viewer-set-cover").onclick=async()=>{
  const media=S.items[S.viewer];
  if(!S.folder?.personal||media?.kind!=="photo"||!media.thumb)return;

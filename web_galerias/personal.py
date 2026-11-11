@@ -114,11 +114,13 @@ async def allowed_personal_media(connection,uid,ids):
 async def operation(g,uid,op,data):
     from .core import identifier
     db=g.db()
+    from .permissions import is_admin
+    limit=100 if is_admin(uid) else 10
     if op=="personal-create":
         name=folder_name(data.get("name"))
         ids=data.get("ids",[])
-        if not isinstance(ids,list) or len(ids)>10:
-            raise web.HTTPBadRequest(text="Puedes agregar hasta 10 archivos por carpeta.")
+        if not isinstance(ids,list) or len(ids)>limit:
+            raise web.HTTPBadRequest(text=f"Puedes agregar hasta {limit} archivos por carpeta.")
         ids=list(dict.fromkeys(identifier(x) for x in ids))
         async with db.acquire() as c,c.transaction():
             count=await c.fetchval("SELECT count(*) FROM wg_personal_folders WHERE uid=$1",uid)
@@ -136,8 +138,8 @@ async def operation(g,uid,op,data):
         source=identifier(data.get("personal_folder"))
         destination=identifier(data.get("target_folder"))
         ids=data.get("ids")
-        if not isinstance(ids,list) or not 1<=len(ids)<=10:
-            raise web.HTTPBadRequest(text="Selecciona de 1 a 10 archivos.")
+        if not isinstance(ids,list) or not 1<=len(ids)<=limit:
+            raise web.HTTPBadRequest(text=f"Selecciona de 1 a {limit} archivos.")
         ids=list(dict.fromkeys(identifier(x) for x in ids))
         if source==destination:
             return {"ok":True,"count":len(ids)}
@@ -237,8 +239,8 @@ async def operation(g,uid,op,data):
     if op not in ("personal-add","personal-remove"):
         raise web.HTTPNotFound()
     ids=data.get("ids")
-    if not isinstance(ids,list) or not 1<=len(ids)<=10:
-        raise web.HTTPBadRequest(text="Selecciona entre 1 y 10 archivos.")
+    if not isinstance(ids,list) or not 1<=len(ids)<=limit:
+        raise web.HTTPBadRequest(text=f"Selecciona entre 1 y {limit} archivos.")
     ids=list(dict.fromkeys(identifier(x) for x in ids))
     async with db.acquire() as c,c.transaction():
         owned=await c.fetchval("SELECT 1 FROM wg_personal_folders WHERE id=$1 AND uid=$2 FOR UPDATE",folder,uid)
