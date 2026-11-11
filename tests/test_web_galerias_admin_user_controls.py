@@ -134,7 +134,7 @@ class GalleryAdminControls(unittest.IsolatedAsyncioTestCase):
             self.assertIn('id="'+control+'"',markup)
         self.assertIn("S.me?.admin?100:10",js)
         self.assertIn("if(!S.me?.admin||state.mediaBusy)return false;",extras)
-        self.assertIn("id=\"admin-user-personal-items\"",extras)
+        self.assertIn('box.id="admin-user-personal-items"',extras)
         self.assertIn("gallery-viewer-open #album #folder-drop-tray",css)
         self.assertIn("admin-users-page",extras)
         self.assertNotIn("admin-user-selector",markup)
