@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS wg_folders(
  scan_count BIGINT NOT NULL DEFAULT 0);
 -- El nombre original permanece interno; el nombre público jamás se infiere.
 ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS public_name TEXT;
+-- Cuenta Telegram que el administrador seleccionó para ver el historial.
+-- No sustituye ni modifica la sesión cifrada de DESCARGAS.
+ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS preferred_uid BIGINT;
 -- Totales publicados por Telegram, independientes de la catalogación y de R2.
 -- NULL significa todavía sin consulta satisfactoria; nunca equivale a cero.
 ALTER TABLE wg_folders ADD COLUMN IF NOT EXISTS telegram_photos_total BIGINT;
