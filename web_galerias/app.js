@@ -78,8 +78,19 @@ function applyDesign(d){const r=document.documentElement.style;
      $("intro-headline").append(image);};
    image.src="/web-galerias/assets/header?t="+Date.now();}
  const video=$("intro-video"),placeholder=$("intro-placeholder");
- video.onloadedmetadata=()=>{video.hidden=false;placeholder.hidden=true;};
- video.onerror=()=>{video.hidden=true;placeholder.hidden=false;};
+ const intro=$("intro"),sound=$("intro-sound");
+ video.muted=true;video.autoplay=true;video.loop=true;video.playsInline=true;
+ video.style.objectFit=d.intro_fit==="contain"?"contain":"cover";
+ video.onloadedmetadata=()=>{
+  video.hidden=false;placeholder.hidden=true;
+  intro.classList.add("has-intro-video");sound.classList.remove("hidden");
+  sound.textContent="🔊 Activar sonido";
+  video.play().catch(()=>{sound.textContent="▶ Reproducir video";});
+ };
+ video.onerror=()=>{
+  video.hidden=true;placeholder.hidden=false;
+  intro.classList.remove("has-intro-video");sound.classList.add("hidden");
+ };
  video.src="/web-galerias/assets/intro?t="+Date.now();
 }
 async function api(op,data={}){
@@ -926,12 +937,13 @@ function switchAdminTab(tab){
 function populateEditor(){
  const d=S.me.design;
  for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
-                 "button_color","accent","background","text_color"])$("edit-"+k).value=d[k]||"";
+                 "intro_fit","button_color","accent","background","text_color"])
+  $("edit-"+k).value=d[k]||"";
  populateWatermarkEditor(d);
 }
 async function saveDesign(){
  const design={};for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
-               "button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
+               "intro_fit","button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
  design.daily_limit=100;
  try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
 }
@@ -962,7 +974,7 @@ async function uploadAsset(key,file,folder=null){
    (key==="header"||key==="folder-cover")?5_000_000:3_000_000;
  const progress=key==="folder-cover"?$("new-cover-status"):$("upload-progress");
  if(!file.size||file.size>allowed){
-  progress.textContent="La foto debe tener como máximo 5 MB.";
+  progress.textContent="Archivo demasiado grande. Límite: "+(allowed/1_000_000)+" MB.";
   notice("El archivo es demasiado grande.");return false;
  }
  const mime=file.type;
@@ -990,6 +1002,101 @@ async function uploadAsset(key,file,folder=null){
  }catch(e){
   progress.textContent=e.message;notice(e.message);
   return false;
+ }
+}
+function introMime(file){
+ const ext=String(file?.name||"").split(".").pop().toLowerCase();
+ if(ext==="mov")return "video/quicktime";
+ if(ext==="mp4"||ext==="m4v")return "video/mp4";
+ if(ext==="webm")return "video/webm";
+ return file?.type||"";
+}
+async function uploadIntroVideo(file){
+ if(!file)return false;
+ const mime=introMime(file),limit=80*1024*1024;
+ if(!["video/mp4","video/quicktime","video/webm"].includes(mime))
+  throw Error("Selecciona un video MP4, MOV o WebM.");
+ if(!file.size||file.size>limit)
+  throw Error("El video supera los 80 MB; utiliza un video más corto o comprimido.");
+ const progress=$("upload-progress"),raw=tg?.initData||"";
+ return await new Promise((resolve,reject)=>{
+  const xhr=new XMLHttpRequest();
+  xhr.open("POST","/web-galerias/admin/intro-video",true);
+  xhr.withCredentials=true;
+  xhr.setRequestHeader("Content-Type",mime);
+  xhr.setRequestHeader("X-Intro-Mime",mime);
+  if(raw)xhr.setRequestHeader("X-Telegram-Init-Data",raw);
+  else xhr.setRequestHeader("X-Gallery-Web","1");
+  xhr.upload.onprogress=e=>{
+   if(e.lengthComputable){
+    const percent=Math.min(100,Math.floor(e.loaded/e.total*100));
+    progress.textContent="Subiendo video: "+percent+" %";
+    if(percent===100)progress.textContent="Video subido. Convirtiendo a MP4 y verificando Cloudflare…";
+   }
+  };
+  xhr.onerror=()=>reject(Error("No se pudo conectar durante la subida del video."));
+  xhr.onabort=()=>reject(Error("Se canceló la subida del video."));
+  xhr.onload=()=>{
+   if(xhr.status<200||xhr.status>=300){
+    reject(Error((xhr.responseText||"Error de subida").replace(/<[^>]*>/g," ").slice(0,220)));
+    return;
+   }
+   try{
+    const data=JSON.parse(xhr.responseText);
+    if(!data.complete)throw Error("No se confirmó la subida del video.");
+    progress.textContent="✓ Video MP4 guardado y verificado en Cloudflare.";
+    resolve(true);
+   }catch(e){reject(e);}
+  };
+  xhr.send(file);
+ });
+}
+function pendingEditorFiles(){
+ return ["logo","header","intro"]
+  .map(key=>({key,file:$("upload-"+key).files?.[0]}))
+  .filter(entry=>!!entry.file);
+}
+function editorPendingFilesMessage(){
+ const files=pendingEditorFiles();
+ $("upload-progress").textContent=files.length?
+  "Pendiente de confirmar: "+files.map(x=>x.file.name).join(" · ")+
+  ". Pulsa Confirmar cambios para publicar.":
+  "Sin archivos nuevos seleccionados. También puedes confirmar textos, colores y marca de agua.";
+}
+async function confirmEditorChanges(){
+ if(S.editorSaving)return;
+ const button=$("confirm-editor"),status=$("upload-progress");
+ S.editorSaving=true;button.disabled=true;button.textContent="Guardando cambios…";
+ try{
+  const files=pendingEditorFiles();
+  for(const {key,file} of files){
+   status.textContent="Preparando "+file.name+"…";
+   if(key==="intro"){
+    await uploadIntroVideo(file);
+   }else{
+    if(!await uploadAsset(key,file))throw Error("No se pudo guardar "+file.name+".");
+   }
+  }
+  const design={};
+  for(const key of ["title","intro_label","intro_caption","button_label",
+                    "header_mode","tile_shape","intro_fit","button_color",
+                    "accent","background","text_color"])
+   design[key]=$("edit-"+key).value;
+  design.daily_limit=100;
+  status.textContent="Guardando identidad y marca de agua…";
+  await api("admin-design",{design});
+  await api("admin-watermark",{watermark:watermarkFromEditor()});
+  for(const key of ["logo","header","intro"])$("upload-"+key).value="";
+  await refresh();
+  populateEditor();
+  status.textContent="✓ Cambios confirmados. La portada ya está publicada.";
+  notice("Cambios guardados y publicados correctamente.");
+ }catch(e){
+  status.textContent="No se pudieron confirmar todos los cambios: "+e.message+
+   " Los archivos confirmados anteriormente permanecen guardados.";
+  notice("Revisa el error antes de volver a confirmar.");
+ }finally{
+  S.editorSaving=false;button.disabled=false;button.textContent="✓ Confirmar cambios";
  }
 }
 let searchTimer=null;
@@ -1148,12 +1255,20 @@ $("load-permissions").onclick=loadPermissions;
 $("save-permissions").onclick=savePermissions;
 $("save-design").onclick=saveDesign;
 $("save-watermark").onclick=saveWatermark;
+$("confirm-editor").onclick=confirmEditorChanges;
+$("intro-sound").onclick=()=>{
+ const video=$("intro-video"),button=$("intro-sound");
+ video.muted=!video.muted;
+ button.textContent=video.muted?"🔊 Activar sonido":"🔇 Silenciar video";
+ video.play().catch(()=>notice("No se pudo reproducir el video automáticamente."));
+};
 for(const key of ["enabled","line1","line2","position","opacity","size","color"]){
  const input=$("edit-wm-"+key);
  input.addEventListener("input",previewWatermark);
  input.addEventListener("change",previewWatermark);
 }
-for(const key of ["logo","header","intro"])$("upload-"+key).onchange=e=>uploadAsset(key,e.target.files[0]);
+for(const key of ["logo","header","intro"])
+ $("upload-"+key).onchange=editorPendingFilesMessage;
 async function browserLogin(uid,password){
  const response=await fetch("/web-galerias/admin/login",{
   method:"POST",cache:"no-store",credentials:"same-origin",

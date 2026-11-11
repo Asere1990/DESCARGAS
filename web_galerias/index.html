@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=personal-menu-ghost-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=fullscreen-intro-confirm-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=personal-menu-ghost-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=fullscreen-intro-confirm-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -34,9 +34,11 @@
   </div>
  </section>
  <section id="intro" class="intro screen">
-  <div class="intro-video-wrap"><video id="intro-video" controls playsinline preload="metadata" poster="" hidden></video>
+  <div class="intro-video-wrap"><video id="intro-video" autoplay muted loop playsinline webkit-playsinline preload="metadata" hidden></video>
    <div id="intro-placeholder" class="intro-placeholder"><span>✦</span><span>GALERÍAS PRIVADAS</span></div></div>
-  <div class="intro-bottom"><div id="intro-logo" class="intro-logo">▦</div>
+  <div class="intro-bottom">
+    <button id="intro-sound" type="button" class="intro-sound hidden" aria-label="Activar sonido del video de presentación">🔊 Activar sonido</button>
+    <div id="intro-logo" class="intro-logo">▦</div>
    <div id="intro-headline" class="intro-headline">Web Galerías</div>
    <p id="intro-subtitle">Explora nuestras galerías privadas</p>
    <button id="enter" class="primary">ENTRAR A LA GALERÍA</button>
@@ -172,7 +174,13 @@
      <label>Texto principal de publicidad<input id="edit-intro_label"></label>
      <label>Descripción<input id="edit-intro_caption"></label>
      <label>Texto del botón<input id="edit-button_label"></label>
-     <label>Forma de miniaturas<select id="edit-tile_shape"><option value="square">Cuadradas</option><option value="rectangle">Rectangulares</option></select></label></div>
+     <label>Forma de miniaturas<select id="edit-tile_shape"><option value="square">Cuadradas</option><option value="rectangle">Rectangulares</option></select></label>
+      <label>Video de presentación
+        <select id="edit-intro_fit">
+          <option value="cover">Llenar toda la pantalla (puede recortar bordes)</option>
+          <option value="contain">Mostrar completo (puede dejar bandas)</option>
+        </select>
+      </label></div>
     <div class="panel-card"><h2>Colores</h2>
       <div class="color-grid"><label>Botón<input type="color" id="edit-button_color"></label>
        <label>Destacado<input type="color" id="edit-accent"></label>
@@ -218,7 +226,10 @@
       <label>Logo<input id="upload-logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
       <label>Cabecera diseñada<input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp"></label>
       <label>Video publicitario<input id="upload-intro" type="file" accept="video/mp4,video/quicktime,video/webm"></label>
-      <div id="upload-progress" class="muted">Los cambios aparecerán sin modificar el código.</div>
+      <p class="muted">Logo hasta 3 MB · imagen de cabecera hasta 5 MB · video hasta 80 MB.</p>
+      <p class="muted">El video MOV, MP4 o WebM se convertirá automáticamente a MP4 compatible. Para publicarlo, pulsa Confirmar cambios.</p>
+      <div id="upload-progress" class="muted" role="status" aria-live="polite">Sin archivos pendientes de guardar.</div>
+      <button id="confirm-editor" type="button" class="primary compact">✓ Confirmar cambios</button>
      </div>
    </div>
    <div id="tab-estado" class="tab hidden"><div id="admin-health" class="panel-card"></div>

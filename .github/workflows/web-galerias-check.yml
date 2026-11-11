@@ -8,6 +8,7 @@ on:
       - 'tests/test_web_galerias.py'
       - 'tests/test_web_galerias_drag.cjs'
       - 'tests/test_web_galerias_personal_menus.py'
+      - 'tests/test_web_galerias_intro_video.py'
       - 'tests/test_web_galerias_standalone.py'
       - 'tests/test_web_galerias_sync.py'
       - 'tests/test_web_galerias_mobile_navigation.py'
@@ -43,6 +44,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p test_web_galerias.py -v
           python -m unittest discover -s tests -p test_web_galerias_personal_menus.py -v
+          python -m unittest discover -s tests -p test_web_galerias_intro_video.py -v
           python -m unittest discover -s tests -p test_web_galerias_standalone.py -v
           python -m unittest discover -s tests -p test_web_galerias_sync.py -v
           python -m unittest discover -s tests -p test_subscription_actions.py -v

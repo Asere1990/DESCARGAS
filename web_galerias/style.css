@@ -515,3 +515,50 @@
   #viewer .viewer-bottom.with-cover{gap:3px;padding-left:5px;padding-right:5px}
   #viewer .viewer-bottom.with-cover .viewer-action{font-size:10px;padding-left:2px;padding-right:2px}
 }
+
+
+/* Video publicitario de portada a pantalla completa, accesible en iPhone y Android. */
+#intro.has-intro-video{
+  position:relative;isolation:isolate;overflow:hidden;
+  min-height:100svh;min-height:100dvh;
+}
+#intro.has-intro-video .intro-video-wrap{
+  position:absolute;inset:0;z-index:0;
+  min-height:0;max-height:none;width:100%;height:100%;
+  overflow:hidden;background:#020307;
+}
+#intro.has-intro-video .intro-video-wrap video{
+  position:absolute;inset:0;
+  width:100%;height:100%;max-height:none;
+  object-fit:cover;background:#020307;
+}
+#intro.has-intro-video .intro-video-wrap:after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(to bottom,rgba(0,0,0,.17),transparent 27%,
+    rgba(0,0,0,.24) 52%,rgba(0,0,0,.80) 80%,rgba(0,0,0,.94));
+}
+#intro.has-intro-video .intro-bottom{
+  position:relative;z-index:2;align-self:stretch;
+  width:100%;max-width:none;margin:auto 0 0;
+  padding:35dvh 23px max(34px,env(safe-area-inset-bottom,0px));
+  background:linear-gradient(to bottom,transparent,rgba(0,0,0,.30));
+}
+#intro.has-intro-video .intro-bottom #enter{
+  max-width:520px;display:block;margin-left:auto;margin-right:auto;
+}
+#intro.has-intro-video .intro-headline,
+#intro.has-intro-video .intro-bottom p{text-shadow:0 3px 15px rgba(0,0,0,.75)}
+#intro .intro-sound{
+  display:inline-flex;justify-content:center;align-items:center;
+  min-height:40px;margin:0 auto 15px;padding:8px 13px;
+  background:#080d17cc;color:#fff;border:1px solid #ffffff60;
+  border-radius:999px;font-size:12px;font-weight:650;
+  backdrop-filter:blur(8px);touch-action:manipulation;
+}
+#tab-diseno #upload-progress{
+  white-space:pre-line;line-height:1.55;
+  padding:10px 12px;border-radius:12px;background:#ffffff09;
+  border:1px solid var(--line);
+}
+#tab-diseno #confirm-editor{margin-top:13px;min-height:54px}
+#tab-diseno #confirm-editor:disabled{opacity:.65}
