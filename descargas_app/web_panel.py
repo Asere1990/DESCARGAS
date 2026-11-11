@@ -103,6 +103,8 @@ class TelegramPanel:
         self.overview=AccountOverview(self)
         from .panel_background_search import BackgroundPanelSearch
         self.background_search=BackgroundPanelSearch(self)
+        from .panel_favorites import PanelFavorites
+        self.favorites=PanelFavorites(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -372,6 +374,17 @@ class TelegramPanel:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
             if op=='revoke' and post:
                 await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
+            if op=='favorites' and request.method=='GET':
+                return web.json_response(await self.favorites.listing(actor),headers=HEADERS)
+            if post and op in ('favorite-toggle','favorite-remove'):
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Favorito no válido.')
+                if op=='favorite-toggle':
+                    result=await self.favorites.toggle(actor,data)
+                else:
+                    result=await self.favorites.remove(actor,
+                        integer(data.get('account')),int(data.get('source')))
+                return web.json_response(result,headers=HEADERS)
             if post and op in ('search-job-start','search-job-control'):
                 data=await request.json()
                 if not isinstance(data,dict):raise ValueError('Solicitud de búsqueda no válida.')
