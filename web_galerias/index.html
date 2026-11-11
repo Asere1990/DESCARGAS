@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=folder-cover-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=filter-below-search-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=folder-cover-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=filter-below-search-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -69,16 +69,18 @@
  <section id="album" class="screen hidden">
   <header class="topbar album-topbar">
     <div class="album-heading"><strong id="album-title">Carpeta</strong><small id="album-subtitle"></small></div>
-    <div class="filter-wrap">
-     <button id="filter-toggle" type="button" class="small-btn filter-toggle" aria-label="Filtrar fotos y videos" aria-expanded="false">Mostrar todo ▾</button>
-     <div id="filter-menu" class="filter-menu hidden" role="menu">
-      <button type="button" data-kind="all" role="menuitem">Mostrar todo</button>
-      <button type="button" data-kind="photo" role="menuitem">Solo fotos</button>
-      <button type="button" data-kind="video" role="menuitem">Solo videos</button>
-     </div>
-    </div>
-   </header>
+  </header>
   <div class="search"><span>⌕</span><input id="query" type="search" placeholder="Buscar por caption o comentarios" autocomplete="off"></div>
+  <div class="album-filter-bar">
+    <div class="filter-wrap">
+      <button id="filter-toggle" type="button" class="small-btn filter-toggle" aria-label="Filtrar fotos y videos" aria-haspopup="menu" aria-controls="filter-menu" aria-expanded="false">Mostrar todo ▾</button>
+      <div id="filter-menu" class="filter-menu hidden" role="menu">
+        <button type="button" data-kind="all" role="menuitem">Mostrar todo</button>
+        <button type="button" data-kind="photo" role="menuitem">Solo fotos</button>
+        <button type="button" data-kind="video" role="menuitem">Solo videos</button>
+      </div>
+    </div>
+  </div>
   <div id="folder-drop-tray" class="folder-drop-tray hidden">
    <span>Mantén pulsada una foto o video y arrástralo a tu carpeta:</span>
    <div id="folder-drop-targets" class="folder-drop-targets"></div>
