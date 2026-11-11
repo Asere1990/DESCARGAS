@@ -172,7 +172,7 @@ class PaymentLinkTests(unittest.IsolatedAsyncioTestCase):
             conn.execute.assert_not_awaited()
             event={"id":"evt_demo123","type":"customer.subscription.created",
                    "created":int(time.time()),"data":{"object":{"id":"sub_other",
-                   "items":{"data":[{"price":{"id":"price_not_our_price"}}]}}}
+                   "items":{"data":[{"price":{"id":"price_not_our_price"}}]}}}}
             with patch.object(stripe.Webhook,"construct_event",return_value=event):
                 response=await link.webhook(g,req)
             self.assertEqual(response.status,200)
