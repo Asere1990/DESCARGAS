@@ -14,6 +14,7 @@ from pathlib import Path
 from telethon import errors, types
 from PIL import Image, ImageOps
 from .core import normal
+from .media_types import classify
 
 log=logging.getLogger("web-galerias-sync")
 EXTRA="""
@@ -47,11 +48,9 @@ class PauseRequested(Exception):
 
 
 def media_kind(m):
-    if getattr(m,"photo",None):return "photo","image/jpeg"
-    doc=getattr(m,"document",None)
-    mime=str(getattr(doc,"mime_type","") or "")
-    if mime.startswith("video/"):return "video",mime
-    return None,None
+    """Mantener la firma anterior para los consumidores del sincronizador."""
+    kind,mime,_=classify(m)
+    return kind,mime
 
 
 async def folder_active(g,folder):
@@ -372,21 +371,12 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
 
 
 async def catalog(g,folder,m):
-    if getattr(m,"noforwards",False) or getattr(m,"ttl_period",None) or getattr(getattr(m,"media",None),"ttl_seconds",None):
+    """Guardar solo multimedia y sus captions: nunca indexar conversaciones."""
+    if (getattr(m,"noforwards",False) or getattr(m,"ttl_period",None)
+        or getattr(getattr(m,"media",None),"ttl_seconds",None)):
         return
-    db=g.db()
-    kind,mime=media_kind(m)
+    kind,mime,source_type=classify(m)
     if not kind:
-        reply=getattr(getattr(m,"reply_to",None),"reply_to_msg_id",None)
-        content=normal(getattr(m,"message","") or "")
-        if reply and content:
-            await db.execute("""INSERT INTO wg_replies(folder,parent_message,reply_message,words)
-              VALUES($1,$2,$3,$4) ON CONFLICT(folder,reply_message)
-              DO UPDATE SET words=excluded.words""",folder,reply,m.id,content[:1000])
-            # Only index the relation; comment text never exposed as chat.
-            await db.execute("""UPDATE wg_media SET search_text=left(search_text||' '||$3,4000)
-              WHERE folder=$1 AND message=$2 AND position($3 in search_text)=0""",
-              folder,reply,content[:1000])
         return
     caption=str(getattr(m,"message","") or "")[:1500]
     doc=getattr(m,"document",None)
@@ -394,21 +384,29 @@ async def catalog(g,folder,m):
     filename="video.mp4" if kind=="video" else "foto.jpg"
     attrs=getattr(doc,"attributes",[]) or []
     for attr in attrs:
-        if hasattr(attr,"file_name"):
+        if getattr(attr,"file_name",None):
             filename=str(attr.file_name)[:110]
+            break
+    if source_type=="gif" and mime=="image/gif" and filename=="video.mp4":
+        filename="animacion.gif"
+    if source_type=="photo_file" and filename=="foto.jpg":
+        extension={"image/png":".png","image/webp":".webp",
+                   "image/heic":".heic","image/avif":".avif"}.get(mime,".jpg")
+        filename="foto"+extension
     reply=getattr(getattr(m,"reply_to",None),"reply_to_msg_id",None)
     grouped=str(m.grouped_id) if getattr(m,"grouped_id",None) else None
-    other=await db.fetchval("""SELECT string_agg(words,' ') FROM wg_replies
-      WHERE folder=$1 AND parent_message=$2""",folder,m.id) or ""
-    await db.execute("""INSERT INTO wg_media(
+    await g.db().execute("""INSERT INTO wg_media(
       folder,message,kind,mime,filename,width,height,size,date,label,search_text,
-      reply_to,grouped,created)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-      ON CONFLICT(folder,message) DO NOTHING""",
+      reply_to,grouped,created,source_type)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      ON CONFLICT(folder,message) DO UPDATE SET
+        source_type=excluded.source_type,
+        kind=excluded.kind,mime=excluded.mime,filename=excluded.filename,
+        label=excluded.label,search_text=excluded.search_text
+      WHERE wg_media.state IN ('pending','missing')""",
       folder,m.id,kind,mime,filename,0,0,size,
       m.date.timestamp() if m.date else time.time(),
-      caption,normal(caption+" "+other)[:4000],reply,grouped,time.time())
-
+      caption,normal(caption)[:4000],reply,grouped,time.time(),source_type)
 
 
 async def backup_one(g,folder,item,message,client,guard):
