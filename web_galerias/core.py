@@ -289,7 +289,9 @@ class GalleryCore:
         from .permissions import payment_test_user
         from .payments import ready as stripe_ready
         checkout_enabled=(not allowed and (payment_test_user(uid)
-                         or os.getenv("GALERIAS_PUBLIC","0")=="1"))
+                         or os.getenv("GALERIAS_PUBLIC","0")=="1")
+                         and not await self.db().fetchval(
+                            "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
         return {"admin":is_admin(uid),"allowed":allowed,
           "checkout_enabled":checkout_enabled,
           "checkout_ready":stripe_ready() if checkout_enabled else False,
