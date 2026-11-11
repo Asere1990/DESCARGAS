@@ -133,7 +133,9 @@ class BackgroundPanelSearch:
             row=await self.s.repo.pool.fetchrow(
                 'SELECT * FROM descarga_panel_search_jobs WHERE bot_id=$1 AND actor=$2 ORDER BY created DESC LIMIT 1',
                 self.s.bot_id,actor)
-        if row and row['access_version']!=version:raise web.HTTPForbidden()
+        if row and row['access_version']!=version:
+            if job_id:raise web.HTTPForbidden()
+            return None  # Old revoked panel sessions cannot block a new search.
         return row
 
     async def active_accounts(self,actor):
