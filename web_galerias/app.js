@@ -90,22 +90,61 @@ async function saveWatermark(){
  }catch(e){notice(e.message);}
  finally{button.disabled=false;}
 }
+function renderEntryButtonLabel(label,forceText=false){
+ const button=$("enter"),text=String(label||"ENTRAR A LA GALERÍA");
+ // A stale image load must never overwrite a newer label or the checkout CTA.
+ const generation=(S.buttonLabelGeneration||0)+1;
+ S.buttonLabelGeneration=generation;
+ button.classList.remove("enter-image-label");
+ button.textContent=text;
+ button.setAttribute("aria-label",text);
+ if(forceText||S.me?.design?.button_mode!=="image")return;
+ const image=new Image();
+ image.className="enter-label-image";image.alt="";
+ image.onload=()=>{
+  if(S.buttonLabelGeneration!==generation||S.me?.design?.button_mode!=="image")return;
+  button.replaceChildren(image);
+  button.classList.add("enter-image-label");
+ };
+ // The accessible text stays in the real button if an image fails to load.
+ image.onerror=()=>{};
+ image.src="/web-galerias/assets/button-label-image?t="+Date.now();
+}
+function updateEditorLabelChoices(){
+ const titleImage=$("edit-header_mode").value==="image";
+ const buttonImage=$("edit-button_mode").value==="image";
+ $("edit-title-text-wrap").classList.toggle("hidden",titleImage);
+ $("edit-title-image-wrap").classList.toggle("hidden",!titleImage);
+ $("edit-button-text-wrap").classList.toggle("hidden",buttonImage);
+ $("edit-button-image-wrap").classList.toggle("hidden",!buttonImage);
+}
 function applyDesign(d){const r=document.documentElement.style;
  r.setProperty("--accent",d.accent);r.setProperty("--bg",d.background);r.setProperty("--text",d.text_color);
  r.setProperty("--button",d.button_color);r.setProperty("--tile-aspect",d.tile_shape==="rectangle"?"4 / 3":"1");
  renderViewerWatermark(d);
- $("intro-headline").textContent=d.title;$("brand-name").textContent=d.title;
- $("intro-subtitle").textContent=d.intro_caption;$("enter").textContent=d.button_label;
+ const headline=$("intro-headline");
+ const titleGeneration=(S.titleImageGeneration||0)+1;
+ S.titleImageGeneration=titleGeneration;
+ headline.textContent=d.title;headline.setAttribute("aria-label",d.title);
+ $("brand-name").textContent=d.title;
+ $("intro-subtitle").textContent=d.intro_caption;
  $("intro-placeholder").lastElementChild.textContent=d.intro_label;
  document.title=d.title;
  for(const [id,key] of [["brand-logo","logo"]]){
    const image=$(id),icon=$("brand-icon");image.onload=()=>{image.hidden=false;icon.hidden=true;};
    image.onerror=()=>{image.hidden=true;icon.hidden=false;};image.src="/web-galerias/assets/"+key+"?t="+Date.now();}
  if(d.header_mode==="image"){
-   const image=new Image();image.onload=()=>{$("intro-headline").innerHTML="";
-     image.alt=d.title;image.style.cssText="max-width:min(90vw,460px);max-height:120px;object-fit:contain";
-     $("intro-headline").append(image);};
-   image.src="/web-galerias/assets/header?t="+Date.now();}
+   const image=new Image();
+   image.alt=d.title;
+   image.style.cssText="max-width:min(90vw,460px);max-height:120px;object-fit:contain";
+   image.onload=()=>{
+     if(S.titleImageGeneration!==titleGeneration)return;
+     headline.replaceChildren(image);
+   };
+   // Inaccessible image = use the saved text, never a blank headline.
+   image.onerror=()=>{};
+   image.src="/web-galerias/assets/header?t="+Date.now();
+ }
  const video=$("intro-video"),placeholder=$("intro-placeholder");
  const intro=$("intro"),sound=$("intro-sound"),poster=$("intro-hero-poster");
  const mode=["photo","gif"].includes(d.intro_media)?"photo":"video";
@@ -185,16 +224,17 @@ async function refresh(lite=false){
  updateQuotaStatus();
  if(!S.me.allowed){
   if(S.me.checkout_enabled){
+   renderEntryButtonLabel("COMPRAR MEMBRESÍA",true);
    $("enter").textContent="COMPRAR MEMBRESÍA";
    // Provider branding only appears when the user opens hosted checkout.
    $("intro-notice").textContent="";
   }else{
-   $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
+   renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
    $("intro-notice").textContent=S.me.pilot?
     "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
   }
  }else{
-  $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
+  renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
   $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
  }
  $("intro-notice").classList.add("hidden");
@@ -1031,13 +1071,14 @@ function switchAdminTab(tab){
 }
 function populateEditor(){
  const d=S.me.design;
- for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
+ for(const k of ["title","intro_label","intro_caption","button_label","header_mode","button_mode","tile_shape",
                  "intro_fit","intro_media","button_color","accent","background","text_color"])
-  $("edit-"+k).value=d[k]||"";
+  $("edit-"+k).value=d[k]||(k==="button_mode"?"text":"");
+ updateEditorLabelChoices();
  populateWatermarkEditor(d);
 }
 async function saveDesign(){
- const design={};for(const k of ["title","intro_label","intro_caption","button_label","header_mode","tile_shape",
+ const design={};for(const k of ["title","intro_label","intro_caption","button_label","header_mode","button_mode","tile_shape",
                "intro_fit","intro_media","button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
  design.daily_limit=100;
  try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
@@ -1147,7 +1188,7 @@ async function uploadIntroVideo(file){
  });
 }
 function pendingEditorFiles(){
- return ["logo","header","intro-photo","intro"]
+ return ["logo","header","button-label-image","intro-photo","intro"]
   .map(key=>({key,file:$("upload-"+key).files?.[0]}))
   .filter(entry=>!!entry.file);
 }
@@ -1174,14 +1215,14 @@ async function confirmEditorChanges(){
   }
   const design={};
   for(const key of ["title","intro_label","intro_caption","button_label",
-                    "header_mode","tile_shape","intro_fit","intro_media","button_color",
+                    "header_mode","button_mode","tile_shape","intro_fit","intro_media","button_color",
                     "accent","background","text_color"])
    design[key]=$("edit-"+key).value;
   design.daily_limit=100;
   status.textContent="Guardando identidad y marca de agua…";
   await api("admin-design",{design});
   await api("admin-watermark",{watermark:watermarkFromEditor()});
-  for(const key of ["logo","header","intro","intro-photo"])$("upload-"+key).value="";
+  for(const key of ["logo","header","button-label-image","intro","intro-photo"])$("upload-"+key).value="";
   S.heroNeedsReload=files.some(({key})=>key==="intro"||key==="intro-photo");
   await refresh();
   populateEditor();
@@ -1370,16 +1411,22 @@ for(const key of ["enabled","line1","line2","position","opacity","size","color"]
  input.addEventListener("input",previewWatermark);
  input.addEventListener("change",previewWatermark);
 }
-for(const key of ["logo","header","intro","intro-photo"])
+for(const selector of ["header_mode","button_mode"])
+ $("edit-"+selector).onchange=updateEditorLabelChoices;
+for(const key of ["logo","header","button-label-image","intro","intro-photo"])
  $("upload-"+key).onchange=()=>{
-  if(key==="intro"&&$("upload-intro").files?.length){
+  const file=$("upload-"+key).files?.[0];
+  if(key==="header"&&file)$("edit-header_mode").value="image";
+  if(key==="button-label-image"&&file)$("edit-button_mode").value="image";
+  if(key==="intro"&&file){
    $("upload-intro-photo").value="";
    $("edit-intro_media").value="video";
   }
-  if(key==="intro-photo"&&$("upload-intro-photo").files?.length){
+  if(key==="intro-photo"&&file){
    $("upload-intro").value="";
    $("edit-intro_media").value=file.type==="image/gif"?"gif":"photo";
   }
+  updateEditorLabelChoices();
   editorPendingFilesMessage();
  };
 async function browserLogin(uid,password){
