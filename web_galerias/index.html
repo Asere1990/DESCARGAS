@@ -168,6 +168,20 @@
      <p class="muted">JPEG, PNG o WebP · hasta 5 MB. Podrás cambiarla después.</p>
      <p id="new-cover-status" class="muted" role="status"></p>
      <button id="add-folder" class="primary compact">Agregar a la galería</button></div>
+    <div id="admin-media-manager" class="panel-card admin-media-manager">
+     <h2>Moderar fotos y videos</h2>
+     <p class="muted">Selecciona archivos de cualquier galería. Ocultarlos no los borra de Telegram. El respaldo de Cloudflare es opcional.</p>
+     <label for="admin-media-folder">Galería
+      <select id="admin-media-folder"><option value="">Elegir galería…</option></select>
+     </label>
+     <button id="admin-media-load" type="button" class="small-btn strong">Ver fotos y videos</button>
+     <div id="admin-media-grid" class="admin-media-grid" aria-label="Multimedia de la galería"></div>
+     <button id="admin-media-more" type="button" class="small-btn hidden">Mostrar más archivos</button>
+     <p id="admin-media-selected" class="muted" role="status">0 archivos seleccionados</p>
+     <label class="admin-r2-choice"><input type="checkbox" id="admin-media-r2"> Eliminar también los originales y miniaturas del respaldo Cloudflare R2</label>
+     <button id="admin-media-delete" type="button" class="small-btn admin-delete-media" disabled>Eliminar seleccionados del sistema</button>
+     <p id="admin-media-status" class="muted" aria-live="polite"></p>
+    </div>
     <div id="admin-folders"></div>
    </div>
    <div id="tab-usuarios" class="tab hidden">
@@ -177,7 +191,18 @@
       <label>Visibilidad<select id="permission-mode"><option value="all">Todas las carpetas</option><option value="selected">Solo las seleccionadas</option></select></label>
       <div id="permission-folders" class="check-folders"></div>
       <button id="save-permissions" class="primary compact">Guardar permisos</button>
-     </div><h2>Usuarios e historial</h2><div id="admin-users"></div>
+     </div>
+     <details id="admin-users-details" class="panel-card admin-users-details">
+      <summary>Usuarios activos y fichas completas ▾</summary>
+      <p class="muted">Los datos privados se consultan en CUSTOMER-SERVICE.</p>
+      <label for="admin-user-selector">Elegir usuario
+       <select id="admin-user-selector"><option value="">Seleccionar usuario…</option></select>
+      </label>
+      <button id="admin-user-more" class="small-btn hidden" type="button">Cargar más usuarios</button>
+      <button id="admin-user-open" class="small-btn strong" type="button">Revisar ficha</button>
+      <div id="admin-user-profile" class="admin-user-profile" aria-live="polite"></div>
+     </details>
+     <h2>Usuarios e historial</h2><div id="admin-users"></div>
    </div>
    <div id="tab-diseno" class="tab hidden">
     <div class="panel-card"><h2>Identidad de la Mini App</h2>
@@ -264,6 +289,13 @@
    <button id="browser-logout" type="button" class="mobile-action hidden" aria-label="Cerrar sesión de este dispositivo"><span aria-hidden="true">⇥</span> Salir</button>
   </nav>
  </section>
+ <div id="media-context-sheet" class="save-sheet hidden" role="dialog" aria-modal="true" aria-label="Acciones de foto o video">
+  <div class="sheet-card">
+   <h2 id="media-context-title">Opciones del archivo</h2>
+   <div id="media-context-actions" class="sheet-choices"></div>
+   <button id="media-context-close" type="button" class="small-btn">Cancelar</button>
+  </div>
+ </div>
  <div id="folder-picker" class="save-sheet hidden" role="dialog" aria-modal="true" aria-label="Elegir carpeta personal">
   <div class="sheet-card"><h2>Guardar en mi carpeta</h2>
    <p>Los originales no se moverán ni se borrarán.</p>
