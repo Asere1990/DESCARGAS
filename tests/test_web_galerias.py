@@ -435,6 +435,22 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("DELETE",sql)
         self.assertEqual(db.fetch.await_args.args[1],7)
 
+    async def test_admin_samples_show_telegram_message_ids_and_failure_reasons(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+        samples=[{"message":501,"kind":"video","mime":"image/gif",
+                  "source_type":"gif","error":"no_disponible_en_origen"}]
+        db=SimpleNamespace(fetchval=AsyncMock(return_value=1),
+                           fetch=AsyncMock(return_value=samples))
+        g=SimpleNamespace(db=lambda:db)
+        result=await admin_op(g,7539025033,"admin-missing-samples",{"folder":7})
+        self.assertEqual(result["items"],samples)
+        self.assertIn("ORDER BY id DESC LIMIT 10",db.fetch.await_args.args[0])
+        self.assertEqual(db.fetch.await_args.args[1],7)
+        with self.assertRaises(web.HTTPForbidden):
+            await admin_op(g,123456,"admin-missing-samples",{"folder":7})
+        self.assertEqual(db.fetch.await_count,1)
+
     def test_admin_uses_client_style_cover_grid_and_expands_details(self):
         root=Path(__file__).resolve().parents[1]/"web_galerias"
         script=(root/"app.js").read_text(encoding="utf-8")
@@ -450,7 +466,8 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
                      'addAdminDatum("Fotos enviadas como archivo"',
                      'addAdminDatum("Videos enviados como archivo"',
                      'addAdminDatum("Incidencias sin verificar"',
-                     'admin-recheck-missing'):
+                     'admin-recheck-missing','admin-missing-samples',
+                     'Ver 10 ejemplos'):
             self.assertIn(part,section)
         self.assertIn("#admin #admin-folders.admin-gallery-grid{",css)
         self.assertIn("grid-template-columns:repeat(2",css)
