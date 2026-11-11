@@ -11,9 +11,9 @@
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/intro-poster">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=free-user-menu-gif-20261111-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=title-button-image-20261111-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-free-user-menu-gif-20261111"></script>
+<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-title-button-image-20261111"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=free-user-menu-gif-20261111-v1"></script>
 </head><body>
 <div id="app" class="app">
@@ -237,11 +237,28 @@
    </div>
    <div id="tab-diseno" class="tab hidden">
     <div class="panel-card"><h2>Identidad de la Mini App</h2>
-     <label>Nombre principal<input id="edit-title"></label>
-     <label>Presentación de cabecera<select id="edit-header_mode"><option value="text">Nombre escrito</option><option value="image">Imagen diseñada</option></select></label>
+     <label>Mostrar título principal como
+       <select id="edit-header_mode" aria-label="Elegir título en texto o imagen">
+        <option value="text">Texto</option><option value="image">Imagen</option>
+       </select>
+     </label>
+     <label id="edit-title-text-wrap">Texto del título<input id="edit-title" maxlength="160"></label>
+     <label id="edit-title-image-wrap" class="hidden">Imagen que sustituye al título
+       <input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp">
+       <small>PNG, JPEG o WebP · hasta 5 MB. La imagen sustituye solo al título.</small>
+     </label>
      <label>Texto principal de publicidad<input id="edit-intro_label"></label>
      <label>Descripción<input id="edit-intro_caption"></label>
-     <label>Texto del botón<input id="edit-button_label"></label>
+     <label>Mostrar texto del botón como
+       <select id="edit-button_mode" aria-label="Elegir texto o imagen dentro del botón">
+        <option value="text">Texto</option><option value="image">Imagen</option>
+       </select>
+     </label>
+     <label id="edit-button-text-wrap">Texto del botón<input id="edit-button_label" maxlength="160"></label>
+     <label id="edit-button-image-wrap" class="hidden">Imagen que sustituye solo al texto del botón
+       <input id="upload-button-label-image" type="file" accept="image/png,image/jpeg,image/webp">
+       <small>PNG, JPEG o WebP · hasta 3 MB. El botón conserva su color, tamaño y función. Se recomienda PNG transparente.</small>
+     </label>
      <label>Forma de miniaturas<select id="edit-tile_shape"><option value="square">Cuadradas</option><option value="rectangle">Rectangulares</option></select></label>
       <label>Fondo de la portada principal
         <select id="edit-intro_media">
@@ -299,12 +316,11 @@
     </div>
     <div class="panel-card"><h2>Imágenes y video</h2>
       <label>Logo<input id="upload-logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
-      <label>Cabecera diseñada<input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp"></label>
       <label>Foto o GIF promocional
         <input id="upload-intro-photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
       </label>
       <label>Video publicitario<input id="upload-intro" type="file" accept="video/mp4,video/quicktime,video/webm"></label>
-      <p class="muted">Logo hasta 3 MB · cabecera hasta 5 MB · foto o GIF hasta 5 MB · video hasta 80 MB.</p>
+      <p class="muted">Logo hasta 3 MB · título hasta 5 MB · texto gráfico del botón hasta 3 MB · foto o GIF hasta 5 MB · video hasta 80 MB.</p>
       <p class="muted">Escoge video, foto o GIF animado. El video conserva su primer fotograma mientras comienza la reproducción; el GIF se anima sin reproductor.</p>
       <p class="muted">El video MOV, MP4 o WebM se convertirá automáticamente a MP4 compatible. Para publicarlo, pulsa Confirmar cambios.</p>
       <div id="upload-progress" class="muted" role="status" aria-live="polite">Sin archivos pendientes de guardar.</div>
