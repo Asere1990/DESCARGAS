@@ -155,9 +155,21 @@ async function refresh(lite=false){
  $("stat-videos").textContent=pretty(S.me.videos);
  $("quota-count").textContent=pretty(S.me.remaining)+" de 100";
  $("quota-fill").style.width=(S.me.remaining)+"%";
- if(!S.me.allowed)$("intro-notice").textContent=S.me.pilot?
-  "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
- else $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
+ if(!S.me.allowed){
+  if(S.me.checkout_enabled){
+   $("enter").textContent="COMPRAR MEMBRESÍA";
+   $("intro-notice").textContent=S.me.checkout_ready?
+    "Compra segura mediante Stripe · Acceso al confirmar tu pago":
+    "La compra se habilitará cuando Stripe esté configurado";
+  }else{
+   $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
+   $("intro-notice").textContent=S.me.pilot?
+    "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
+  }
+ }else{
+  $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
+  $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
+ }
 }
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
