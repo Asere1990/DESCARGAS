@@ -19,9 +19,14 @@ def from_subscription(sub):
     return end
 
 async def checkout(g,uid):
+    from .core import customer_bot_signed
+    if customer_bot_signed(uid) and await g.db().fetchval(
+            "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
+        raise web.HTTPForbidden(text="Cuenta bloqueada. Contacta con soporte.")
     if await g.entitled(uid):return {"allowed":True}
     from .permissions import payment_test_user
-    if os.getenv("GALERIAS_PUBLIC","0")!="1" and not payment_test_user(uid):
+    if (os.getenv("GALERIAS_PUBLIC","0")!="1"
+        and not payment_test_user(uid) and not customer_bot_signed(uid)):
         raise web.HTTPForbidden(text="El acceso todavía está en prueba privada.")
     if not ready():
         raise web.HTTPServiceUnavailable(text="Pagar con tarjeta aún no está configurado.")
