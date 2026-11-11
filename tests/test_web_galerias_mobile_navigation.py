@@ -96,7 +96,9 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('#intro.has-intro-video #intro-placeholder',self.css)
         self.assertIn('display:none!important',self.css)
         self.assertIn('video.hidden=false;placeholder.hidden=true;',self.js)
-        self.assertIn('video.hidden=true;placeholder.hidden=false;',self.js)
+        self.assertIn('video.hidden=true;video.classList.remove("intro-playing");',self.js)
+        self.assertIn('if(!posterReady())',self.js)
+        self.assertIn('placeholder.hidden=false;',self.js)
 
     def test_filter_is_below_search_outside_swiftgram_header(self):
         album=self.html.split('<section id="album"',1)[1].split('</section>',1)[0]
