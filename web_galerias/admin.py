@@ -58,7 +58,10 @@ async def admin_op(g,uid,op,data):
         folders=await db.fetch("""SELECT f.id,f.peer,f.name,
             COALESCE(f.public_name,'') AS public_name,
             f.active,f.error,f.complete,f.scan_count,
-            f.last_check,f.source_uid,MAX(c.updated) AS cover_updated,
+            f.last_check,f.source_uid,
+            f.telegram_photos_total,f.telegram_videos_total,
+            f.telegram_counts_at,f.telegram_counts_error,
+            MAX(c.updated) AS cover_updated,
             MAX(m.id) FILTER(WHERE m.state IN ('ready','preview')
               AND m.thumb_key IS NOT NULL) AS automatic_cover,
             COUNT(m.id)::int AS media_total,
