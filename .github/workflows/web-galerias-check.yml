@@ -40,6 +40,7 @@ jobs:
         run: |
           python -m compileall -q web_galerias descargas_app galerias_standalone.py
           node --check web_galerias/app.js
+          node --check web_galerias/admin_tools.js
           node --test tests/test_web_galerias_drag.cjs
       - name: Dependencias
         run: pip install -e .
@@ -58,4 +59,5 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_payment_link.py -v
           python -m unittest discover -s tests -p test_web_galerias_paid_recovery.py -v
           python -m unittest discover -s tests -p test_web_galerias_cubanitas_bridge.py -v
+          python -m unittest discover -s tests -p test_web_galerias_admin_tools.py -v
           python -m unittest discover -s tests -p test_web_galerias_browser_admin.py -v
