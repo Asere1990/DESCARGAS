@@ -7,8 +7,10 @@ import unittest
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+from aiohttp import web
 
 from web_galerias import customer_bridge, core
+from web_galerias.app import Gallery
 
 
 class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
@@ -90,6 +92,32 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
                               new=AsyncMock(side_effect=ConnectionError("unreachable"))):
                 self.assertEqual(await customer_bridge.sync_once(g), 0)
         db.acquire.assert_not_called()
+
+
+    async def test_disputed_checkout_is_rejected_before_any_stripe_action(self):
+        uid=7536216348
+        db=SimpleNamespace(fetchval=AsyncMock(return_value=True))
+        g=SimpleNamespace(auth=AsyncMock(return_value=uid),db=lambda:db)
+        request=SimpleNamespace(content_length=0,json=AsyncMock(
+            return_value={"op":"checkout"}))
+        with patch("web_galerias.app.payments.checkout", new=AsyncMock()) as checkout:
+            with self.assertRaises(web.HTTPForbidden):
+                await Gallery.api(g,request)
+            checkout.assert_not_called()
+        self.assertIn("wg_access_blocks",db.fetchval.await_args.args[0])
+
+    async def test_disputed_user_sees_no_checkout_button(self):
+        uid=7536216348
+        db=SimpleNamespace(execute=AsyncMock(),
+            fetchval=AsyncMock(side_effect=[True,0]))
+        g=SimpleNamespace(db=lambda:db,
+                          entitled=AsyncMock(return_value=False),
+                          design=AsyncMock(return_value={}),
+                          storage=SimpleNamespace(ready=True))
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"1"}):
+            data=await core.GalleryCore.bootstrap(g,uid)
+        self.assertFalse(data["checkout_enabled"])
+        self.assertEqual(data["folders"],[])
 
 
 if __name__ == "__main__":
