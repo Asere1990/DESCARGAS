@@ -158,17 +158,14 @@ async function refresh(lite=false){
  if(!S.me.allowed){
   if(S.me.checkout_enabled){
    $("enter").textContent="COMPRAR MEMBRESÍA";
-   $("intro-notice").textContent=S.me.checkout_ready?
-    "Compra segura mediante Stripe · Acceso al confirmar tu pago":
-    "La compra se habilitará cuando Stripe esté configurado";
+   $("intro-notice").textContent="";
   }else{
    $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
-   $("intro-notice").textContent=S.me.pilot?
-    "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
+   $("intro-notice").textContent="";
   }
  }else{
   $("enter").textContent=S.me.design?.button_label||"ENTRAR A LA GALERÍA";
-  $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
+  $("intro-notice").textContent="";
  }
 }
 function renderFolders(){
