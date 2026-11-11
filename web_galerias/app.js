@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
-const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null};
+const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);};
@@ -130,33 +130,127 @@ function renderFolders(){
  if(!S.folders.length)root.innerHTML='<div class="empty">El administrador todavía no ha publicado carpetas.</div>';
  renderPersonalFolders();
 }
+function setPersonalMenuOpen(open){
+ S.personalMenuOpen=!!open;
+ $("personal-folders").classList.toggle("hidden",!open);
+ $("personal-folders-toggle").setAttribute("aria-expanded",String(!!open));
+}
+function setDropMenuOpen(open){
+ S.dropMenuOpen=!!open;
+ $("folder-drop-menu").classList.toggle("hidden",!open);
+ $("folder-drop-toggle").setAttribute("aria-expanded",String(!!open));
+}
+function makeFolderThumbnail(url){
+ const wrap=document.createElement("span");wrap.className="personal-folder-thumb";
+ if(url){
+  const img=document.createElement("img");img.src=url;img.alt="";
+  img.loading="lazy";img.decoding="async";
+  img.onerror=()=>{img.remove();wrap.textContent="📁";};
+  wrap.append(img);
+ }else wrap.textContent="📁";
+ return wrap;
+}
 function renderPersonalFolders(){
  $("personal-section").classList.toggle("hidden",!S.me?.allowed);
- const root=$("personal-folders");root.replaceChildren();
+ $("personal-folder-count").textContent=pretty(S.personal.length);
+ $("folder-drop-count").textContent=pretty(S.personal.length);
+ const root=$("personal-folder-entries");root.replaceChildren();
  for(const folder of S.personal){
-  const card=document.createElement("article");card.className="folder-card personal-folder-card";
-  const cover=document.createElement("div");cover.className="folder-cover";
-  const icon=document.createElement("span");icon.className="folder-icon";icon.textContent="📁";cover.append(icon);
-  const title=document.createElement("h3");title.textContent=folder.name;
-  const count=document.createElement("p");count.textContent=pretty(folder.count)+" archivos";
+  const line=document.createElement("div");line.className="personal-folder-entry";
+  const main=document.createElement("button");main.type="button";
+  main.className="personal-folder-open";
+  main.append(makeFolderThumbnail(folder.cover));
+  const text=document.createElement("span");text.className="personal-folder-open-text";
+  const title=document.createElement("strong");title.textContent=folder.name;
+  const count=document.createElement("small");count.textContent=pretty(folder.count)+" archivos";
+  text.append(title,count);main.append(text);
+  main.onclick=()=>{setPersonalMenuOpen(false);openFolder({...folder,personal:true});};
   const tools=document.createElement("div");tools.className="personal-folder-tools";
-  const rename=document.createElement("button");rename.textContent="✎";rename.type="button";rename.title="Cambiar nombre";
-  rename.onclick=e=>{e.stopPropagation();renamePersonalFolder(folder);};
-  const erase=document.createElement("button");erase.textContent="×";erase.type="button";erase.title="Eliminar carpeta personal";
-  erase.onclick=e=>{e.stopPropagation();deletePersonalFolder(folder);};
-  tools.append(rename,erase);card.append(cover,tools,title,count);
-  card.onclick=()=>openFolder({...folder,personal:true});
-  root.append(card);
+  const change=document.createElement("button");change.type="button";
+  change.textContent="▧";change.title="Cambiar portada";change.setAttribute("aria-label","Cambiar portada de "+folder.name);
+  change.onclick=()=>{S.coverFolder=folder;$("personal-cover-file").click();};
+  const rename=document.createElement("button");rename.type="button";rename.textContent="✎";
+  rename.title="Renombrar";rename.setAttribute("aria-label","Cambiar nombre de "+folder.name);
+  rename.onclick=()=>renamePersonalFolder(folder);
+  const erase=document.createElement("button");erase.type="button";erase.textContent="×";
+  erase.title="Eliminar";erase.setAttribute("aria-label","Eliminar "+folder.name);
+  erase.onclick=()=>deletePersonalFolder(folder);
+  tools.append(change,rename);
+  if(folder.has_custom_cover){
+   const reset=document.createElement("button");reset.type="button";
+   reset.textContent="↺";reset.title="Portada automática";
+   reset.setAttribute("aria-label","Restablecer portada automática de "+folder.name);
+   reset.onclick=()=>resetPersonalCover(folder);
+   tools.append(reset);
+  }
+  tools.append(erase);line.append(main,tools);root.append(line);
  }
+ setPersonalMenuOpen(S.personalMenuOpen);
  renderDropTargets();
 }
-async function createPersonalFolder(){
- const name=prompt("Nombre de tu nueva carpeta:");
+async function createPersonalFolder(ids=[]){
+ const selected=Array.isArray(ids)?[...new Set(ids)]:[];
+ if(selected.length>10)return notice("Puedes agregar hasta 10 archivos.");
+ if(S.personalSaving)return;
+ const name=prompt(selected.length?"Nombre de la carpeta para estos "+selected.length+" archivos:":
+                            "Nombre de tu nueva carpeta:");
  if(!name)return;
+ S.personalSaving=true;
  try{
-  const data=await api("personal-create",{name});
-  await refresh(true);notice("Carpeta creada: "+data.name);
+  const data=await api("personal-create",{name,ids:selected});
+  if(selected.length){
+   S.selection=false;S.selected.clear();updateSelection();renderItems();
+  }
+  await refresh(true);
+  setDropMenuOpen(false);
+  notice(selected.length?data.name+": "+selected.length+" archivos guardados.":
+                        "Carpeta creada: "+data.name);
+  return data;
  }catch(e){notice(e.message);}
+ finally{S.personalSaving=false;}
+}
+async function resetPersonalCover(folder){
+ try{
+  await api("personal-cover-reset",{personal_folder:folder.id});
+  await refresh(true);notice("Restablecida la miniatura automática.");
+ }catch(e){notice(e.message);}
+}
+async function imageToCoverBase64(file){
+ if(!file||!["image/jpeg","image/png","image/webp"].includes(file.type)||file.size>15*1024*1024)
+  throw Error("Elige una foto JPG, PNG o WebP de hasta 15 MB.");
+ const url=URL.createObjectURL(file);
+ try{
+  const image=new Image();
+  await new Promise((resolve,reject)=>{
+   image.onload=resolve;image.onerror=()=>reject(Error("No se puede abrir la foto."));
+   image.src=url;
+  });
+  if(!image.naturalWidth||!image.naturalHeight||image.naturalWidth*image.naturalHeight>45e6)
+   throw Error("La foto tiene dimensiones demasiado grandes.");
+  const scale=Math.min(1,900/Math.max(image.naturalWidth,image.naturalHeight));
+  const canvas=document.createElement("canvas");
+  canvas.width=Math.max(1,Math.round(image.naturalWidth*scale));
+  canvas.height=Math.max(1,Math.round(image.naturalHeight*scale));
+  const ctx=canvas.getContext("2d",{alpha:false});
+  if(!ctx)throw Error("No se pudo preparar la portada.");
+  ctx.fillStyle="#ffffff";ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  for(const quality of [.82,.70,.55,.42]){
+   const jpg=canvas.toDataURL("image/jpeg",quality).split(",")[1];
+   if(jpg&&jpg.length<=340000)return jpg;
+  }
+  throw Error("Esta foto es demasiado grande incluso después de reducirla.");
+ }finally{URL.revokeObjectURL(url);}
+}
+async function uploadPersonalCover(file){
+ const folder=S.coverFolder;if(!folder||!file)return;
+ try{
+  const image=await imageToCoverBase64(file);
+  await api("personal-cover-upload",{personal_folder:folder.id,image});
+  await refresh(true);
+  notice("Foto de presentación actualizada.");
+ }catch(e){notice(e.message);}
+ finally{$("personal-cover-file").value="";S.coverFolder=null;}
 }
 async function renamePersonalFolder(folder){
  const name=prompt("Nuevo nombre de la carpeta:",folder.name);
@@ -176,9 +270,20 @@ function renderDropTargets(){
  const tray=$("folder-drop-tray"),root=$("folder-drop-targets");
  root.replaceChildren();
  tray.classList.toggle("hidden",!S.me?.allowed);
+ $("folder-drop-count").textContent=pretty(S.personal.length);
  for(const folder of S.personal){
-  const b=document.createElement("button");b.type="button";b.textContent="📁 "+folder.name;
+  const b=document.createElement("button");b.type="button";
+  b.className="folder-drop-option";b.setAttribute("role","menuitem");
   b.dataset.folderDrop=String(folder.id);
+  const thumb=document.createElement("span");thumb.className="folder-target-cover";
+  if(folder.cover){
+   const img=document.createElement("img");img.src=folder.cover;img.alt="";
+   img.loading="lazy";img.onerror=()=>{img.remove();thumb.textContent="📁";};
+   thumb.append(img);
+  }else thumb.textContent="📁";
+  const title=document.createElement("span");title.className="folder-target-name";
+  title.textContent=folder.name;
+  b.append(thumb,title);
   b.ondragover=e=>{e.preventDefault();b.classList.add("drag-target");};
   b.ondragleave=()=>b.classList.remove("drag-target");
   b.ondrop=e=>{e.preventDefault();b.classList.remove("drag-target");
@@ -186,9 +291,13 @@ function renderDropTargets(){
    const ids=selectedDragIds(id);
    if(ids.length)addToPersonalFolder(folder.id,ids);
   };
-  b.onclick=()=>{if(S.selected.size)addToPersonalFolder(folder.id,[...S.selected]);};
+  b.onclick=()=>{
+   if(S.selected.size)addToPersonalFolder(folder.id,[...S.selected]);
+   else {setDropMenuOpen(false);openFolder({...folder,personal:true});}
+  };
   root.append(b);
  }
+ setDropMenuOpen(S.dropMenuOpen);
 }
 function selectedDragIds(id){
  // Arrastrar cualquiera de los elementos seleccionados mueve la selección
@@ -208,11 +317,13 @@ async function addToPersonalFolder(folder,ids){
   await api("personal-add",{personal_folder:folder,ids:unique});
   S.selection=false;S.selected.clear();updateSelection();renderItems();
   await refresh(true);
+  setDropMenuOpen(false);
   notice(unique.length===1?"Archivo guardado en tu carpeta personal.":
      unique.length+" archivos guardados en tu carpeta personal.");
  }catch(e){notice(e.message);}
  finally{S.personalSaving=false;}
 }
+
 async function openFolder(folder){
  S.folder=folder;S.items=[];S.next=null;S.search="";S.filter="all";
  S.selection=false;S.selected.clear();
