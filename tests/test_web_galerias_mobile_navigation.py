@@ -66,6 +66,26 @@ class GalleryMobileNavigation(unittest.TestCase):
                                "viewer-prev","viewer-next"):
                 self.assertNotIn(f'id="{identifier}"',header)
 
+    def test_filter_is_below_search_outside_swiftgram_header(self):
+        album=self.html.split('<section id="album"',1)[1].split('</section>',1)[0]
+        header=album.split('<header',1)[1].split('</header>',1)[0]
+        self.assertNotIn('id="filter-toggle"',header)
+        self.assertNotIn('<button',header)
+        search_pos=album.index('id="query"')
+        filter_pos=album.index('id="filter-toggle"')
+        drop_tray_pos=album.index('id="folder-drop-tray"')
+        self.assertLess(search_pos,filter_pos)
+        self.assertLess(filter_pos,drop_tray_pos)
+        self.assertEqual(album.count('id="filter-toggle"'),1)
+        self.assertIn('class="album-filter-bar"',album)
+        self.assertIn('aria-expanded="false"',album)
+        for kind in ('all','photo','video'):
+            self.assertIn('data-kind="'+kind+'"',album)
+        self.assertIn('top:calc(100% + 6px)',self.css)
+        self.assertIn('min-height:48px',self.css)
+        self.assertIn('#album .folder-drop-tray{',self.css)
+        self.assertIn('position:relative;top:auto;z-index:auto',self.css)
+
     def test_accessibility_and_permissions_unchanged(self):
         for nav in self.doc.nav_classes:
             for control in nav.values():
