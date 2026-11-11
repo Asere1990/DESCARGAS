@@ -132,8 +132,12 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(expected,query)
         self.assertNotIn("wg_media",query)
         self.assertNotIn("DELETE",query)
-        for call in db.execute.await_args_list:
-            self.assertNotIn("wg_media",call.args[0])
+        statements=[call.args[0] for call in db.execute.await_args_list]
+        self.assertTrue(any("UPDATE wg_media SET state='pending'" in sql
+                            and "WHERE folder=$1 AND state='missing'" in sql
+                            for sql in statements))
+        self.assertTrue(all("DELETE FROM wg_media" not in sql for sql in statements))
+        self.assertTrue(all("state='ready'" not in sql for sql in statements))
         core.log.assert_awaited_once_with(7539025033,"admin-folder-source")
 
     async def test_public_name_changes_do_not_rename_internal_folder(self):
