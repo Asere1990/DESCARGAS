@@ -499,3 +499,19 @@
  #library .personal-folder-tools button{width:30px}
  #album #folder-drop-tray{margin-left:12px;margin-right:12px}
 }
+
+
+/* El visor de una carpeta personal mantiene los cinco botones abajo,
+   sin cortar títulos en iPhone compacto ni superponer controles Telegram. */
+#viewer .viewer-bottom.with-cover{
+  gap:5px;
+  padding-left:8px;padding-right:8px;
+}
+#viewer .viewer-bottom.with-cover .viewer-action{
+  min-height:52px;min-width:0;
+  padding:9px 3px;font-size:11px;letter-spacing:-.02em;
+}
+@media(max-width:365px){
+  #viewer .viewer-bottom.with-cover{gap:3px;padding-left:5px;padding-right:5px}
+  #viewer .viewer-bottom.with-cover .viewer-action{font-size:10px;padding-left:2px;padding-right:2px}
+}
