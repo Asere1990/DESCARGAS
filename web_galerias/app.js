@@ -465,9 +465,9 @@ function previewAdmin(){
   const title=document.createElement("h3");
   title.textContent=f.public_name||("Galería "+f.id);
   const count=document.createElement("p");
-  const photoTotal=Number(f.photo_native||0)+Number(f.photo_files||0);
-  const videoTotal=Number(f.video_native||0)+Number(f.video_files||0)+Number(f.gifs||0);
-  count.textContent=pretty(photoTotal)+" fotos · "+pretty(videoTotal)+" videos";
+  // En la tarjeta, mostrar exactamente lo que ve el usuario.
+  // El inventario histórico completo permanece dentro de los detalles.
+  count.textContent=pretty(f.visible_photos)+" fotos · "+pretty(f.visible_videos)+" videos";
   const chevron=document.createElement("span");chevron.className="admin-gallery-chevron";
   chevron.textContent="Detalles ▾";
   trigger.append(cover,title,count,chevron);
