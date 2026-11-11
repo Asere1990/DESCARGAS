@@ -230,7 +230,7 @@ class FolderCoverTests(unittest.IsolatedAsyncioTestCase):
 
     def test_photo_is_normalized_to_small_jpeg(self):
         image=optimized_cover(self.png((1600,900)),"image/png")
-        self.assertTrue(image.startswith(b"\\xff\\xd8\\xff"))
+        self.assertTrue(image.startswith(b"\xff\xd8\xff"))
         with Image.open(io.BytesIO(image)) as result:
             self.assertEqual(result.format,"JPEG")
             self.assertLessEqual(max(result.size),1200)
