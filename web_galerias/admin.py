@@ -14,6 +14,7 @@ WATERMARK_TEXTS={"wm_line1","wm_line2"}
 WATERMARK_KEYS={"wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity","wm_size","wm_color"}
 COLORS={"button_color","accent","background","text_color","wm_color"}
 CHOICES={"header_mode":{"text","image"},"tile_shape":{"square","rectangle"},
+         "intro_fit":{"cover","contain"},
          "wm_position":{"center","top","bottom"}}
 
 def cleaned_design(value):
