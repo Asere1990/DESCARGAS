@@ -448,11 +448,19 @@ async def catalog(g,folder,m):
 
 
 async def backup_one(g,folder,item,message,client,guard):
-    """Idempotente: guarda original + miniatura y después marca ready en DB."""
+    """Respaldo íntegro y verificable, sin modificar el formato original."""
     await guard()
     kind=item["kind"]
     mime=item["mime"] or ("image/jpeg" if kind=="photo" else "video/mp4")
-    ending=".jpg" if kind=="photo" else (".mov" if mime=="video/quicktime" else ".mp4")
+    if kind=="video" and mime=="image/gif":
+        from .gif_backup import backup_gif
+        return await backup_gif(g,folder,item,message,client,guard)
+    extensions={"image/jpeg":".jpg","image/png":".png","image/webp":".webp",
+      "image/bmp":".bmp","image/heic":".heic","image/heif":".heif",
+      "image/avif":".avif","video/quicktime":".mov",
+      "video/webm":".webm","video/x-matroska":".mkv",
+      "video/x-msvideo":".avi","video/x-m4v":".m4v","video/3gpp":".3gp"}
+    ending=extensions.get(mime,".jpg" if kind=="photo" else ".mp4")
     key=f"folders/{folder}/{message.id}/original{ending}"
     thumb_key=f"folders/{folder}/{message.id}/thumb.jpg"
 
@@ -463,54 +471,57 @@ async def backup_one(g,folder,item,message,client,guard):
         known_size==0 or original_size==known_size)
     if original_valid and thumb_size:
         await g.db().execute("""UPDATE wg_media SET state='ready',
-          file_key=$3,thumb_key=$4,size=$5,error=''
+          file_key=$3,thumb_key=$4,size=$5,error='',source_checks=0
           WHERE folder=$1 AND message=$2 AND state IN ('preview','pending')""",
           folder,message.id,key,thumb_key,original_size)
         return
 
-    # Las fotos se descargan a temporal para crear miniaturas de alta calidad.
-    # Video: streaming multiparte de Telegram a R2, con memoria < 16 MiB.
     with tempfile.TemporaryDirectory(prefix="wg-") as tmp:
         tmp=Path(tmp)
         thumb=tmp/"thumb.jpg"
         if kind=="photo" and not original_valid:
-            image_path=tmp/"original.jpg"
-            async def progress(_, total):
+            image_path=tmp/("original"+ending)
+            async def progress(_,total):
                 await guard()
-            await client.download_media(message,file=str(image_path),
-                                        progress_callback=progress)
-            if not image_path.is_file() or image_path.stat().st_size==0:
+            returned=await client.download_media(message,file=str(image_path),
+                                                  progress_callback=progress)
+            image_path=Path(returned) if returned else image_path
+            if not image_path.is_file() or image_path.stat().st_size<=0:
                 raise ValueError("Imagen incompleta")
-            with Image.open(image_path) as photo:
-                photo=ImageOps.exif_transpose(photo)
-                photo.thumbnail((640,640))
-                if photo.mode!="RGB":photo=photo.convert("RGB")
-                photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            try:
+                with Image.open(image_path) as photo:
+                    photo=ImageOps.exif_transpose(photo)
+                    photo.thumbnail((640,640))
+                    if photo.mode!="RGB":photo=photo.convert("RGB")
+                    photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            except (OSError,ValueError) as exc:
+                # No bloquear respaldo de HEIC/AVIF si Pillow no trae decoder.
+                log.info("Photo document thumbnail skipped (%s)",type(exc).__name__)
             await guard()
             await g.storage.upload(image_path,key,mime)
             original_size=image_path.stat().st_size
         elif kind=="video" and not original_valid:
-            # Sin archivo temporal gigantesco ni duplicar el original en memoria.
+            # Los videos se transmiten a R2 por partes sin cargar todo en RAM.
             parts=client.iter_download(message.media,request_size=512*1024)
-            original_size=await g.storage.upload_stream(
-                parts,key,mime,check=guard)
+            original_size=await g.storage.upload_stream(parts,key,mime,check=guard)
 
-        # Miniatura de foto si ya existía el original R2 pero faltaba el thumbnail:
-        # descargar la foto de Telegram solo en ese caso.
         if kind=="photo" and not thumb.is_file() and not thumb_size:
-            image_path=tmp/"source.jpg"
+            image_path=tmp/("source"+ending)
             await guard()
-            async def progress(_, total):
+            async def progress(_,total):
                 await guard()
-            await client.download_media(message,file=str(image_path),
-                                        progress_callback=progress)
-            with Image.open(image_path) as photo:
-                photo=ImageOps.exif_transpose(photo)
-                photo.thumbnail((640,640))
-                if photo.mode!="RGB":photo=photo.convert("RGB")
-                photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            returned=await client.download_media(message,file=str(image_path),
+                                                  progress_callback=progress)
+            image_path=Path(returned) if returned else image_path
+            try:
+                with Image.open(image_path) as photo:
+                    photo=ImageOps.exif_transpose(photo)
+                    photo.thumbnail((640,640))
+                    if photo.mode!="RGB":photo=photo.convert("RGB")
+                    photo.save(thumb,format="JPEG",quality=88,optimize=True)
+            except (OSError,ValueError) as exc:
+                log.info("Photo document thumbnail skipped (%s)",type(exc).__name__)
         if kind=="video" and not thumb_size:
-            # Usar la mayor miniatura disponible en Telegram, sin bajar el video 2 veces.
             try:
                 preview=await client.download_media(
                     message,file=str(tmp/"video_preview"),thumb=-1)
@@ -530,11 +541,10 @@ async def backup_one(g,folder,item,message,client,guard):
             thumb_size=thumb.stat().st_size
 
     await guard()
-    # Las copias ya terminadas permanecen en R2 aunque después se oculte la carpeta.
     await g.db().execute("""UPDATE wg_media SET state='ready',file_key=$3,
-      thumb_key=$4,size=$5,error='' WHERE folder=$1 AND message=$2
-      AND state IN ('preview','pending')""",folder,message.id,key,
-      thumb_key if thumb_size else None,original_size or 0)
+      thumb_key=$4,size=$5,error='',source_checks=0
+      WHERE folder=$1 AND message=$2 AND state IN ('preview','pending')""",
+      folder,message.id,key,thumb_key if thumb_size else None,original_size or 0)
 
 
 def sync_limits(total):
