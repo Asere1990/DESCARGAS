@@ -194,3 +194,16 @@
  font-size:20px;font-weight:800;letter-spacing:.015em;text-shadow:0 1px 8px #000;
  transform:rotate(-24deg);pointer-events:none;z-index:1;padding:0 12px;overflow-wrap:anywhere}
 .viewer-watermark{padding:0 15px;overflow-wrap:anywhere}
+
+/* Portadas personalizadas por galería: carga opcional y edición independiente. */
+.new-cover-preview{
+ display:block;max-width:240px;width:100%;height:140px;object-fit:cover;
+ border:1px solid var(--line);border-radius:14px;margin:2px 0 12px;
+}
+.admin-folder-cover{
+ display:block;width:100%;max-width:270px;aspect-ratio:4 / 3;object-fit:cover;
+ border-radius:12px;border:1px solid var(--line);margin:8px 0 13px;
+ background:#142033;
+}
+#new-cover-status{min-height:1.3em;line-height:1.35;margin:5px 0 12px}
+#new-cover{cursor:pointer}
