@@ -341,7 +341,7 @@ function showViewerMedia(){
   const img=$("view-image"),video=$("view-video");
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
-  if(m.kind==="video"&&full){
+  if(m.kind==="video"&&full&&m.mime!=="image/gif"){
     img.hidden=true;video.hidden=false;video.src=m.view;
   }else{
     video.hidden=true;img.hidden=false;
