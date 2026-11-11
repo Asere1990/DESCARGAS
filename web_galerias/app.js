@@ -500,6 +500,12 @@ function previewAdmin(){
   addAdminDatum("Nombre público",f.public_name||("Galería "+f.id));
   addAdminDatum("Nombre interno",f.name||"Sin nombre");
   addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal de origen.");
+  addAdminDatum("Cuenta Telegram para el historial",
+    f.preferred_uid?String(f.preferred_uid):"No asignada",
+    "Solo esta cuenta vinculada se utilizará cuando la establezcas. Debe poder ver todo el historial.");
+  if(!f.preferred_uid&&f.source_uid)
+    addAdminDatum("Cuenta detectada hasta ahora",String(f.source_uid),
+      "Cuenta elegida automáticamente; puedes fijar otra con acceso al historial completo.");
   addAdminDatum("Fotos totales en Telegram",
     hasTelegramTotals?pretty(f.telegram_photos_total):"Pendiente de consulta",
     "Cantidad reportada por Telegram, sin descargar archivos ni esperar la catalogación.");
@@ -592,7 +598,26 @@ function previewAdmin(){
    try{if(await uploadAsset("folder-cover",file,f.id)){await loadAdmin();await refresh(true);}}
    finally{choose.disabled=false;choose.textContent=oldLabel;}
   };
-  buttons.append(edit,publicEdit,choose);
+  const sourceButton=document.createElement("button");sourceButton.type="button";
+  sourceButton.className="small-btn";sourceButton.textContent="Cuenta del historial";
+  sourceButton.onclick=async()=>{
+    const current=String(f.preferred_uid||f.source_uid||"");
+    const account_uid=prompt("Telegram ID de la cuenta vinculada que puede ver todo el historial:",current);
+    if(account_uid===null)return;
+    const cleaned=account_uid.trim();
+    if(!/^[1-9][0-9]{4,18}$/.test(cleaned))
+      return notice("Escribe un Telegram ID válido de una cuenta conectada.");
+    if(cleaned===current&&f.preferred_uid)return notice("Esa cuenta ya está asignada.");
+    if(!confirm("El historial se volverá a revisar desde esta cuenta. Los archivos guardados en Cloudflare permanecerán intactos. ¿Continuar?"))return;
+    sourceButton.disabled=true;
+    try{
+      await api("admin-folder-source",{folder:f.id,account_uid:cleaned});
+      await loadAdmin();
+      notice("Cuenta asignada. El sistema buscará el historial que puede ver esa cuenta.");
+    }catch(e){notice(e.message);}
+    finally{sourceButton.disabled=false;}
+  };
+  buttons.append(edit,publicEdit,sourceButton,choose);
   if(f.has_custom_cover){
    const resetPhoto=document.createElement("button");resetPhoto.type="button";
    resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
@@ -852,20 +877,24 @@ $("new-cover").onchange=()=>{
 };
 $("add-folder").onclick=async()=>{
  const peer=$("new-peer").value.trim(),name=$("new-name").value.trim(),
-  public_name=$("new-public-name").value.trim(),cover=$("new-cover").files?.[0];
+  public_name=$("new-public-name").value.trim(),cover=$("new-cover").files?.[0],
+  account_uid=$("new-source-uid").value.trim();
  if(!/^-[0-9]{3,19}$/.test(peer)||!name||!public_name)
    return notice("Escribe el ID, el nombre interno y el nombre público por separado.");
+ if(!/^[1-9][0-9]{4,18}$/.test(account_uid))
+   return notice("Indica el Telegram ID de la cuenta vinculada que ve el historial completo.");
  if(cover&&(!["image/jpeg","image/png","image/webp"].includes(cover.type)||
              !cover.size||cover.size>5_000_000))
    return notice("La foto debe ser JPEG, PNG o WebP, hasta 5 MB.");
  const button=$("add-folder");button.disabled=true;
  try{
-   const created=await api("admin-folder",{peer,name,public_name});
+   const created=await api("admin-folder",{peer,name,public_name,account_uid});
    if(cover&&!(await uploadAsset("folder-cover",cover,created.id))){
      notice("Galería creada, pero la portada no pudo guardarse. Puedes volver a intentarlo.");
      await loadAdmin();await refresh(true);return;
    }
    $("new-peer").value="";$("new-name").value="";$("new-public-name").value="";
+   $("new-source-uid").value="";
    $("new-cover").value="";$("new-cover").onchange();
    $("new-cover-status").textContent="";
    notice("Carpeta agregada correctamente.");await loadAdmin();await refresh(true);
