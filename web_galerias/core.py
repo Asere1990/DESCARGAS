@@ -92,8 +92,9 @@ DEFAULTS={
 ASSET_MIME={
  "logo":{"image/png","image/jpeg","image/webp"},
  "header":{"image/png","image/jpeg","image/webp"},
+ "intro-photo":{"image/png","image/jpeg","image/webp"},
  "intro":{"video/mp4","video/quicktime","video/webm"}}
-MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro":25_000_000}
+MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro-photo":5_000_000,"intro":25_000_000}
 
 def identifier(value,minimum=1):
     try:n=int(value)
