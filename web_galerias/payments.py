@@ -25,7 +25,7 @@ async def checkout(g,uid):
         raise web.HTTPForbidden(text="El acceso todavía está en prueba privada.")
     if not ready():
         raise web.HTTPServiceUnavailable(text="Pagar con tarjeta aún no está configurado.")
-    from .payment_link_checkout import configured,new_checkout
+    from .payment_link_checkout import configured,checkout as new_checkout
     if configured():
         return await new_checkout(g,uid)
     import stripe
