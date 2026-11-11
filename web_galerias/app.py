@@ -52,7 +52,12 @@ class Gallery(GalleryCore):
         if not isinstance(data,dict):raise web.HTTPBadRequest(text="Solicitud inválida.")
         op=data.get("op")
         if op=="bootstrap":return await self.bootstrap(uid,data.get("name",""))
-        if op=="checkout":return await payments.checkout(self,uid)
+        if op=="checkout":
+            if await self.db().fetchval(
+                    "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
+                raise web.HTTPForbidden(
+                    text="Cuenta restringida. Contacta con soporte.")
+            return await payments.checkout(self,uid)
         if isinstance(op,str) and op.startswith("admin-"):
             return await admin.admin_op(self,uid,op,data)
         if not await self.entitled(uid):raise web.HTTPForbidden(text="Acceso no autorizado.")
