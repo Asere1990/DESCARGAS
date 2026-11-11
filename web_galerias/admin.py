@@ -59,7 +59,7 @@ async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
     if op in ("admin-media-list","admin-media-remove","admin-media-r2-status",
-              "admin-active-users","admin-user-profile","admin-users-page",
+              "admin-active-users","admin-user-profile","admin-users-page","admin-user-stats",
               "admin-user-access-status","admin-user-access-change",
               "admin-user-personal-folders","admin-user-personal-items",
               "admin-user-personal-remove","admin-user-personal-delete"):
@@ -109,11 +109,6 @@ async def admin_op(g,uid,op,data):
         for entry in reasons:
             reason_map.setdefault(entry["folder"],[]).append({
               "code":entry["error"] or "sin_motivo","count":entry["amount"]})
-        users=await db.fetch("""SELECT u.uid,u.name,u.first_seen,u.last_seen,
-            s.state,s.paid_until,p.mode
-            FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
-            LEFT JOIN wg_user_prefs p ON p.uid=u.uid
-            ORDER BY u.last_seen DESC LIMIT 500""")
         remote=await db.fetchval("SELECT value FROM wg_config WHERE key='backup_status'")
         if isinstance(remote,str):
             remote=json.loads(remote)
@@ -138,7 +133,7 @@ async def admin_op(g,uid,op,data):
             folder["missing_reasons"]=reason_map.get(folder["id"],[])
             result_folders.append(folder)
         return {"folders":result_folders,
-            "users":[{**dict(x),"admin":is_admin(x["uid"]),"tester":is_tester(x["uid"])} for x in users],
+            "users":[],  # Never preload thousands of visitors on overview.
             "storage_ready":g.storage.ready or bool(remote.get("storage") and running),
             "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",
             "sync_folder":remote.get("folder") if running else None,
