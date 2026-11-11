@@ -86,7 +86,7 @@ DEFAULTS={
  "intro_caption":"Explora nuestras galerías privadas","button_color":"#198ee8",
  "accent":"#2196f3","background":"#0b0d12","text_color":"#ffffff",
  "tile_shape":"square","daily_limit":100,"intro_label":"Descubre nuestras galerías",
- "intro_fit":"cover",
+ "intro_fit":"cover","intro_media":"video",
  "wm_enabled":True,"wm_line1":"Búscame en Google","wm_line2":"hoo.be/Cubanas",
  "wm_position":"center","wm_opacity":30,"wm_size":20,"wm_color":"#FFFFFF"}
 ASSET_MIME={
