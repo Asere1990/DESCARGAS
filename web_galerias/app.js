@@ -508,6 +508,8 @@ function previewAdmin(){
   addAdminDatum("Archivos respaldados",pretty(f.ready),"Originales guardados en Cloudflare R2.");
   addAdminDatum("Archivos pendientes",pretty(f.pending),
      "Falta respaldar el original; algunos ya tienen miniatura.");
+  if(f.rechecking)addAdminDatum("Revalidación solicitada",pretty(f.rechecking),
+     "Forman parte de los pendientes; se comprobarán sin bloquear las descargas.");
   const legacyMissing=Math.max(0,Number(f.missing||0)-Number(f.missing_rechecked||0));
   addAdminDatum("Incidencias sin verificar",pretty(legacyMissing),
     "No significa que estén borrados; incluye errores de clasificación anteriores.");
