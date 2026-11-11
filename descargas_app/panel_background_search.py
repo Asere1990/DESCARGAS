@@ -46,6 +46,8 @@ class LeaseLost(Exception):
     """The browser paused or another worker owns the job; keep the scheduler alive."""
 
 LOG=logging.getLogger(__name__)
+MAX_SEARCH_SECONDS = 3600  # A forgotten panel search must never run for days.
+PAGES_PER_TURN = 8        # Yield the scheduler between bounded read-only batches.
 
 MODES = frozenset(('phrases','name','id','username','phone','country',
                    'channels','channel_id','groups','group_id','bots'))
@@ -175,10 +177,18 @@ class BackgroundPanelSearch:
             # from two browser tabs starting searches at nearly the same time.
             await conn.execute('SELECT pg_advisory_xact_lock($1,$2)',
                                int(self.s.bot_id)%2000000000,int(actor)%2000000000)
-            existing=await conn.fetchval("""SELECT id FROM descarga_panel_search_jobs
-                WHERE bot_id=$1 AND actor=$2 AND state IN ('queued','running','waiting') LIMIT 1""",
-                self.s.bot_id,actor)
-            if existing:raise ValueError('Ya tienes una búsqueda en curso.')
+            # A different query supersedes any previous search atomically.
+            # An in-flight worker's next checkpoint will fail its state check
+            # and roll back, without modifying Telegram sessions.
+            await conn.execute("""UPDATE descarga_panel_search_jobs
+                SET state='superseded',owner=NULL,lease_until=0,updated=$3
+                WHERE bot_id=$1 AND actor=$2 AND state IN
+                ('queued','running','waiting','paused','incomplete')""",
+                self.s.bot_id,actor,now)
+            await conn.execute("""DELETE FROM descarga_panel_search_jobs
+                WHERE bot_id=$1 AND actor=$2 AND created<$3
+                  AND state NOT IN ('queued','running','waiting')""",
+                self.s.bot_id,actor,now-7*86400)
             await conn.execute(
                 """INSERT INTO descarga_panel_search_jobs
                    (id,bot_id,actor,access_version,mode,state,checkpoint,total,
@@ -230,6 +240,13 @@ class BackgroundPanelSearch:
                    WHERE id=$1 AND actor=$2 AND bot_id=$3
                      AND state IN ('paused','incomplete')""",
                 job_id,actor,self.s.bot_id,self.s.repo.encode(data),time.time())
+        elif action=='cancel':
+            await self.s.repo.pool.execute(
+                """UPDATE descarga_panel_search_jobs SET state='cancelled',
+                   owner=NULL,lease_until=0,updated=$4
+                   WHERE id=$1 AND actor=$2 AND bot_id=$3
+                     AND state IN ('queued','running','waiting','paused','incomplete')""",
+                job_id,actor,self.s.bot_id,time.time())
         else:raise ValueError('Acción de búsqueda no válida.')
         return await self.status(actor,version,job_id)
 
@@ -363,6 +380,7 @@ class BackgroundPanelSearch:
 
     async def run_claimed(self,row):
         data=self.checkpoint(row)
+        pages=0
         while True:
             fresh=await self.s.repo.pool.fetchrow(
                 'SELECT state,owner,access_version FROM descarga_panel_search_jobs WHERE id=$1',row['id'])
@@ -374,6 +392,13 @@ class BackgroundPanelSearch:
                        owner=NULL,lease_until=0 WHERE id=$1 AND owner=$2""",
                     row['id'],self.owner)
                 return
+            if time.time()-row['created']>MAX_SEARCH_SECONDS:
+                await self.s.repo.pool.execute(
+                    """UPDATE descarga_panel_search_jobs
+                       SET state='expired',owner=NULL,lease_until=0,updated=$3
+                       WHERE id=$1 AND owner=$2 AND state='running'""",
+                    row['id'],self.owner,time.time())
+                return
             if data['index']>=len(data['accounts']):
                 await self.s.repo.pool.execute(
                     """UPDATE descarga_panel_search_jobs
@@ -384,11 +409,22 @@ class BackgroundPanelSearch:
             try:
                 hits,next_cursor=await self.scan_page(row,data)
                 await self.checkpoint_page(row,data,hits,next_cursor)
+                pages+=1
             except asyncio.CancelledError:raise
             except LeaseLost:return
             except Exception as exc:
                 next_state=await self.checkpoint_error(row,data,exc)
                 if next_state=='waiting':return
+            if pages>=PAGES_PER_TURN:
+                # Release the durable search lease so ordinary panel requests
+                # do not compete against a single uninterrupted search loop.
+                await self.s.repo.pool.execute(
+                    """UPDATE descarga_panel_search_jobs
+                       SET state='queued',owner=NULL,lease_until=0,
+                           next_at=$3,updated=$3
+                       WHERE id=$1 AND owner=$2 AND state='running'""",
+                    row['id'],self.owner,time.time()+2)
+                return
             await asyncio.sleep(0.6)
 
     async def loop(self):
