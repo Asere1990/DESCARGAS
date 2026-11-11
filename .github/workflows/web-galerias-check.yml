@@ -13,6 +13,7 @@ on:
       - 'tests/test_web_galerias_sync.py'
       - 'tests/test_web_galerias_mobile_navigation.py'
       - 'tests/test_web_galerias_public_metadata.py'
+      - 'tests/test_web_galerias_payment_gate.py'
       - 'tests/test_web_galerias_browser_admin.py'
       - 'galerias_standalone.py'
       - 'descargas_app/subscription_actions.py'
@@ -51,4 +52,5 @@ jobs:
           python -m unittest discover -s tests -p test_galerias_start_button.py -v
           python -m unittest discover -s tests -p test_web_galerias_mobile_navigation.py -v
           python -m unittest discover -s tests -p test_web_galerias_public_metadata.py -v
+          python -m unittest discover -s tests -p test_web_galerias_payment_gate.py -v
           python -m unittest discover -s tests -p test_web_galerias_browser_admin.py -v
