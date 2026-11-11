@@ -106,6 +106,7 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
     async def test_cannot_assign_account_without_linked_session(self):
         core,db=self.make_core()
         db.fetchval=AsyncMock(return_value=False)
+        db.fetchrow=AsyncMock()
         core.log=AsyncMock()
         with patch("web_galerias.admin.is_admin",return_value=True):
             with self.assertRaises(web.HTTPBadRequest):
