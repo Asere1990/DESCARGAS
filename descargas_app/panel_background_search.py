@@ -162,12 +162,8 @@ class BackgroundPanelSearch:
         if mode not in ENTITIES and not query:raise ValueError('Escribe un texto para buscar.')
         if mode in ('channel_id','group_id') and (not query.lstrip('-').isdigit()):
             raise ValueError('Introduce el ID completo del canal o grupo.')
-        row=await self.owned(actor,version)
-        if row and row['state'] in ('queued','running','waiting'):
-            old=self.checkpoint(row)
-            if row['mode']==mode and old.get('query')==query:
-                return {'job':self.summary(row)}
-            raise ValueError('Hay una búsqueda en curso. Entra al panel y pulsa Pausar antes de iniciar otra.')
+        await self.owned(actor,version)
+        # Each new submission supersedes the previous job, even if identical.
         accounts=await self.active_accounts(actor)
         if not authorized(actor):raise web.HTTPForbidden()
         now=time.time()
