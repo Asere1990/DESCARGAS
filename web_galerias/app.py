@@ -52,6 +52,21 @@ class Gallery(GalleryCore):
         if not isinstance(data,dict):raise web.HTTPBadRequest(text="Solicitud inválida.")
         op=data.get("op")
         if op=="bootstrap":return await self.bootstrap(uid,data.get("name",""))
+        if op=="presence":
+            # Heartbeat only from an authenticated, entitled viewer, never
+            # from a public/unverified web request or an idle home screen.
+            import time
+            view=data.get("view")
+            if view not in ("library","album","viewer"):
+                raise web.HTTPBadRequest(text="Vista no válida.")
+            if not await self.entitled(uid):
+                raise web.HTTPForbidden(text="Acceso no autorizado.")
+            await self.db().execute("""
+                INSERT INTO wg_gallery_presence(uid,updated,view)
+                VALUES($1,$2,$3) ON CONFLICT(uid) DO UPDATE
+                  SET updated=excluded.updated,view=excluded.view""",
+                uid,time.time(),view)
+            return {"ok":True}
         if op=="checkout":
             if await self.db().fetchval(
                     "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
