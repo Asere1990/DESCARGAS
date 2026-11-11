@@ -121,7 +121,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_customer_bot_identity_is_scoped_to_a_signed_request(self):
-        uid=987654321
+        uid=1609522430
         from web_galerias.core import customer_bot_signed, _CUSTOMER_BOT_UID
         from descargas_app import security
         request=SimpleNamespace(headers={"X-Telegram-Init-Data": "signed-for-customer-bot"})
@@ -142,7 +142,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_new_customer_bot_user_can_buy_without_opening_the_original_pilot(self):
         from web_galerias import payments, payment_link_checkout
         from web_galerias.core import _CUSTOMER_BOT_UID
-        uid=987654321
+        uid=1609522430
         db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=False),
                            fetchrow=AsyncMock(return_value=None))
         g=SimpleNamespace(db=lambda:db, entitled=AsyncMock(return_value=False),
@@ -173,21 +173,64 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_paid_customer_bot_user_gets_verified_access(self):
         from web_galerias.core import _CUSTOMER_BOT_UID
-        uid=987654321
+        uid=7536216348
         db=SimpleNamespace(fetchrow=AsyncMock(return_value={
             "state":"active","paid_until":time.time()+900,"blocked":False}))
         g=SimpleNamespace(db=lambda:db)
-        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":""}):
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":str(uid)}):
             token=_CUSTOMER_BOT_UID.set(0)
             try:
-                self.assertFalse(await core.GalleryCore.entitled(g,uid))
-                db.fetchrow.assert_not_awaited()
+                # Existing Stripe-paid pilot membership remains recognized,
+                # regardless of which signed bot opens the Mini App.
+                self.assertTrue(await core.GalleryCore.entitled(g,uid))
                 _CUSTOMER_BOT_UID.set(uid)
                 self.assertTrue(await core.GalleryCore.entitled(g,uid))
                 db.fetchrow.return_value={**db.fetchrow.return_value,"blocked":True}
                 self.assertFalse(await core.GalleryCore.entitled(g,uid))
             finally:
                 _CUSTOMER_BOT_UID.reset(token)
+
+
+    async def test_signed_customer_bot_does_not_open_public_pilot(self):
+        from web_galerias.core import _CUSTOMER_BOT_UID, customer_bot_signed
+        from web_galerias import payments
+        uid=987654321
+        db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=False),
+                           fetchrow=AsyncMock(return_value=None))
+        g=SimpleNamespace(db=lambda:db,entitled=AsyncMock(return_value=False),
+            design=AsyncMock(return_value={}),folder_list=AsyncMock(),
+            storage=SimpleNamespace(ready=True))
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":""}):
+            token=_CUSTOMER_BOT_UID.set(uid)
+            try:
+                self.assertFalse(customer_bot_signed(uid))
+                data=await core.GalleryCore.bootstrap(g,uid,"Tester")
+                self.assertFalse(data["checkout_enabled"])
+                with self.assertRaises(web.HTTPForbidden):
+                    await payments.checkout(g,uid)
+                self.assertFalse(await core.GalleryCore.entitled(
+                    SimpleNamespace(db=lambda:db),uid))
+                db.fetchrow.assert_not_awaited()
+            finally:
+                _CUSTOMER_BOT_UID.reset(token)
+
+    async def test_signed_customer_bot_only_original_four_pilot_ids(self):
+        from web_galerias.core import _CUSTOMER_BOT_UID,customer_bot_signed
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":"7536216348"}):
+            for uid in (1609522430,5662710947,7536216348,7539025033):
+                token=_CUSTOMER_BOT_UID.set(uid)
+                try:self.assertTrue(customer_bot_signed(uid))
+                finally:_CUSTOMER_BOT_UID.reset(token)
+            token=_CUSTOMER_BOT_UID.set(987654321)
+            try:self.assertFalse(customer_bot_signed(987654321))
+            finally:_CUSTOMER_BOT_UID.reset(token)
+
+    def test_landing_does_not_advertise_stripe_before_checkout(self):
+        from pathlib import Path
+        js=(Path(__file__).resolve().parents[1]/"web_galerias"/"app.js").read_text()
+        self.assertNotIn("Compra segura mediante Stripe",js)
+        self.assertNotIn("La compra se habilitará cuando Stripe esté configurado",js)
+        self.assertIn('$("intro-notice").classList.toggle("hidden"',js)
 
 
 if __name__ == "__main__":
