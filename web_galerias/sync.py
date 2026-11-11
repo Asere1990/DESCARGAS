@@ -53,9 +53,12 @@ def media_kind(m):
     return kind,mime
 
 
-async def folder_active(g,folder):
-    return bool(await g.db().fetchval(
-        "SELECT active FROM wg_folders WHERE id=$1",folder))
+async def folder_active(g,folder,uid=None):
+    # El administrador puede cambiar la cuenta sin permitir que una sesión
+    # antigua continúe escribiendo cursores del historial incorrecto.
+    return bool(await g.db().fetchval("""SELECT active AND
+       ($2::bigint IS NULL OR preferred_uid IS NULL OR preferred_uid=$2)
+       FROM wg_folders WHERE id=$1""",folder,uid))
 
 
 async def checkpoint(g, folder=None, phase="esperando", error=""):
@@ -69,7 +72,7 @@ async def checkpoint(g, folder=None, phase="esperando", error=""):
 async def source_free(g,uid,folder,*,now=None):
     if g.closed or os.getenv("GALERIAS_SYNC_ENABLED","0")!="1":
         return False
-    if not await folder_active(g,folder):
+    if not await folder_active(g,folder,uid):
         return False
     queued=await g.db().fetchval("""SELECT EXISTS(
       SELECT 1 FROM descarga_jobs
@@ -134,16 +137,18 @@ async def choose_account(g,folder):
     row=await g.db().fetchrow("""SELECT a.uid FROM descarga_accounts a
       LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
       LEFT JOIN wg_account_cooldown c ON c.uid=a.uid
-      WHERE a.session IS NOT NULL AND COALESCE(d.next_after,0)<=$2
+      WHERE a.session IS NOT NULL
+        AND ($4::bigint IS NULL OR a.uid=$4)
+        AND COALESCE(d.next_after,0)<=$2
         AND COALESCE(c.available_at,0)<=$2
-        AND (a.uid=$3 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
+        AND (a.uid=$3 OR a.uid=$4 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
       ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
                -- Nuevas carpetas sin origen: distribuir la exploración
                -- entre las cuentas elegibles en vez de elegir siempre la primera.
                CASE WHEN $3::bigint IS NULL AND d.tried_at IS NULL
                     THEN md5(a.uid::text || ':' || $1::text) ELSE '' END,
                COALESCE(d.tried_at,0),a.uid LIMIT 1""",
-       folder["id"],now,folder["source_uid"])
+       folder["id"],now,folder["source_uid"],folder.get("preferred_uid"))
     return row["uid"] if row else None
 
 
@@ -156,9 +161,9 @@ async def mark_discovery(g,folder,uid,works,delay=0):
        folder,uid,time.time(),works,time.time()+max(0,delay))
 
 
-async def catalog_batch(g,folder,client,entity,source,limit=90):
+async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
     """Indexa con checkpoint duradero, incluso aunque no haya archivos nuevos."""
-    if not await folder_active(g,folder):raise PauseRequested()
+    if not await folder_active(g,folder,uid):raise PauseRequested()
     rows=[]
     limit=max(10,min(120,int(limit)))
     if not source["complete"]:
@@ -169,7 +174,7 @@ async def catalog_batch(g,folder,client,entity,source,limit=90):
         async for m in client.iter_messages(entity,
               min_id=source["high_water"],reverse=True,limit=limit):
             rows.append(m)
-    if not await folder_active(g,folder):raise PauseRequested()
+    if not await folder_active(g,folder,uid):raise PauseRequested()
     if not rows:
         if not source["complete"]:
             await g.db().execute(
@@ -178,6 +183,7 @@ async def catalog_batch(g,folder,client,entity,source,limit=90):
         return 0
     for m in rows:
         await catalog(g,folder,m)
+    if not await folder_active(g,folder,uid):raise PauseRequested()
     if not source["complete"]:
         await g.db().execute("""UPDATE wg_folders SET scan_cursor=$2,
           high_water=GREATEST(high_water,$3),scan_count=scan_count+$4
@@ -363,8 +369,10 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
     if not await folder_active(g,folder):return
     uid=await choose_account(g,source)
     if uid is None:
-        await g.db().execute("""UPDATE wg_folders SET
-          error='Buscando otra cuenta disponible' WHERE id=$1 AND active""",folder)
+        reason=("Cuenta de origen fijada no disponible: revisar conexión o espera"
+                if source.get("preferred_uid") else "Buscando otra cuenta disponible")
+        await g.db().execute("""UPDATE wg_folders SET error=$2
+          WHERE id=$1 AND active""",folder,reason)
         return
     if not await source_free(g,uid,folder):return
     try:
@@ -375,8 +383,12 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             await guard()
             if entity is None:
                 await mark_discovery(g,folder,uid,False,delay=600)
-                await g.db().execute("""UPDATE wg_folders SET source_uid=NULL
-                  WHERE id=$1 AND source_uid=$2""",folder,uid)
+                await g.db().execute("""UPDATE wg_folders
+                  SET source_uid=NULL,error=$3
+                  WHERE id=$1 AND source_uid=$2""",folder,uid,
+                  "La cuenta fijada no tiene acceso al grupo"
+                  if source.get("preferred_uid") else
+                  "La cuenta de respaldo no encuentra el grupo")
                 return
             await mark_discovery(g,folder,uid,True)
             await g.db().execute("""UPDATE wg_folders SET
@@ -388,7 +400,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
 
             if phase in ("combined","index","prime"):
                 await checkpoint(g,folder,"catalogando")
-                await catalog_batch(g,folder,client,entity,source,limit=scan_size)
+                await catalog_batch(g,folder,client,entity,source,limit=scan_size,uid=uid)
             if catalog_only or phase=="index":
                 await checkpoint(g,folder,"en_espera")
                 return
@@ -625,6 +637,24 @@ async def backup_one(g,folder,item,message,client,guard):
       folder,message.id,key,thumb_key if thumb_size else None,original_size or 0)
 
 
+def archive_candidates(folders,counts,round_no):
+    """No permitir que originales sigan a la misma velocidad que previews.
+
+    Cuando aún falta contenido por mostrar, se crea antes un colchón visible.
+    La quinta ronda permite respaldo de todos modos para que R2 no se estanque.
+    """
+    progress={int(x["folder"]):x for x in counts}
+    eligible=[]
+    goal=24 if len(folders)<=20 else 12
+    for folder in folders:
+        row=progress.get(int(folder["id"]),{})
+        preview=int(row.get("preview") or 0)
+        pending=int(row.get("pending") or 0)
+        if preview and (preview>=goal or pending==0 or round_no%5==0):
+            eligible.append(folder)
+    return eligible
+
+
 def sync_limits(total):
     """Turnos cortos para no monopolizar las demás galerías."""
     try:
@@ -644,6 +674,10 @@ async def fair_round(g,folders,*,catalog_only=False,phase="combined"):
     if not folders or g.closed:
         return
     files,scan=sync_limits(len(folders))
+    if phase=="prime":
+        # Previews tienen prioridad sobre originales: 8 por carpeta para
+        # grupos pequeños y, como mínimo, 2 para 50 galerías simultáneas.
+        files=max(files,8 if len(folders)<=5 else 4 if len(folders)<=20 else 2)
     if phase=="archive":
         files=1  # Un original por galería: videos grandes no bloquean toda la ronda.
     try:
@@ -712,12 +746,21 @@ async def run(g):
                       ORDER BY f.telegram_counts_at ASC,f.id ASC LIMIT 3""",time.time())
                     if due:
                         await fair_round(g,due,phase="counts")
-                    # Archivar un número limitado por ronda evita que los videos
-                    # grandes retrasen indefinidamente las otras 50 galerías.
-                    if folders:
-                        offset=getattr(g,"archive_offset",0)%len(folders)
-                        selected=(folders[offset:]+folders[:offset])[:max(1,min(3,len(folders)))]
-                        g.archive_offset=(offset+len(selected))%len(folders)
+                    # Prioridad REAL a las galerías visibles: una reserva de
+                    # archivos preview debe adelantarse al respaldo. Las copias
+                    # originales continúan después con turnos equitativos.
+                    round_no=getattr(g,"priority_round",0)+1
+                    g.priority_round=round_no
+                    progress=await db.fetch("""SELECT folder,
+                      COUNT(*) FILTER(WHERE state='pending')::int AS pending,
+                      COUNT(*) FILTER(WHERE state='preview')::int AS preview
+                      FROM wg_media WHERE state IN ('pending','preview')
+                      GROUP BY folder""")
+                    eligible=archive_candidates(folders,progress,round_no)
+                    if eligible:
+                        offset=getattr(g,"archive_offset",0)%len(eligible)
+                        selected=(eligible[offset:]+eligible[:offset])[:max(1,min(3,len(eligible)))]
+                        g.archive_offset=(offset+len(selected))%len(eligible)
                         await fair_round(g,selected,phase="archive")
                     await asyncio.sleep(3)
                 except asyncio.CancelledError:

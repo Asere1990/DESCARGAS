@@ -131,6 +131,16 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn("flex-direction:column",self.css)
         self.assertIn("Solo indica que se alcanzó el final del historial inicial; el respaldo sigue aparte.",self.js)
 
+    def test_admin_can_assign_telegram_account_when_adding_or_editing_group(self):
+        self.assertIn('id="new-source-uid"',self.html)
+        self.assertIn('id="new-source-uid" inputmode="numeric"',self.html)
+        self.assertIn("Cuenta del historial",self.js)
+        self.assertIn('api("admin-folder-source"',self.js)
+        self.assertIn('api("admin-folder",{peer,name,public_name,account_uid})',self.js)
+        self.assertIn('f.preferred_uid',self.js)
+        self.assertIn('f.source_uid',self.js)
+        self.assertIn("Los archivos guardados en Cloudflare permanecerán intactos.",self.js)
+
     def test_browser_admin_logout_is_hidden_from_telegram_clients(self):
         self.assertIn('id="browser-logout" type="button" class="mobile-action hidden"',self.html)
         self.assertIn('if(BROWSER_ADMIN)',self.js)

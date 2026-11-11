@@ -1,5 +1,6 @@
 """Los nombres internos y el estado del respaldo no deben salir a clientes."""
 import unittest
+from aiohttp import web
 from types import SimpleNamespace
 from unittest.mock import AsyncMock,patch
 from web_galerias.core import GalleryCore
@@ -83,6 +84,61 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
         sql=db.fetchrow.await_args.args
         self.assertIn("name,public_name,created",sql[0])
         self.assertEqual(sql[2:4],("Viva Cuba","Fotos de Cuba"))
+
+    async def test_creating_gallery_with_linked_account_stores_preferred_uid(self):
+        core,db=self.make_core()
+        db.fetchval=AsyncMock(return_value=True)
+        db.fetchrow=AsyncMock(return_value={"id":8})
+        core.log=AsyncMock()
+        with patch("web_galerias.admin.is_admin",return_value=True):
+            result=await admin_op(core,7539025033,"admin-folder",{
+                "peer":-1001234567890,"name":"Viva Cuba",
+                "public_name":"Fotos de Cuba","account_uid":"1234567890"})
+        self.assertEqual(result["id"],8)
+        self.assertIn("descarga_accounts",db.fetchval.await_args.args[0])
+        sql=db.fetchrow.await_args.args
+        self.assertIn("preferred_uid,source_uid",sql[0])
+        self.assertEqual(sql[-1],1234567890)
+        self.assertIn("complete=CASE WHEN",sql[0])
+        self.assertIn("scan_cursor=CASE WHEN",sql[0])
+        self.assertNotIn("DELETE FROM wg_media",sql[0])
+
+    async def test_cannot_assign_account_without_linked_session(self):
+        core,db=self.make_core()
+        db.fetchval=AsyncMock(return_value=False)
+        db.fetchrow=AsyncMock()
+        core.log=AsyncMock()
+        with patch("web_galerias.admin.is_admin",return_value=True):
+            with self.assertRaises(web.HTTPBadRequest):
+                await admin_op(core,7539025033,"admin-folder",{
+                    "peer":-1001234567890,"name":"Cuba",
+                    "public_name":"Cuba","account_uid":"111111111"})
+            self.assertFalse(db.fetchrow.await_count)
+            self.assertEqual(db.execute.await_count,0)
+
+    async def test_switching_source_rescans_without_erasing_original_media(self):
+        core,db=self.make_core()
+        db.fetchval=AsyncMock(return_value=1)
+        db.fetchrow=AsyncMock(return_value={"id":7})
+        core.log=AsyncMock()
+        with patch("web_galerias.admin.is_admin",return_value=True):
+            result=await admin_op(core,7539025033,"admin-folder-source",{
+                "folder":7,"account_uid":"1234567890"})
+        self.assertEqual(result,{"ok":True,"changed":True,"account_uid":1234567890})
+        query=db.fetchrow.await_args.args[0]
+        for expected in ("preferred_uid=$2","source_uid=$2",
+                         "scan_cursor=0","high_water=0","complete=FALSE",
+                         "telegram_photos_total=NULL","telegram_videos_total=NULL"):
+            self.assertIn(expected,query)
+        self.assertNotIn("wg_media",query)
+        self.assertNotIn("DELETE",query)
+        statements=[call.args[0] for call in db.execute.await_args_list]
+        self.assertTrue(any("UPDATE wg_media SET state='pending'" in sql
+                            and "WHERE folder=$1 AND state='missing'" in sql
+                            for sql in statements))
+        self.assertTrue(all("DELETE FROM wg_media" not in sql for sql in statements))
+        self.assertTrue(all("state='ready'" not in sql for sql in statements))
+        core.log.assert_awaited_once_with(7539025033,"admin-folder-source")
 
     async def test_public_name_changes_do_not_rename_internal_folder(self):
         core,db=self.make_core()

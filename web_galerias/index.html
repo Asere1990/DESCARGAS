@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=telegram-origin-totals-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=preferred-origin-priority-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=telegram-origin-totals-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=preferred-origin-priority-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -120,6 +120,11 @@
    <div id="tab-carpetas" class="tab">
     <div class="panel-card"><h2>Agregar carpeta</h2>
      <label>Group ID o Channel ID<input id="new-peer" placeholder="-1001234567890" inputmode="numeric"></label>
+     <label>Telegram ID de la cuenta que ve el historial completo
+      <input id="new-source-uid" inputmode="numeric" pattern="[1-9][0-9]{4,18}" maxlength="19"
+       placeholder="ID de una cuenta vinculada al sistema">
+     </label>
+     <p class="muted">Utiliza el Telegram ID de la cuenta conectada que realmente puede ver el contenido del grupo. No necesitas dar contraseñas ni sesiones. Podrás cambiarla después.</p>
      <label>Nombre interno (solo administrador)<input id="new-name" placeholder="Ej.: Viva Cuba"></label>
      <label>Nombre visible para los clientes<input id="new-public-name" placeholder="Ej.: Fotos de Cuba"></label>
      <label>Foto de presentación (opcional)
