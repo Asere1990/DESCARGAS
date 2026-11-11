@@ -78,7 +78,7 @@ class AccessTests(unittest.TestCase):
 class PersonalFoldersTests(unittest.IsolatedAsyncioTestCase):
     def test_names_are_clean_and_limited(self):
         self.assertEqual(folder_name("  Viajes   Cuba  "),"Viajes Cuba")
-        for value in ("", " "*8, "a"*61, "\\x00test", None):
+        for value in ("", " "*8, "a"*61, "\x00test", None):
             with self.assertRaises(web.HTTPBadRequest):
                 folder_name(value)
 
