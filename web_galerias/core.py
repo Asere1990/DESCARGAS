@@ -9,7 +9,7 @@ import unicodedata
 from datetime import datetime,timezone
 from pathlib import Path
 from aiohttp import web
-from .permissions import is_admin,pilot_allowed
+from .permissions import is_admin,pilot_allowed,is_tester,payment_test_user
 from .storage import PrivateStorage
 from .personal import PERSONAL_SCHEMA,folders as personal_folders,media_filter
 from .covers import COVER_SCHEMA,temporary_cover
@@ -117,7 +117,12 @@ MAX_ASSET={"logo":3_000_000,"header":5_000_000,"intro-photo":5_000_000,"intro":2
 _CUSTOMER_BOT_UID=ContextVar("wg_customer_bot_verified_uid",default=0)
 
 def customer_bot_signed(uid):
-    return _CUSTOMER_BOT_UID.get()==int(uid)
+    # CUSTOMER-SERVICE stays in private pilot even when its miniapp signature
+    # is valid. The allowed IDs are exactly the original acceso.txt testers,
+    # gallery admins and explicitly payment-gated testers.
+    return (_CUSTOMER_BOT_UID.get()==int(uid) and (
+        is_admin(uid) or is_tester(uid) or payment_test_user(uid)
+    ))
 
 
 def identifier(value,minimum=1):
