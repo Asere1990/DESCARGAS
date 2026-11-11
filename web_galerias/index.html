@@ -10,9 +10,9 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=watermark-editor-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=folder-cover-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=watermark-editor-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=folder-cover-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -120,6 +120,12 @@
      <label>Group ID o Channel ID<input id="new-peer" placeholder="-1001234567890" inputmode="numeric"></label>
      <label>Nombre interno (solo administrador)<input id="new-name" placeholder="Ej.: Viva Cuba"></label>
      <label>Nombre visible para los clientes<input id="new-public-name" placeholder="Ej.: Fotos de Cuba"></label>
+     <label>Foto de presentación (opcional)
+      <input id="new-cover" type="file" accept="image/jpeg,image/png,image/webp">
+     </label>
+     <img id="new-cover-preview" class="new-cover-preview hidden" alt="Vista previa de portada seleccionada">
+     <p class="muted">JPEG, PNG o WebP · hasta 5 MB. Podrás cambiarla después.</p>
+     <p id="new-cover-status" class="muted" role="status"></p>
      <button id="add-folder" class="primary compact">Agregar a la galería</button></div>
     <div id="admin-folders"></div>
    </div>
