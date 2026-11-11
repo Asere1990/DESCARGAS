@@ -1,17 +1,22 @@
 """Pruebas de aislamiento y seguridad del piloto Web Galerías."""
 import json
+import base64
+import io
 import time
 import unittest
 from types import SimpleNamespace
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock,patch
 from pathlib import Path
 from cryptography.fernet import Fernet
+from PIL import Image
 from aiohttp import web
 from web_galerias.permissions import is_admin,is_tester,pilot_allowed,button_visible
-from web_galerias.admin import cleaned_design,admin_op
+from web_galerias.admin import cleaned_design,admin_op,upload as admin_upload
 from web_galerias.downloads import temporary_link,validate_link,safe_filename
 from web_galerias.personal import folder_name,media_filter,items as personal_items
-from web_galerias.core import DEFAULTS,normal,identifier
+from web_galerias.core import DEFAULTS,normal,identifier,GalleryCore
+from web_galerias.covers import optimized_cover,temporary_cover,serve,MAX_UPLOAD
 
 class FakeService:
     def __init__(self): self.cipher=Fernet(Fernet.generate_key())
@@ -217,5 +222,138 @@ class WatermarkEditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('renderWatermark($("viewer-watermark"),S.me?.design)',js)
         self.assertIn('input.addEventListener("input",previewWatermark)',js)
 
+
+class FolderCoverTests(unittest.IsolatedAsyncioTestCase):
+    def png(self,size=(900,700),mode="RGB"):
+        im=Image.new(mode,size,(120,80,40,255) if mode=="RGBA" else (120,80,40))
+        out=io.BytesIO()
+        im.save(out,format="PNG")
+        return out.getvalue()
+
+    def test_photo_is_normalized_to_small_jpeg(self):
+        image=optimized_cover(self.png((1600,900)),"image/png")
+        self.assertTrue(image.startswith(b"\xff\xd8\xff"))
+        with Image.open(io.BytesIO(image)) as result:
+            self.assertEqual(result.format,"JPEG")
+            self.assertLessEqual(max(result.size),1200)
+        self.assertLess(len(image),MAX_UPLOAD)
+
+    def test_transparent_photo_and_corrupted_input(self):
+        data=optimized_cover(self.png(mode="RGBA"),"image/png")
+        with Image.open(io.BytesIO(data)) as result:
+            self.assertEqual(result.mode,"RGB")
+        for blob,mime in ((b"not image","image/png"),(self.png(),"image/gif"),
+                          (self.png(),"image/jpeg"),(b"x"*(MAX_UPLOAD+1),"image/png")):
+            with self.subTest(mime=mime,size=len(blob)):
+                with self.assertRaises(web.HTTPBadRequest):
+                    optimized_cover(blob,mime)
+
+    async def test_folder_image_is_private_and_token_bound(self):
+        g=SimpleNamespace(s=FakeService(),permitted=AsyncMock(return_value=False))
+        db=SimpleNamespace(fetchrow=AsyncMock(return_value=None))
+        g.db=lambda:db
+        url=temporary_cover(g,1609522430,7)
+        token=url.split("?t=",1)[1]
+        from web_galerias.downloads import validate_link
+        self.assertEqual(validate_link(g,token,"cover")["item"],7)
+        with self.assertRaises(web.HTTPForbidden):
+            validate_link(g,token,"view")
+        request=SimpleNamespace(match_info={"folder":"7"},query={"t":token})
+        with self.assertRaises(web.HTTPForbidden):
+            await serve(g,request)
+        db.fetchrow.assert_not_awaited()
+        g.permitted.assert_awaited_once_with(1609522430,7)
+        request.match_info={"folder":"8"}
+        with self.assertRaises(web.HTTPForbidden):
+            await serve(g,request)
+
+    async def test_permitted_user_can_read_only_own_cover(self):
+        jpeg=optimized_cover(self.png(),"image/png")
+        g=SimpleNamespace(s=FakeService(),permitted=AsyncMock(return_value=True))
+        db=SimpleNamespace(fetchrow=AsyncMock(return_value={"mime":"image/jpeg","body":jpeg}))
+        g.db=lambda:db
+        token=temporary_cover(g,5662710947,7).split("?t=",1)[1]
+        response=await serve(g,SimpleNamespace(match_info={"folder":"7"},query={"t":token}))
+        self.assertEqual(response.content_type,"image/jpeg")
+        self.assertEqual(response.body,jpeg)
+        self.assertEqual(response.headers["Cache-Control"],"private, max-age=120")
+
+    async def test_custom_cover_precedes_automatic_media_thumbnail(self):
+        db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=0),
+                           fetch=AsyncMock(return_value=[]))
+        service=SimpleNamespace(cipher=Fernet(Fernet.generate_key()),
+                                repo=SimpleNamespace(pool=db))
+        g=GalleryCore(service);g.ready=True;g.db=lambda:db
+        g.entitled=AsyncMock(return_value=True)
+        g.design=AsyncMock(return_value=DEFAULTS)
+        g.folder_list=AsyncMock(return_value=[{
+            "id":7,"name":"Galería pública","photos":0,"videos":0,
+            "cover_updated":12345.0}])
+        result=await g.bootstrap(5662710947)
+        folder=result["folders"][0]
+        self.assertTrue(folder["cover"].startswith("/web-galerias/cover/7?t="))
+        self.assertNotIn("cover_updated",folder)
+        self.assertNotIn("body",folder)
+        # Sin consultas adicionales a las fotos de Telegram.
+        self.assertFalse(any("SELECT id FROM wg_media" in str(call)
+                             for call in db.fetchval.await_args_list))
+
+    async def test_query_covers_does_not_leak_private_admin_folder_names(self):
+        db=SimpleNamespace(fetch=AsyncMock(return_value=[]))
+        g=SimpleNamespace(db=lambda:db)
+        with patch("web_galerias.core.is_admin",return_value=False):
+            await GalleryCore.folder_list(g,5662710947)
+        sql=db.fetch.await_args.args[0]
+        self.assertIn("LEFT JOIN wg_folder_covers",sql)
+        self.assertIn("MAX(c.updated)",sql)
+        self.assertIn("NULLIF(f.public_name,'')",sql)
+        self.assertNotIn("f.name",sql)
+
+    async def test_cover_upload_only_changes_cover_table(self):
+        png=self.png((600,400))
+        async def transaction():
+            yield connection
+        async def acquire():
+            yield connection
+        connection=SimpleNamespace(
+            execute=AsyncMock(),
+            fetch=AsyncMock(return_value=[
+                {"part":0,"total":1,"key":"folder-cover:7","mime":"image/png","body":png}]),
+            transaction=asynccontextmanager(transaction))
+        pool=SimpleNamespace(fetchval=AsyncMock(return_value=1),
+                             acquire=asynccontextmanager(acquire))
+        g=SimpleNamespace(db=lambda:pool,log=AsyncMock())
+        result=await admin_upload(g,7539025033,{
+            "key":"folder-cover","folder":7,"mime":"image/png",
+            "upload":"a"*32,"part":0,"total":1,
+            "data":base64.b64encode(png).decode()})
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["folder"],7)
+        queries=[call.args[0] for call in connection.execute.await_args_list]
+        self.assertTrue(any("INSERT INTO wg_folder_covers" in q for q in queries))
+        self.assertFalse(any("INSERT INTO wg_assets" in q for q in queries))
+        self.assertFalse(any("DELETE FROM wg_media" in q for q in queries))
+        g.log.assert_awaited_once_with(7539025033,"admin-folder-cover")
+
+    async def test_removing_cover_does_not_remove_original_media(self):
+        db=SimpleNamespace(fetchval=AsyncMock(return_value=1),execute=AsyncMock())
+        g=SimpleNamespace(db=lambda:db,log=AsyncMock())
+        result=await admin_op(g,7539025033,"admin-folder-cover-remove",
+                              {"folder":7})
+        self.assertEqual(result,{"ok":True})
+        query=db.execute.await_args.args[0]
+        self.assertIn("DELETE FROM wg_folder_covers",query)
+        self.assertNotIn("wg_media",query)
+        self.assertNotIn("wg_folders",query)
+
+    def test_editor_has_cover_on_create_and_change(self):
+        root=Path(__file__).resolve().parents[1]/"web_galerias"
+        html=(root/"index.html").read_text(encoding="utf-8")
+        js=(root/"app.js").read_text(encoding="utf-8")
+        for expected in ('id="new-cover"','id="new-cover-preview"',
+                         'uploadAsset("folder-cover",cover,created.id)',
+                         'uploadAsset("folder-cover",file,f.id)',
+                         'admin-folder-cover-remove','Cambiar foto'):
+            self.assertIn(expected,html+js)
 
 if __name__=="__main__":unittest.main()

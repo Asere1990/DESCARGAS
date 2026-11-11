@@ -411,6 +411,9 @@ function previewAdmin(){
  for(const f of S.admin.folders){
   const card=document.createElement("div");card.className="admin-row";
   const title=document.createElement("h3");title.textContent=(f.name||"Sin nombre interno")+(f.active?"":" (oculta)");
+  const cover=f.cover?document.createElement("img"):null;
+  if(cover){cover.src=f.cover;cover.className="admin-folder-cover";
+    cover.alt="Foto de presentación de "+(f.public_name||f.name);cover.loading="lazy";}
   const info=document.createElement("p");
   const state=!f.active?"Pausada":S.admin.sync_enabled?"Respaldo activo":"Esperando sincronizador";
   info.textContent="Nombre público: "+(f.public_name||("Galería "+f.id))+" · Origen: "+f.peer+" · "+state+" · "+
@@ -442,7 +445,39 @@ function previewAdmin(){
   };
   const reset=document.createElement("button");reset.className="small-btn";reset.textContent="Revisar origen";
   reset.onclick=async()=>{try{await api("admin-sync-reset",{folder:f.id});notice("Revisión solicitada");await loadAdmin();}catch(e){notice(e.message);}};
-  buttons.append(edit,publicEdit,remove,reset);card.append(title,info,buttons);root.append(card);
+  const pick=document.createElement("input");pick.type="file";pick.accept="image/jpeg,image/png,image/webp";
+  pick.className="hidden";pick.setAttribute("aria-label","Elegir nueva portada de galería");
+  const choose=document.createElement("button");choose.type="button";choose.className="small-btn";
+  choose.textContent=f.has_custom_cover?"Cambiar foto":"Agregar foto";
+  choose.onclick=()=>pick.click();
+  pick.onchange=async()=>{
+    const file=pick.files?.[0];if(!file)return;
+    choose.disabled=true;
+    const oldLabel=choose.textContent;choose.textContent="Subiendo…";
+    try{
+      if(await uploadAsset("folder-cover",file,f.id)){
+        await loadAdmin();await refresh(true);
+      }
+    }finally{choose.disabled=false;choose.textContent=oldLabel;}
+  };
+  buttons.append(edit,publicEdit,choose);
+  if(f.has_custom_cover){
+    const resetPhoto=document.createElement("button");resetPhoto.type="button";
+    resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
+    resetPhoto.onclick=async()=>{
+      if(!confirm("¿Quitar la portada personalizada? Se mostrará la miniatura automática."))return;
+      try{
+        await api("admin-folder-cover-remove",{folder:f.id});
+        await loadAdmin();await refresh(true);
+        notice("Portada quitada. Se mostrará la miniatura automática.");
+      }catch(e){notice(e.message);}
+    };
+    buttons.append(resetPhoto);
+  }
+  buttons.append(remove,reset);
+  card.append(title);
+  if(cover)card.append(cover);
+  card.append(info,pick,buttons);root.append(card);
  }
  const users=$("admin-users");users.replaceChildren();
  for(const u of S.admin.users){
@@ -505,25 +540,41 @@ async function savePermissions(){
  try{await api("admin-access",{user:Number(uid),mode,folders});notice("Permisos actualizados.");}
  catch(e){notice(e.message);}
 }
-async function uploadAsset(key,file){
- if(!file)return;
- const allowed=key==="intro"?25_000_000:key==="header"?5_000_000:3_000_000;
- if(file.size>allowed)return notice("El archivo es demasiado grande.");
+async function uploadAsset(key,file,folder=null){
+ if(!file)return false;
+ const allowed=key==="intro"?25_000_000:
+   (key==="header"||key==="folder-cover")?5_000_000:3_000_000;
+ const progress=key==="folder-cover"?$("new-cover-status"):$("upload-progress");
+ if(!file.size||file.size>allowed){
+  progress.textContent="La foto debe tener como máximo 5 MB.";
+  notice("El archivo es demasiado grande.");return false;
+ }
  const mime=file.type;
- const upload=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
+ if(key==="folder-cover"&&!["image/jpeg","image/png","image/webp"].includes(mime)){
+  progress.textContent="Elige una imagen JPEG, PNG o WebP.";
+  notice("Formato de foto no admitido.");return false;
+ }
+ const upload=Array.from(crypto.getRandomValues(new Uint8Array(16)),
+     b=>b.toString(16).padStart(2,"0")).join("");
  const size=192*1024,total=Math.ceil(file.size/size);
- if(total>130)return notice("El archivo excede el máximo de bloques.");
+ if(total>130)return notice("El archivo excede el máximo de bloques."),false;
  try{
   for(let i=0;i<total;i++){
    const block=new Uint8Array(await file.slice(i*size,(i+1)*size).arrayBuffer());
    let chunk="";for(let j=0;j<block.length;j+=8192)
      chunk+=String.fromCharCode(...block.subarray(j,j+8192));
-   await api("admin-upload",{upload,key,mime,part:i,total,data:btoa(chunk)});
-   $("upload-progress").textContent="Subiendo "+(i+1)+" de "+total+" bloques…";
+   await api("admin-upload",{upload,key,mime,part:i,total,data:btoa(chunk),
+     ...(key==="folder-cover"?{folder}:{})});
+   progress.textContent="Subiendo "+(i+1)+" de "+total+" bloques…";
   }
-  $("upload-progress").textContent="Archivo guardado correctamente";
-  notice("Imagen o video actualizado");await refresh();
- }catch(e){$("upload-progress").textContent=e.message;notice(e.message);}
+  progress.textContent=key==="folder-cover"?"Foto de presentación guardada.":"Archivo guardado correctamente";
+  notice(key==="folder-cover"?"Portada actualizada.":"Imagen o video actualizado");
+  if(key!=="folder-cover")await refresh();
+  return true;
+ }catch(e){
+  progress.textContent=e.message;notice(e.message);
+  return false;
+ }
 }
 let searchTimer=null;
 $("enter").onclick=async()=>{
@@ -604,15 +655,37 @@ $("admin-open").onclick=openAdminScreen;
 $("admin-back").onclick=()=>show("library");
 $("admin-refresh").onclick=loadAdmin;
 document.querySelectorAll(".admin-tabs button").forEach(b=>b.onclick=()=>switchAdminTab(b.dataset.tab));
+$("new-cover").onchange=()=>{
+ const file=$("new-cover").files?.[0];
+ const preview=$("new-cover-preview");
+ if(preview.dataset.objectUrl){URL.revokeObjectURL(preview.dataset.objectUrl);delete preview.dataset.objectUrl;}
+ preview.classList.toggle("hidden",!file);
+ if(file){
+  const url=URL.createObjectURL(file);
+  preview.dataset.objectUrl=url;preview.src=url;
+ }else preview.removeAttribute("src");
+};
 $("add-folder").onclick=async()=>{
  const peer=$("new-peer").value.trim(),name=$("new-name").value.trim(),
-  public_name=$("new-public-name").value.trim();
+  public_name=$("new-public-name").value.trim(),cover=$("new-cover").files?.[0];
  if(!/^-[0-9]{3,19}$/.test(peer)||!name||!public_name)
    return notice("Escribe el ID, el nombre interno y el nombre público por separado.");
- try{await api("admin-folder",{peer,name,public_name});$("new-peer").value="";
-   $("new-name").value="";$("new-public-name").value="";
-  notice("Carpeta agregada: el respaldo se iniciará automáticamente si el sincronizador está conectado.");await loadAdmin();await refresh();}
- catch(e){notice(e.message);}
+ if(cover&&(!["image/jpeg","image/png","image/webp"].includes(cover.type)||
+             !cover.size||cover.size>5_000_000))
+   return notice("La foto debe ser JPEG, PNG o WebP, hasta 5 MB.");
+ const button=$("add-folder");button.disabled=true;
+ try{
+   const created=await api("admin-folder",{peer,name,public_name});
+   if(cover&&!(await uploadAsset("folder-cover",cover,created.id))){
+     notice("Galería creada, pero la portada no pudo guardarse. Puedes volver a intentarlo.");
+     await loadAdmin();await refresh(true);return;
+   }
+   $("new-peer").value="";$("new-name").value="";$("new-public-name").value="";
+   $("new-cover").value="";$("new-cover").onchange();
+   $("new-cover-status").textContent="";
+   notice("Carpeta agregada correctamente.");await loadAdmin();await refresh(true);
+ }catch(e){notice(e.message);}
+ finally{button.disabled=false;}
 };
 $("load-permissions").onclick=loadPermissions;
 $("save-permissions").onclick=savePermissions;

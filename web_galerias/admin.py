@@ -1,4 +1,5 @@
 """Acciones administrativas y editor visual de Web Galerías, solo admins.txt."""
+import asyncio
 import base64
 import json
 import re
@@ -6,6 +7,7 @@ import time
 from aiohttp import web
 from .permissions import is_admin,is_tester
 from .core import DEFAULTS,ASSET_MIME,MAX_ASSET,identifier
+from .covers import ALLOWED_MIME,MAX_UPLOAD,optimized_cover,temporary_cover
 
 TEXTS={"title","button_label","intro_caption","intro_label"}
 WATERMARK_TEXTS={"wm_line1","wm_line2"}
@@ -56,12 +58,13 @@ async def admin_op(g,uid,op,data):
         folders=await db.fetch("""SELECT f.id,f.peer,f.name,
             COALESCE(f.public_name,'') AS public_name,
             f.active,f.error,f.complete,f.scan_count,
-            f.last_check,f.source_uid,
+            f.last_check,f.source_uid,MAX(c.updated) AS cover_updated,
             COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
             COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending,
             COUNT(m.id) FILTER(WHERE m.state='missing')::int AS missing,
             COUNT(m.id) FILTER(WHERE m.state='skipped')::int AS skipped
             FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
+            LEFT JOIN wg_folder_covers c ON c.folder=f.id
             GROUP BY f.id ORDER BY f.id DESC""")
         users=await db.fetch("""SELECT u.uid,u.name,u.first_seen,u.last_seen,
             s.state,s.paid_until,p.mode
@@ -74,7 +77,14 @@ async def admin_op(g,uid,op,data):
         if not isinstance(remote,dict):
             remote={}
         running=bool(remote.get("enabled") and time.time()-float(remote.get("updated") or 0)<150)
-        return {"folders":[dict(x) for x in folders],
+        result_folders=[]
+        for item in folders:
+            folder=dict(item)
+            updated=folder.pop("cover_updated",None)
+            folder["has_custom_cover"]=bool(updated)
+            folder["cover"]=temporary_cover(g,uid,folder["id"]) if updated else None
+            result_folders.append(folder)
+        return {"folders":result_folders,
             "users":[{**dict(x),"admin":is_admin(x["uid"]),"tester":is_tester(x["uid"])} for x in users],
             "storage_ready":g.storage.ready or bool(remote.get("storage") and running),
             "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",
@@ -103,6 +113,13 @@ async def admin_op(g,uid,op,data):
             available=0,error='' WHERE folder=$1 AND state='missing'""",row["id"])
         await g.log(uid,op)
         return {"ok":True,"id":row["id"]}
+    if op=="admin-folder-cover-remove":
+        folder=identifier(data.get("folder"))
+        found=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
+        if not found:raise web.HTTPNotFound(text="Galería no encontrada.")
+        await db.execute("DELETE FROM wg_folder_covers WHERE folder=$1",folder)
+        await g.log(uid,op)
+        return {"ok":True}
     if op=="admin-folder-update":
         folder=identifier(data.get("folder"))
         field=data.get("field","name")
@@ -176,7 +193,16 @@ async def admin_op(g,uid,op,data):
 async def upload(g,uid,data):
     """Subida a trozos de 192KiB para no cambiar el límite HTTP de DESCARGAS."""
     key=data.get("key");mime=data.get("mime")
-    if key not in ASSET_MIME or mime not in ASSET_MIME[key]:
+    is_cover=key=="folder-cover"
+    folder=None
+    if is_cover:
+        folder=identifier(data.get("folder"))
+        if mime not in ALLOWED_MIME:
+            raise web.HTTPBadRequest(text="Formato de portada no admitido.")
+        exists=await g.db().fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
+        if not exists:raise web.HTTPNotFound(text="Galería no encontrada.")
+        key="folder-cover:"+str(folder)
+    elif key not in ASSET_MIME or mime not in ASSET_MIME[key]:
         raise web.HTTPBadRequest(text="Formato de archivo no admitido.")
     upload=str(data.get("upload",""))
     if not re.fullmatch("[a-f0-9]{32}",upload):raise web.HTTPBadRequest(text="Identificador de subida incorrecto.")
@@ -196,22 +222,31 @@ async def upload(g,uid,data):
         if any(x["part"]!=i or x["total"]!=total or x["key"]!=key or x["mime"]!=mime
                for i,x in enumerate(rows)):raise web.HTTPBadRequest(text="Los bloques no coinciden.")
         blob=b"".join(bytes(x["body"]) for x in rows)
-        if len(blob)>MAX_ASSET[key]:raise web.HTTPBadRequest(text="Archivo demasiado grande.")
-        if mime=="image/png" and not blob.startswith(b"\x89PNG\r\n\x1a\n"):
-            raise web.HTTPBadRequest(text="Formato PNG inválido.")
-        if mime=="image/jpeg" and not blob.startswith(b"\xff\xd8\xff"):
-            raise web.HTTPBadRequest(text="Formato JPEG inválido.")
-        if mime=="image/webp" and not (blob.startswith(b"RIFF") and blob[8:12]==b"WEBP"):
-            raise web.HTTPBadRequest(text="Formato WEBP inválido.")
-        if mime.startswith("video/") and not (
-            b"ftyp" in blob[:64] or blob.startswith(b"\x1a\x45\xdf\xa3")):
-            raise web.HTTPBadRequest(text="Formato de video inválido.")
-        await c.execute("""INSERT INTO wg_assets(key,mime,body,updated) VALUES($1,$2,$3,$4)
-          ON CONFLICT(key) DO UPDATE SET mime=excluded.mime,body=excluded.body,updated=excluded.updated""",
-          key,mime,blob,time.time())
+        if len(blob)>(MAX_UPLOAD if is_cover else MAX_ASSET[key]):
+            raise web.HTTPBadRequest(text="Archivo demasiado grande.")
+        if is_cover:
+            # Nunca alterar el origen o el contenido en R2. Guardar portada aparte.
+            image=await asyncio.to_thread(optimized_cover,blob,mime)
+            await c.execute("""INSERT INTO wg_folder_covers(folder,mime,body,updated)
+              VALUES($1,'image/jpeg',$2,$3)
+              ON CONFLICT(folder) DO UPDATE SET mime=excluded.mime,
+               body=excluded.body,updated=excluded.updated""",folder,image,time.time())
+        else:
+            if mime=="image/png" and not blob.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise web.HTTPBadRequest(text="Formato PNG inválido.")
+            if mime=="image/jpeg" and not blob.startswith(b"\xff\xd8\xff"):
+                raise web.HTTPBadRequest(text="Formato JPEG inválido.")
+            if mime=="image/webp" and not (blob.startswith(b"RIFF") and blob[8:12]==b"WEBP"):
+                raise web.HTTPBadRequest(text="Formato WEBP inválido.")
+            if mime.startswith("video/") and not (
+                b"ftyp" in blob[:64] or blob.startswith(b"\x1a\x45\xdf\xa3")):
+                raise web.HTTPBadRequest(text="Formato de video inválido.")
+            await c.execute("""INSERT INTO wg_assets(key,mime,body,updated) VALUES($1,$2,$3,$4)
+              ON CONFLICT(key) DO UPDATE SET mime=excluded.mime,body=excluded.body,updated=excluded.updated""",
+              key,mime,blob,time.time())
         await c.execute("DELETE FROM wg_upload_parts WHERE upload=$1",upload)
-    await g.log(uid,"admin-asset-"+key)
-    return {"ok":True,"complete":True}
+    await g.log(uid,"admin-folder-cover" if is_cover else "admin-asset-"+key)
+    return {"ok":True,"complete":True,"folder":folder} if is_cover else {"ok":True,"complete":True}
 
 async def asset(g,request):
     key=request.match_info["key"]

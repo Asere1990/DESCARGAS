@@ -11,6 +11,7 @@ from aiohttp import web
 from .permissions import is_admin,pilot_allowed
 from .storage import PrivateStorage
 from .personal import PERSONAL_SCHEMA,folders as personal_folders,media_filter
+from .covers import COVER_SCHEMA,temporary_cover
 from .admin_browser import SCHEMA as BROWSER_SCHEMA,authenticate as authenticate_browser
 
 SCHEMA="""
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS wg_activity(
  id BIGSERIAL PRIMARY KEY,actor BIGINT NOT NULL,operation TEXT NOT NULL,at DOUBLE PRECISION NOT NULL);
 """
 SCHEMA += PERSONAL_SCHEMA
+SCHEMA += COVER_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA",
  "intro_caption":"Explora nuestras galerías privadas","button_color":"#198ee8",
@@ -171,11 +173,12 @@ class GalleryCore:
         rows=await self.db().fetch("""
         SELECT f.id,
           COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name,
-          f.complete,f.error,
+          f.complete,f.error,MAX(c.updated) AS cover_updated,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='photo')::int AS photos,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='video')::int AS videos,
           COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending
         FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
+        LEFT JOIN wg_folder_covers c ON c.folder=f.id
         LEFT JOIN wg_user_prefs p ON p.uid=$1
         WHERE f.active AND ($2 OR COALESCE(p.mode,'all')='all' OR EXISTS(
           SELECT 1 FROM wg_user_folders u WHERE u.uid=$1 AND u.folder=f.id))
@@ -199,6 +202,11 @@ class GalleryCore:
         if folders:
             from .downloads import temporary_link
             for folder in folders:
+                if folder.get("cover_updated"):
+                    folder["cover"]=temporary_cover(self,uid,folder["id"])
+                    folder.pop("cover_updated",None)
+                    continue
+                folder.pop("cover_updated",None)
                 cover=await self.db().fetchval("""SELECT id FROM wg_media
                   WHERE folder=$1 AND state IN ('preview','ready') AND thumb_key IS NOT NULL
                   ORDER BY date DESC LIMIT 1""",folder["id"])

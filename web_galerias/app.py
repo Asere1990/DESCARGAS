@@ -11,7 +11,7 @@ from aiohttp import web
 from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
-from . import admin,admin_browser,downloads,payments,personal
+from . import admin,admin_browser,downloads,payments,personal,covers
 
 log=logging.getLogger("web-galerias")
 ROOT=Path(__file__).resolve().parent
@@ -123,6 +123,8 @@ def mount(app,service):
         return await admin.asset(g,request)
     async def media(request):
         return await downloads.media(g,request)
+    async def cover(request):
+        return await covers.serve(g,request)
     async def download(request):
         return await downloads.download(g,request)
     async def save_file(request):
@@ -141,6 +143,7 @@ def mount(app,service):
     app.router.add_get("/web-galerias/assets/{key}",asset)
     app.router.add_post("/web-galerias/api",api)
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
+    app.router.add_get("/web-galerias/cover/{folder}",cover)
     app.router.add_get("/web-galerias/download/{ticket}",download)
     app.router.add_get("/web-galerias/file/{item}",save_file)
     app.router.add_post("/web-galerias/stripe",stripe)
