@@ -15,6 +15,7 @@ from telethon import errors, types
 from PIL import Image, ImageOps
 from .core import normal
 from .media_types import classify
+from .coverage import get_media_totals
 
 log=logging.getLogger("web-galerias-sync")
 EXTRA="""
@@ -134,10 +135,22 @@ async def choose_account(g,folder):
     row=await g.db().fetchrow("""SELECT a.uid FROM descarga_accounts a
       LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
       LEFT JOIN wg_account_cooldown c ON c.uid=a.uid
+      LEFT JOIN wg_source_coverage candidate ON candidate.folder=$1 AND candidate.uid=a.uid
+      LEFT JOIN wg_source_coverage original ON original.folder=$1 AND original.uid=$3
       WHERE a.session IS NOT NULL AND COALESCE(d.next_after,0)<=$2
         AND COALESCE(c.available_at,0)<=$2
         AND (a.uid=$3 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
-      ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
+      ORDER BY
+               CASE WHEN original.checked_at>$2-43200
+                 AND candidate.checked_at>$2-43200
+                 AND NOT original.inexact AND NOT candidate.inexact
+                 AND candidate.photos IS NOT NULL AND candidate.videos IS NOT NULL
+                 AND original.photos IS NOT NULL AND original.videos IS NOT NULL
+                 AND candidate.photos+candidate.videos >
+                   (original.photos+original.videos)*1.2+200
+                 AND COALESCE(d.works,FALSE)
+                 THEN 0 ELSE 1 END,
+               CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
                -- Nuevas carpetas sin origen: distribuir la exploración
                -- entre las cuentas elegibles en vez de elegir siempre la primera.
                CASE WHEN $3::bigint IS NULL AND d.tried_at IS NULL
@@ -296,7 +309,37 @@ async def inspect_source(g,folder,item,message):
     return True
 
 
-async def refresh_telegram_counts(g,folder,client,entity,guard):
+async def record_source_coverage(g,folder,uid,photos,videos,method,
+                                 inexact=False,error=""):
+    await g.db().execute("""INSERT INTO wg_source_coverage(
+       folder,uid,photos,videos,checked_at,method,inexact,error)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT(folder,uid) DO UPDATE SET
+        photos=excluded.photos,videos=excluded.videos,
+        checked_at=excluded.checked_at,method=excluded.method,
+        inexact=excluded.inexact,error=excluded.error""",
+       folder,uid,photos,videos,time.time(),method,inexact,error)
+
+
+async def audit_alternate_account(g,source,uid,client,entity,guard):
+    """Comparar únicamente otra cuenta autorizada; no modifica sus sesiones."""
+    try:
+        await guard()
+        photos,videos,method,inexact=await get_media_totals(client,entity)
+        await guard()
+        await record_source_coverage(g,source["id"],uid,photos,videos,method,inexact)
+        log.info("Gallery alternate account coverage folder=%s photos=%s videos=%s",
+                 source["id"],photos,videos)
+        return True
+    except (PauseRequested,asyncio.CancelledError,errors.FloodWaitError):
+        raise
+    except Exception as exc:
+        await record_source_coverage(g,source["id"],uid,None,None,"",False,
+                                     type(exc).__name__)
+        return False
+
+
+async def refresh_telegram_counts(g,folder,client,entity,guard,uid=None):
     """Obtener los totales del servidor sin leer ni descargar archivos.
 
     Telegram responde al filtro Photos / Video con TotalList.total. Se usa la
@@ -312,21 +355,20 @@ async def refresh_telegram_counts(g,folder,client,entity,guard):
     if not claim:return False
     try:
         await guard()
-        photos=await client.get_messages(entity,0,filter=types.InputMessagesFilterPhotos)
+        photo_total,video_total,method,inexact=await get_media_totals(client,entity)
         await guard()
-        videos=await client.get_messages(entity,0,filter=types.InputMessagesFilterVideo)
         await guard()
-        photo_total=getattr(photos,"total",None)
-        video_total=getattr(videos,"total",None)
-        if (not isinstance(photo_total,int) or not isinstance(video_total,int)
-            or photo_total<0 or video_total<0):
-            raise ValueError("Telegram no devolvió contadores válidos")
         try:
             ttl=int(os.getenv("GALERIAS_TELEGRAM_TOTALS_INTERVAL","1800"))
         except (ValueError,TypeError):
             ttl=1800
         ttl=max(900,min(7200,ttl))
         refreshed=time.time()
+        if uid is not None:
+            await record_source_coverage(g,folder,uid,photo_total,video_total,
+                                         method,inexact)
+        log.info("Gallery origin count refreshed folder=%s photos=%s videos=%s via=%s",
+                 folder,photo_total,video_total,method)
         await db.execute("""UPDATE wg_folders SET
            telegram_photos_total=$2,telegram_videos_total=$3,
            telegram_counts_at=$4,telegram_counts_next_attempt=$5,
