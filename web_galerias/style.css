@@ -678,3 +678,92 @@
 #media-context-actions button{min-height:54px;width:100%;text-align:left}
 
 .media-tile.located-media{outline:3px solid var(--accent);outline-offset:2px;box-shadow:0 0 0 5px rgba(56,180,255,.24);}
+
+
+/* Web Galerías · admin moderation and paginated user roster (2026-11-11) */
+#viewer{z-index:1000}
+body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-events:none}
+#viewer .viewer-top{pointer-events:none}
+#viewer .viewer-top .viewer-admin-delete{
+ pointer-events:auto;appearance:none;border-radius:12px;border:1px solid #ff7c8b;
+ background:#8e2737;color:#fff;padding:9px 13px;font-size:12px;font-weight:750;
+}
+#toast{z-index:2300}
+/* Compact checkmark does not obscure the photo or video. */
+#album .media-tile.selected{outline:2px solid var(--accent);outline-offset:-2px}
+#album .media-tile.selected::after{
+ inset:auto;top:6px;right:6px;width:21px;height:21px;
+ border-radius:50%;outline:0;box-shadow:0 1px 7px #000a;
+ border:2px solid #fff;font-size:12px;font-weight:750;
+ background:var(--accent);color:#fff;
+}
+#selection-admin-delete{background:#9d2b3a;border-color:#d95062;color:#fff}
+#album .selection-actions:has(#selection-admin-delete:not(.hidden)){
+ gap:4px;padding-left:5px;padding-right:5px;
+}
+#album .selection-actions:has(#selection-admin-delete:not(.hidden)) .mobile-action{
+ min-height:49px;font-size:11px;padding:7px 4px;border-radius:11px;
+}
+#album .selection-actions:has(#selection-admin-delete:not(.hidden)) .selection-counter{
+ font-size:10px;min-width:38px;white-space:normal;
+}
+#admin .admin-media-search,#admin .admin-users-search{
+ margin:12px 0;max-width:100%;height:45px;
+}
+#admin .admin-media-search input,#admin .admin-users-search input{
+ color:var(--text);background:transparent;border:0;min-height:42px;
+ font-size:13px;outline:0;padding:6px;width:100%;
+}
+#admin .admin-media-card input[type=checkbox]{
+ width:18px!important;height:18px!important;min-height:18px!important;
+ border-radius:5px!important;right:6px;top:6px;
+}
+#admin-users-details{max-width:100%;overflow:hidden}
+.admin-users-list{
+ margin-top:12px;max-height:min(42dvh,400px);overflow-y:auto;overscroll-behavior:contain;
+ border:1px solid var(--line);border-radius:13px;
+}
+.admin-user-list-row{
+ display:flex;align-items:center;justify-content:space-between;
+ width:100%;min-height:49px;padding:12px 13px;text-align:left;
+ color:var(--text);background:transparent;border:0;
+ border-bottom:1px solid var(--line);gap:12px;
+}
+.admin-user-list-row:last-child{border-bottom:0}
+.admin-user-list-row:active,.admin-user-list-row:focus-visible{background:#ffffff14}
+.admin-user-list-name{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.admin-user-indicators{display:flex;align-items:center;gap:9px;flex-shrink:0}
+.admin-user-active{font-size:11px;color:#a9ecc5;font-weight:700}
+.admin-user-retired{font-size:11px;color:#ff98a3;font-weight:700}
+.admin-user-online{width:9px;height:9px;border-radius:50%;background:#24d574;
+ display:block;box-shadow:0 0 0 3px #24d57424}
+.admin-users-pager{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}
+.admin-users-pager span{font-size:12px;color:var(--muted)}
+.admin-users-pager button{min-width:90px}
+.admin-user-profile{
+ margin-top:15px;padding-top:16px;border-top:1px solid var(--line);gap:8px;
+ overflow-wrap:anywhere;
+}
+.admin-user-profile h3{font-size:16px;margin:14px 0 10px}
+.admin-profile-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:15px 0}
+.admin-profile-actions button{min-height:46px}
+.admin-user-access-action{color:#ffb9bb!important;border-color:#99434a!important}
+.admin-user-personal{margin:12px 0 22px}
+.admin-personal-folder-list{display:grid;gap:8px}
+.admin-personal-folder-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.admin-personal-folder-row button:first-child{flex:1;min-width:0;text-align:left;overflow-wrap:anywhere}
+.admin-personal-items-grid{
+ display:grid;grid-template-columns:repeat(auto-fill,minmax(125px,1fr));
+ gap:9px;max-height:52dvh;overflow-y:auto;margin:12px 0;
+}
+.admin-personal-item{
+ padding:8px;border:1px solid var(--line);border-radius:12px;display:grid;gap:6px;
+ min-width:0;
+}
+.admin-personal-item img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#17212e}
+.admin-personal-item small{font-size:11px;color:var(--muted)}
+.admin-personal-item button{font-size:11px;white-space:normal}
+@media(max-width:380px){
+ #album .selection-actions:has(#selection-admin-delete:not(.hidden)) .mobile-action{font-size:10px}
+ .admin-profile-actions{grid-template-columns:1fr}
+}
