@@ -6,6 +6,7 @@ on:
     paths:
       - 'web_galerias/**'
       - 'tests/test_web_galerias.py'
+      - 'tests/test_web_galerias_drag.cjs'
       - 'tests/test_web_galerias_standalone.py'
       - 'tests/test_web_galerias_sync.py'
       - 'tests/test_web_galerias_mobile_navigation.py'
@@ -34,6 +35,7 @@ jobs:
         run: |
           python -m compileall -q web_galerias descargas_app galerias_standalone.py
           node --check web_galerias/app.js
+          node --test tests/test_web_galerias_drag.cjs
       - name: Dependencias
         run: pip install -e .
       - name: Tests de Web Galerías
