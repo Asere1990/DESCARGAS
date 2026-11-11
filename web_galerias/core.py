@@ -42,6 +42,13 @@ CREATE TABLE IF NOT EXISTS wg_source_coverage(
  method TEXT NOT NULL DEFAULT '',inexact BOOLEAN NOT NULL DEFAULT FALSE,
  error TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(folder,uid));
+-- Bootstrap account-coverage data from counts already collected before this feature.
+INSERT INTO wg_source_coverage(folder,uid,photos,videos,checked_at,method)
+SELECT id,source_uid,telegram_photos_total,telegram_videos_total,
+       telegram_counts_at,'filtered_search'
+FROM wg_folders WHERE source_uid IS NOT NULL AND telegram_counts_at>0
+ AND telegram_photos_total IS NOT NULL AND telegram_videos_total IS NOT NULL
+ON CONFLICT(folder,uid) DO NOTHING;
 CREATE TABLE IF NOT EXISTS wg_media(
  id BIGSERIAL PRIMARY KEY,folder BIGINT NOT NULL REFERENCES wg_folders(id),
  message BIGINT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('photo','video')),
