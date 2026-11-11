@@ -19,15 +19,42 @@ MAX_INTRO_UPLOAD=80*1024*1024
 MAX_INTRO_OUTPUT=80*1024*1024
 ALLOWED_VIDEO={"video/mp4":".mp4","video/quicktime":".mov","video/webm":".webm"}
 UPLOAD_LOCK=asyncio.Lock()
+# Preserve enough memory for the gallery API, Telegram sync and R2 while
+# FFmpeg runs. On small 512 MiB instances, reject a risky conversion rather
+# than bringing the entire Mini App down with an OOM/502.
+MIN_VIDEO_HEADROOM=640*1024*1024
+
+def available_memory_bytes():
+    """Available cgroup memory for this service, or None if not measurable."""
+    try:
+        root=Path("/sys/fs/cgroup")
+        maximum=(root/"memory.max").read_text().strip()
+        current=int((root/"memory.current").read_text().strip())
+        if maximum=="max":
+            return None
+        limit=int(maximum)
+        return max(0,limit-current) if limit>0 else None
+    except (FileNotFoundError,PermissionError,OSError,ValueError):
+        return None
+
+def require_video_memory():
+    available=available_memory_bytes()
+    if available is not None and available<MIN_VIDEO_HEADROOM:
+        raise web.HTTPServiceUnavailable(
+            text="El servidor está ocupado y necesita reservar memoria para "
+                 "las galerías. Vuelve a intentar subir el video cuando baje la carga.")
 
 def transcode_intro(source,output):
     from imageio_ffmpeg import get_ffmpeg_exe
+    # One decoder, filter and encoder thread: no unbounded FFmpeg auto threads
+    # competing with the backup service in a one-CPU Render instance.
     args=[get_ffmpeg_exe(),"-nostdin","-hide_banner","-loglevel","error","-y",
+          "-threads","1","-filter_threads","1",
           "-i",str(source),"-map","0:v:0","-map","0:a:0?",
           "-vf","scale=1280:1280:force_original_aspect_ratio=decrease:force_divisible_by=2",
-          "-c:v","libx264","-preset","veryfast","-crf","25",
+          "-c:v","libx264","-threads","1","-preset","veryfast","-crf","25",
           "-pix_fmt","yuv420p","-c:a","aac","-b:a","96k",
-          "-movflags","+faststart","-max_muxing_queue_size","1024",str(output)]
+          "-movflags","+faststart","-max_muxing_queue_size","256",str(output)]
     try:
         subprocess.run(args,check=True,timeout=180,stdout=subprocess.DEVNULL,
                        stderr=subprocess.PIPE)
@@ -56,6 +83,7 @@ async def upload(g,request):
         raise web.HTTPRequestEntityTooLarge(max_size=MAX_INTRO_UPLOAD,actual_size=length)
     if UPLOAD_LOCK.locked():
         raise web.HTTPConflict(text="Ya se está procesando otro video de presentación.")
+    require_video_memory()
     async with UPLOAD_LOCK:
         with tempfile.TemporaryDirectory(prefix="wg-intro-") as temp:
             folder=Path(temp)
@@ -78,6 +106,7 @@ async def upload(g,request):
             else:
                 good=b"ftyp" in magic
             if not good:raise web.HTTPBadRequest(text="Formato del video incorrecto.")
+            require_video_memory()
             await asyncio.to_thread(transcode_intro,source,output)
             key="web-galerias/presentation/"+secrets.token_hex(16)+".mp4"
             await g.storage.upload(output,key,"video/mp4")
