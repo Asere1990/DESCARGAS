@@ -74,9 +74,20 @@ async def source_free(g,uid,folder,*,now=None):
         return False
     if not await folder_active(g,folder,uid):
         return False
-    queued=await g.db().fetchval("""SELECT EXISTS(
-      SELECT 1 FROM descarga_jobs
-      WHERE uid=$1 AND state IN ('queued','preparing','sending'))""",uid)
+    # Each source has its own queue and PostgreSQL session advisory lock.
+    # Negative IDs represent DATOS only inside the gallery registry; this is
+    # never sent to Telegram and never confused with a DESCARGAS account.
+    if uid is not None and uid < 0:
+        datos=getattr(g.s,"datos",None)
+        if not getattr(datos,"ready",False):
+            return False
+        queued=await datos.repo.pool.fetchval("""SELECT EXISTS(
+          SELECT 1 FROM descarga_jobs
+          WHERE uid=$1 AND state IN ('queued','preparing','sending'))""",-uid)
+    else:
+        queued=await g.db().fetchval("""SELECT EXISTS(
+          SELECT 1 FROM descarga_jobs
+          WHERE uid=$1 AND state IN ('queued','preparing','sending'))""",uid)
     return not queued
 
 
@@ -132,25 +143,60 @@ async def find_dialog(g,client,folder,uid,peer):
 
 
 async def choose_account(g,folder):
-    """Priorizar la cuenta conocida y probar alternativas si deja de tener acceso."""
-    now=time.time()
-    row=await g.db().fetchrow("""SELECT a.uid FROM descarga_accounts a
-      LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
-      LEFT JOIN wg_account_cooldown c ON c.uid=a.uid
-      WHERE a.session IS NOT NULL
-        AND ($4::bigint IS NULL OR a.uid=$4)
-        AND COALESCE(d.next_after,0)<=$2
-        AND COALESCE(c.available_at,0)<=$2
-        AND (a.uid=$3 OR a.uid=$4 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
-      ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
-               -- Nuevas carpetas sin origen: distribuir la exploración
-               -- entre las cuentas elegibles en vez de elegir siempre la primera.
-               CASE WHEN $3::bigint IS NULL AND d.tried_at IS NULL
-                    THEN md5(a.uid::text || ':' || $1::text) ELSE '' END,
-               COALESCE(d.tried_at,0),a.uid LIMIT 1""",
-       folder["id"],now,folder["source_uid"],folder.get("preferred_uid"))
-    return row["uid"] if row else None
+    """Select one accessible account from either isolated source, without duplicates.
 
+    Existing DESCARGAS-only behavior is unchanged if DATOS is not configured.
+    Signed source keys prevent UID collisions in discovery and cooldown tables.
+    """
+    now=time.time()
+    datos=getattr(g.s,"datos",None)
+    keys=await datos.account_keys() if getattr(datos,"ready",False) else []
+    preferred=folder.get("preferred_uid")
+    if getattr(datos,"ready",False) and preferred is not None and preferred < 0 and preferred not in keys:
+        if await datos.has_account(-preferred):
+            keys.append(preferred)
+    if keys:
+        # DATOS candidates are *not* copied into the primary database.
+        # A duplicate Telegram UID is intentionally reserved for DESCARGAS so
+        # the same account cannot acquire locks in two different databases.
+        sql="""WITH sources AS (
+          SELECT uid FROM descarga_accounts WHERE session IS NOT NULL
+          UNION ALL
+          SELECT d.uid FROM unnest($5::bigint[]) AS d(uid)
+          WHERE NOT EXISTS (
+            SELECT 1 FROM descarga_accounts a0
+            WHERE a0.uid=-d.uid AND a0.session IS NOT NULL)
+        )
+        SELECT a.uid FROM sources a
+        LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
+        LEFT JOIN wg_account_cooldown c ON c.uid=a.uid
+        WHERE ($4::bigint IS NULL OR a.uid=$4)
+          AND COALESCE(d.next_after,0)<=$2
+          AND COALESCE(c.available_at,0)<=$2
+          AND (a.uid=$3 OR a.uid=$4 OR d.works
+               OR d.tried_at IS NULL OR d.tried_at<$2-900)
+        ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
+                 CASE WHEN $3::bigint IS NULL AND d.tried_at IS NULL
+                      THEN md5(a.uid::text || ':' || $1::text) ELSE '' END,
+                 COALESCE(d.tried_at,0),a.uid LIMIT 1"""
+        params=(folder["id"],now,folder["source_uid"],preferred,keys)
+    else:
+        # Preserve the original single-source query byte-for-byte.
+        sql="""SELECT a.uid FROM descarga_accounts a
+          LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
+          LEFT JOIN wg_account_cooldown c ON c.uid=a.uid
+          WHERE a.session IS NOT NULL
+            AND ($4::bigint IS NULL OR a.uid=$4)
+            AND COALESCE(d.next_after,0)<=$2
+            AND COALESCE(c.available_at,0)<=$2
+            AND (a.uid=$3 OR a.uid=$4 OR d.works OR d.tried_at IS NULL OR d.tried_at<$2-900)
+          ORDER BY CASE WHEN a.uid=$3 THEN 0 WHEN d.works THEN 1 ELSE 2 END,
+                   CASE WHEN $3::bigint IS NULL AND d.tried_at IS NULL
+                        THEN md5(a.uid::text || ':' || $1::text) ELSE '' END,
+                   COALESCE(d.tried_at,0),a.uid LIMIT 1"""
+        params=(folder["id"],now,folder["source_uid"],preferred)
+    row=await g.db().fetchrow(sql,*params)
+    return row["uid"] if row else None
 
 async def mark_discovery(g,folder,uid,works,delay=0):
     await g.db().execute("""INSERT INTO wg_discovery(
@@ -375,8 +421,13 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
           WHERE id=$1 AND active""",folder,reason)
         return
     if not await source_free(g,uid,folder):return
+    # A source-specific service owns the correct encrypted session, API ID,
+    # DB lock, and download-queue priority check. Never mix these across pools.
+    source_service=g.s if uid>0 else getattr(g.s,"datos",None)
+    if uid<0 and not getattr(source_service,"ready",False):
+        return
     try:
-        async with connected(g.s,uid) as client:
+        async with connected(source_service,abs(uid)) as client:
             guard=PauseGuard(g,uid,folder)
             await guard()
             entity=await find_dialog(g,client,folder,uid,source["peer"])
