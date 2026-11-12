@@ -233,13 +233,24 @@ async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
     changed=set()
     for m in rows:
         await catalog(g,folder,m)
-        parent=await media_text.capture_reply(g,folder,m)
-        if parent:
-            changed.update((int(m.id),int(parent)))
-        if classify(m)[0]:
-            changed.add(int(m.id))
+        try:
+            parent=await media_text.capture_reply(g,folder,m)
+            if parent:
+                changed.update((int(m.id),int(parent)))
+            if classify(m)[0]:
+                changed.add(int(m.id))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # A new optional text feature must never delay a user's photos.
+            log.warning("Album comment indexing deferred (%s)",type(exc).__name__)
     if changed:
-        await media_text.enqueue(g,folder,changed)
+        try:
+            await media_text.enqueue(g,folder,changed)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("Album text queue pending (%s)",type(exc).__name__)
     if not await folder_active(g,folder,uid):raise PauseRequested()
     if not source["complete"]:
         await g.db().execute("""UPDATE wg_folders SET scan_cursor=$2,
@@ -870,13 +881,18 @@ async def run(g):
                     # Third priority: bounded legacy reply recovery. The
                     # visible previews and R2 originals above always run first.
                     if round_no%3==0:
-                        historical=await db.fetch("""
-                          SELECT * FROM wg_folders
-                          WHERE active AND complete AND NOT reply_scan_complete
-                          ORDER BY last_check ASC,id ASC LIMIT 1
-                        """)
-                        if historical:
-                            await fair_round(g,historical,phase="metadata")
+                        try:
+                            historical=await db.fetch("""
+                              SELECT * FROM wg_folders
+                              WHERE active AND complete AND NOT reply_scan_complete
+                              ORDER BY last_check ASC,id ASC LIMIT 1
+                            """)
+                            if historical:
+                                await fair_round(g,historical,phase="metadata")
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            log.warning("Legacy reply scan deferred (%s)",type(exc).__name__)
                     await asyncio.sleep(3)
                 except asyncio.CancelledError:
                     raise
