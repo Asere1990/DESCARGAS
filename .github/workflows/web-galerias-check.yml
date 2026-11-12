@@ -23,6 +23,10 @@ on:
       - 'tests/test_web_galerias_admin_mirror.cjs'
       - 'tests/test_web_galerias_admin_account.py'
       - 'tests/test_web_galerias_admin_account.cjs'
+      - 'tests/test_web_galerias_admin_playback.py'
+      - 'tests/test_web_galerias_admin_playback.cjs'
+      - 'tests/test_web_galerias_exact_account.py'
+      - 'tests/test_web_galerias_exact_account.cjs'
       - 'tests/test_web_galerias_broadcasts.py'
       - 'tests/test_web_galerias_broadcasts.cjs'
       - 'tests/test_web_galerias_free_and_promo.py'
@@ -75,6 +79,8 @@ jobs:
           node --test tests/test_web_galerias_album_metadata.cjs
           node --test tests/test_web_galerias_broadcasts.cjs
           node --test tests/test_web_galerias_admin_account.cjs
+          node --test tests/test_web_galerias_admin_playback.cjs
+          node --test tests/test_web_galerias_exact_account.cjs
           node --test tests/test_web_galerias_admin_mirror.cjs
           node --test tests/test_web_galerias_drag.cjs
           node --test tests/test_web_galerias_label_sizes.cjs
@@ -112,6 +118,8 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_admin_user_controls.py -v
           python -m unittest discover -s tests -p test_web_galerias_admin_mirror.py -v
           python -m unittest discover -s tests -p test_web_galerias_admin_account.py -v
+          python -m unittest discover -s tests -p test_web_galerias_admin_playback.py -v
+          python -m unittest discover -s tests -p test_web_galerias_exact_account.py -v
           python -m unittest discover -s tests -p test_web_galerias_broadcasts.py -v
           python -m unittest discover -s tests -p test_web_galerias_free_and_promo.py -v
           python -m unittest discover -s tests -p test_web_galerias_button_label_image.py -v

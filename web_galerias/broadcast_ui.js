@@ -39,7 +39,7 @@
  };
  let unreadSupport=0;
  async function refreshSupportUnread(){
-  if(!S.me?.allowed||S.me.admin||ADMIN_ACCOUNT_VIEW||document.hidden)return;
+  if(!S.me?.allowed||S.me.admin||document.hidden)return;
   const badge=$("support-unread");
   if(!badge)return;
   try{
@@ -68,7 +68,7 @@
   trigger.classList.toggle("has-unread",unreadNotices>0);
  }
  async function refreshNoticeCount(){
-  if(!S.me?.allowed||ADMIN_ACCOUNT_VIEW||document.hidden)return;
+  if(!S.me?.allowed||document.hidden)return;
   try{
    const reply=await api("notices-count");
    const last=unreadNotices;

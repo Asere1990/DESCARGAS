@@ -45,7 +45,7 @@ test("50 and 200 daily limits show accurately without changing the 10-file batch
  ctx.updateQuotaStatus();
  assert.equal($("quota-count").textContent,"Ilimitadas");
  assert.equal($("quota-plus").classList.contains("hidden"),true);
- assert.ok(js.includes("S.me?.admin?100:10"));
+ assert.ok(js.includes("(S.me?.admin||S.me?.admin_controls)?100:10"));
 });
 test("free user sees stacked quota offers with price only on Stripe",()=>{
  assert.ok(html.includes(">Descargar 200 archivos diarios</button>"));
@@ -60,7 +60,7 @@ test("200/day upgrade goes to the original DESCARGAS Mini App with same-bot sign
  const S={me:{quota_link_miniapp:"https://descargas-eu1x.onrender.com/",
               quota_link_bot:"https://t.me/Descargas_Robot"}};
  const tg={initData:signature,version:"8.0",platform:"ios",openTelegramLink:url=>bots.push(url)};
- const ctx={$,S,tg,BROWSER_ADMIN:false,URL,URLSearchParams,String,
+ const ctx={$,S,tg,BROWSER_ADMIN:false,ADMIN_ACCOUNT_VIEW:false,URL,URLSearchParams,String,
    window:{location:{assign:url=>links.push(url)}},
    notice:msg=>{throw Error(msg)},saveGalleryReturnPosition:()=>saved.push(true)};
  vm.createContext(ctx);

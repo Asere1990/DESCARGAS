@@ -1,9 +1,8 @@
-"""Authenticated admin look-through using the real Web Galerías client UI.
+"""Verified administrator inspection of the *actual* selected user account.
 
-All collection lookups are scoped to the selected *customer*. Media and cover
-links are signed for the actual verified admin, never for the customer.
-No Telegram sessions or download quota can be impersonated; browsing is read
-only except existing explicit administrator moderation operations.
+One shared customer bootstrap, same folders/favorites/media signatures and
+quota. Authentication remains the administrator's own signed Telegram session;
+extra admin moderation controls are explicitly separated and audited.
 """
 import time
 
@@ -32,84 +31,81 @@ async def operation(g, actor, op, data):
     # Every call re-verifies the signed administrator. A user-supplied target
     # ID never acts as an auth principal or becomes an ordinary user session.
     if op == "admin-view-bootstrap":
-        allowed = await g.entitled(target)
-        folders = await g.folder_list(target) if allowed else []
-        owned = await personal.folders(g, target) if allowed else []
-        if allowed:
-            for folder in folders:
-                # Exactly the folder visibility and public names of this owner.
-                # Only the administrator receives the short-lived signed URLs.
-                folder.pop("pending", None)
-                folder.pop("complete", None)
-                folder.pop("error", None)
-                if folder.pop("cover_updated", None):
-                    folder["cover"] = temporary_cover(g, actor, folder["id"])
-                else:
-                    cover = await db.fetchval("""
-                      SELECT id FROM wg_media
-                       WHERE folder=$1 AND state IN ('preview','ready')
-                         AND thumb_key IS NOT NULL
-                       ORDER BY date DESC LIMIT 1
-                    """, folder["id"])
-                    folder["cover"] = (
-                        f"/web-galerias/media/{cover}/thumb?t="
-                        + temporary_link(g, actor, cover, "thumb")
-                    ) if cover else None
-            for folder in owned:
-                cover = str(folder.get("cover") or "")
-                if cover.startswith("/web-galerias/personal-cover/"):
-                    fid = identifier(folder["id"])
-                    folder["cover"] = (
-                        f"/web-galerias/admin/personal-cover/{fid}?t="
-                        + temporary_link(g, actor, fid, "admin-personal-cover")
-                    )
-                elif cover.startswith("/web-galerias/media/"):
-                    from urllib.parse import urlsplit
-                    from re import fullmatch
-                    path = urlsplit(cover).path
-                    match = fullmatch(r"/web-galerias/media/([0-9]+)/thumb", path)
-                    if match:
-                        mid = identifier(match.group(1))
-                        folder["cover"] = (
-                            f"/web-galerias/media/{mid}/thumb?t="
-                            + temporary_link(g, actor, mid, "thumb"))
-                    else:
-                        folder["cover"] = None
-        plan = await download_plus.tier(g, target) if allowed else {
-            "tier": "basic", "daily_limit": download_plus.BASE_LIMIT,
-            "quota_unlimited": False, "plus_active": False,
-            "linked_descargas": False,
-        }
-        limit = plan["daily_limit"]
-        used = 0 if limit is None else int(await db.fetchval(
-            "SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",
-            target, utc_day()) or 0)
-        return {
-            "admin": True, "admin_view": True, "allowed": bool(allowed),
-            "owner_telegram_id": target,
-            "owner_name": str(row["name"] or "Usuario")[:100],
-            "owner_has_access": bool(allowed),
-            "design": await g.design(),
-            "folders": folders, "personal_folders": owned,
-            "photos": sum(int(x["photos"]) for x in folders),
-            "videos": sum(int(x["videos"]) for x in folders),
-            "quota_tier": plan["tier"],
-            "quota_daily_limit": limit, "quota_unlimited": plan["quota_unlimited"],
-            "quota_plus_active": plan["plus_active"],
-            "quota_linked": plan["linked_descargas"],
-            "remaining": None if limit is None else max(0, limit-used),
-            "used": used, "free_access": bool(allowed and await g.free_granted(target)),
-            "checkout_enabled": False, "checkout_ready": False,
-            "quota_plus_available": False, "quota_link_bot": None,
-            "quota_link_miniapp": None,
-            "storage_ready": g.storage.ready,
-            "pilot": False,
-        }
+        # The selected user and the administrator use exactly ONE bootstrap:
+        # the normal customer routine. No imitation or separately maintained
+        # quota/folder/status logic. The only added data enables admin tools.
+        result = await g.bootstrap(target, track_visit=False)
+        result["admin_view"] = True
+        result["admin_controls"] = True
+        result["owner_telegram_id"] = target
+        result["owner_name"] = str(row["name"] or "Usuario")[:100]
+        result["owner_has_access"] = bool(result["allowed"])
+        return result
 
     # An admin may inspect an expired user's billing status, but their content
     # is not silently accessible as if that customer's own membership were paid.
     if not await g.entitled(target):
         raise web.HTTPForbidden(text="La membresía de este usuario no está vigente.")
+
+    if op in ("admin-view-notices-count", "admin-view-notices-list",
+              "admin-view-notices-mark-read"):
+        # Same announcements, unread state and read actions as the user's
+        # actual Web Galerías account. The admin remains verified above.
+        from . import broadcasts
+        return await broadcasts.user_operation(
+            g, target, op.removeprefix("admin-view-"), data)
+
+    if op == "admin-view-chat-unread":
+        # Read only the selected user's support-chat unread counter; no
+        # external chat is opened with a spoofed Telegram user identity.
+        from .customer_bridge import ready as bridge_ready, post_signed
+        if not bridge_ready():
+            return {"count": 0}
+        try:
+            reply = await post_signed("chat-unread",
+                                      {"telegram_id": target}, timeout=4)
+            return {"count": max(0, min(9999, int(reply.get("count") or 0)))}
+        except Exception:
+            return {"count": 0}
+
+    if op == "admin-view-quota-plus-checkout":
+        # Exactly the same Stripe session flow and entitlement as the
+        # selected user's Plus button; an admin click is an explicit purchase
+        # choice, never an automatic subscription change.
+        return await download_plus.checkout(g, target)
+
+    if op == "admin-view-media-status":
+        # Re-check the authoritative R2-backed media row each time the admin
+        # opens a user folder/favorite/download. The iframe doesn't auto-refresh
+        # its full lists to protect client scrolling, so cached preview status
+        # might be stale after the original finishes uploading.
+        media_id = identifier(data.get("media"))
+        row = await db.fetchrow("""
+          SELECT m.id,m.folder,m.kind,m.mime,m.state,m.file_key,m.thumb_key,
+                 f.active
+          FROM wg_media m JOIN wg_folders f ON f.id=m.folder
+          WHERE m.id=$1
+        """, media_id)
+        if not row or not row["active"] or row["state"] not in ("preview","ready"):
+            raise web.HTTPNotFound(text="Archivo no disponible.")
+        # The user view never gets an administrative media key. Links are signed
+        # for the actual verified administrator and remain bound to the item.
+        if not await g.permitted(target, row["folder"]):
+            raise web.HTTPForbidden(text="No autorizado.")
+        ready = row["state"]=="ready" and bool(row["file_key"])
+        visible = bool(row["thumb_key"])
+        return {
+            "media": media_id, "kind": row["kind"], "mime": row["mime"],
+            "available": ready,
+            "view": (
+                f"/web-galerias/media/{media_id}/view?t="
+                + temporary_link(g, target, media_id, "view")
+            ) if ready else None,
+            "thumb": (
+                f"/web-galerias/media/{media_id}/thumb?t="
+                + temporary_link(g, target, media_id, "thumb")
+            ) if visible else None,
+        }
 
     if op == "admin-view-collections":
         return await user_features.collections(g, target)
@@ -136,11 +132,8 @@ async def operation(g, actor, op, data):
         return result
 
     if op == "admin-view-favorites":
-        result = await user_features.items(g, target, data)
-        return {
-            "items": [_preview(g, actor, item) for item in result["items"]],
-            "next": result["next"],
-        }
+        # The exact same favorites and media links the customer receives.
+        return await user_features.items(g, target, data)
 
     if op == "admin-view-items":
         cursor = identifier(data.get("cursor", 0), 0)
@@ -153,23 +146,19 @@ async def operation(g, actor, op, data):
         if data.get("collection") is not None:
             return await personal.items(
                 g, target, data["collection"], query, cursor, kind,
-                lambda _, media_id, media_kind:
-                    temporary_link(g, actor, media_id, media_kind)
+                lambda owner, media_id, media_kind:
+                    temporary_link(g, owner, media_id, media_kind)
             )
         folder = identifier(data.get("folder"))
         return await g.list_items(
             target, folder, query, cursor,
-            lambda _, media_id, media_kind:
-                temporary_link(g, actor, media_id, media_kind),
+            lambda owner, media_id, media_kind:
+                temporary_link(g, owner, media_id, media_kind),
             kind
         )
 
     if op == "admin-view-locate":
-        result = await location.locate(g, target, data)
-        return {
-            **result,
-            "items": [_preview(g, actor, item) for item in result["items"]]
-        }
+        return await location.locate(g, target, data)
 
     if op == "admin-view-remove-favorites":
         ids = data.get("ids")

@@ -338,22 +338,26 @@ class GalleryCore:
         """,uid,is_admin(uid))
         return [dict(r) for r in rows]
 
-    async def bootstrap(self,uid,name=""):
-        now=time.time()
-        # Record at most one daily visit without an extra database roundtrip.
-        # Both writes are one statement, keeping first paint responsive.
-        await self.db().execute("""
-          WITH registered AS (
-           INSERT INTO wg_users(uid,first_seen,last_seen,name)
-           VALUES($1,$2,$2,$3)
-           ON CONFLICT(uid) DO UPDATE SET
-            last_seen=excluded.last_seen,name=excluded.name
-           RETURNING uid
-          )
-          INSERT INTO wg_visit_days(uid,visit_day)
-          SELECT uid,$4 FROM registered WHERE TRUE
-          ON CONFLICT(uid,visit_day) DO NOTHING
-        """,uid,now,str(name)[:100],utc_day())
+    async def bootstrap(self,uid,name="",*,track_visit=True):
+        # Use exactly the same authenticated user response for the user's
+        # Mini App and for an administrator inspecting this selected account.
+        # Admin inspection must not alter the user's name or visitation records.
+        if track_visit:
+            now=time.time()
+            # Record at most one daily visit without an extra database roundtrip.
+            # Both writes are one statement, keeping first paint responsive.
+            await self.db().execute("""
+              WITH registered AS (
+               INSERT INTO wg_users(uid,first_seen,last_seen,name)
+               VALUES($1,$2,$2,$3)
+               ON CONFLICT(uid) DO UPDATE SET
+                last_seen=excluded.last_seen,name=excluded.name
+               RETURNING uid
+              )
+              INSERT INTO wg_visit_days(uid,visit_day)
+              SELECT uid,$4 FROM registered WHERE TRUE
+              ON CONFLICT(uid,visit_day) DO NOTHING
+            """,uid,now,str(name)[:100],utc_day())
         allowed=await self.entitled(uid)
         folders=await self.folder_list(uid) if allowed else []
         owned_folders=await personal_folders(self,uid) if allowed else []

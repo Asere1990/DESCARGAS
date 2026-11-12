@@ -16,7 +16,7 @@ class AdminAccountTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(op=op),self.assertRaises(web.HTTPForbidden):
                     await admin_account.operation(g,55,op,{"telegram_id":777})
 
-    async def test_normal_gallery_items_use_target_visibility_but_admin_signed_media(self):
+    async def test_gallery_items_are_exact_user_scope_and_user_signed_media(self):
         db=N(fetchrow=AsyncMock(return_value={"uid":777,"name":"Cliente"}))
         g=N(db=lambda:db,entitled=AsyncMock(return_value=True),
             list_items=AsyncMock(return_value={"items":[],"next":None}))
@@ -26,32 +26,37 @@ class AdminAccountTests(unittest.IsolatedAsyncioTestCase):
                 await admin_account.operation(g,42,"admin-view-items",
                     {"telegram_id":777,"folder":17,"kind":"all","cursor":0})
                 signer=g.list_items.await_args.args[4]
-                self.assertEqual(signer(777,55,"thumb"),"42-55-thumb")
+                self.assertEqual(signer(777,55,"thumb"),"777-55-thumb")
         self.assertEqual(g.list_items.await_args.args[0:2],(777,17))
         g.entitled.assert_awaited_once_with(777)
 
-    async def test_admin_bootstrap_mirrors_target_plan_and_does_not_count_visit(self):
+    async def test_admin_bootstrap_is_same_as_real_user_including_200_plus_and_account_data(self):
+        customer={
+            "admin": False, "allowed": True, "quota_tier": "linked",
+            "quota_daily_limit": 200, "quota_unlimited": False,
+            "quota_plus_available": True,
+            "quota_link_bot": "https://t.me/Descargas_Robot",
+            "quota_link_miniapp": "https://descargas.example/",
+            "remaining": 183, "used": 17,
+            "folders": [{"id": 4, "name": "Galería", "photos": 20,"videos": 10}],
+            "personal_folders": [{"id": 6, "name": "Fotos", "count": 22}],
+            "design": {"title": "Web Galerías"},
+            "free_access": False,
+        }
         db=N(fetchrow=AsyncMock(return_value={"uid":777,"name":"Cliente"}),
-             fetchval=AsyncMock(return_value=13),execute=AsyncMock())
-        g=N(db=lambda:db,entitled=AsyncMock(return_value=True),
-            folder_list=AsyncMock(return_value=[]),design=AsyncMock(return_value={}),
-            free_granted=AsyncMock(return_value=False),
-            storage=N(ready=True))
-        with patch.object(admin_account,"is_admin",return_value=True),\
-             patch.object(admin_account.personal,"folders",
-                 new=AsyncMock(return_value=[])),\
-             patch.object(admin_account.download_plus,"tier",
-                 new=AsyncMock(return_value={"tier":"linked","daily_limit":200,
-                    "quota_unlimited":False,"plus_active":False,"linked_descargas":True})):
-            result=await admin_account.operation(g,42,"admin-view-bootstrap",
-                                                 {"telegram_id":777})
-        self.assertEqual(result["owner_telegram_id"],777)
-        self.assertTrue(result["admin_view"])
-        self.assertEqual(result["quota_tier"],"linked")
-        self.assertEqual(result["remaining"],187)
-        self.assertEqual(result["checkout_enabled"],False)
-        self.assertEqual(result["quota_plus_available"],False)
-        db.execute.assert_not_awaited()
+             execute=AsyncMock())
+        g=N(db=lambda:db,bootstrap=AsyncMock(return_value=dict(customer)))
+        with patch.object(admin_account,"is_admin",return_value=True):
+            data=await admin_account.operation(
+                g,42,"admin-view-bootstrap",{"telegram_id":777})
+        g.bootstrap.assert_awaited_once_with(777,track_visit=False)
+        for key,value in customer.items():
+            self.assertEqual(data[key],value,key)
+        self.assertFalse(data["admin"])  # User role, not a fake admin profile.
+        self.assertTrue(data["admin_view"])
+        self.assertTrue(data["admin_controls"])
+        self.assertEqual(data["owner_telegram_id"],777)
+        db.execute.assert_not_awaited()  # Do not count admin as user activity.
 
     async def test_personal_actions_explicitly_use_target_and_audit_real_admin(self):
         db=N(fetchrow=AsyncMock(return_value={"uid":777,"name":"Cliente"}))

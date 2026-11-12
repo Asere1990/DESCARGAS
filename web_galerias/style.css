@@ -1176,3 +1176,21 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #admin #editor-library-identity .editor-image-size-preview img[hidden]{
  display:none!important;
 }
+
+
+/* Ver original is exclusive to the verified admin inside a user's real UI.
+   Keep Delete and its established confirmation in place. */
+#viewer .viewer-top .viewer-admin-actions{
+ display:flex;align-items:center;gap:7px;pointer-events:auto;
+}
+#viewer .viewer-top .viewer-admin-original{
+ pointer-events:auto;appearance:none;border:1px solid #3f9fe9;
+ background:#115d9c;color:#fff;padding:9px 11px;border-radius:12px;
+ font-size:12px;font-weight:750;white-space:nowrap;
+}
+#viewer .viewer-top .viewer-admin-actions button.hidden{display:none!important}
+@media (max-width:375px){
+ #viewer .viewer-top .viewer-admin-actions{gap:5px}
+ #viewer .viewer-top .viewer-admin-original,
+ #viewer .viewer-top .viewer-admin-delete{padding:8px 9px;font-size:11px}
+}

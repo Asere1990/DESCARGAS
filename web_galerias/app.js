@@ -25,7 +25,7 @@ const BROWSER_ADMIN=/^\/web-galerias\/admin(?:\/view)?\/?$/.test(location.pathna
 const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null,
  resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
-const selectionLimit=()=>S.me?.admin?100:10;
+const selectionLimit=()=>(S.me?.admin||S.me?.admin_controls)?100:10;
 let lastPresence=0;
 function galleryPresence(){
  if(BROWSER_ADMIN||ADMIN_ACCOUNT_VIEW||!S.me?.allowed||document.hidden)return;
@@ -88,8 +88,8 @@ function updateQuotaStatus(){
      "♾ Descargas ilimitadas · autorización existente"):
    linked?"🔗 Cuenta vinculada a DESCARGAS · 200 archivos diarios":
      "Plan básico · 50 archivos diarios";
- $("quota-connect")?.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW||unlimited||linked);
- $("quota-plus")?.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW||unlimited||!S.me.quota_plus_available);
+ $("quota-connect")?.classList.toggle("hidden",unlimited||linked);
+ $("quota-plus")?.classList.toggle("hidden",unlimited||!S.me.quota_plus_available);
 }
 function watermarkFromEditor(){
  return {
@@ -412,7 +412,13 @@ async function api(op,data={}){
    "favorites-items":"admin-view-favorites",
    items:"admin-view-items",
    "locate-media":"admin-view-locate",
-   "favorite-set":"admin-view-favorite-set"
+   "favorite-set":"admin-view-favorite-set",
+   "media-status":"admin-view-media-status",
+   "quota-plus-checkout":"admin-view-quota-plus-checkout",
+   "notices-count":"admin-view-notices-count",
+   "notices-list":"admin-view-notices-list",
+   "notices-mark-read":"admin-view-notices-mark-read",
+   "chat-unread":"admin-view-chat-unread"
   };
   const adminOps=new Set([
    "admin-media-remove","admin-mirror-download-dates",
@@ -1061,7 +1067,7 @@ function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
  $("selection-count").textContent=S.selected.size+" de "+selectionLimit();
- $("selection-admin-delete").classList.toggle("hidden",!S.me?.admin);
+ $("selection-admin-delete").classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls));
  $("selection-admin-delete").disabled=!S.selected.size;
  const trayText=$("folder-drag-help");
  if(trayText)trayText.textContent=S.selected.size>1?
@@ -1073,7 +1079,8 @@ function updateSelection(){
  $("selection-organize").disabled=!S.selected.size;
  const inFavorites=!!S.folder?.favorites;
  $("selection-organize").classList.toggle("hidden",inFavorites);
- $("selection-original").classList.toggle("hidden",!inFavorites);
+ $("selection-original").classList.toggle("hidden",
+   !(inFavorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls)));
  $("selection-original").disabled=S.selected.size!==1;
 }
 function toggleSelection(id){
@@ -1104,15 +1111,50 @@ function showViewerMedia(){
   document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
-  $("viewer-admin-delete").classList.toggle("hidden",!S.me?.admin);
+  $("viewer-admin-delete").classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls));
+  $("viewer-admin-original")?.classList.toggle("hidden",
+    !(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls));
   updateViewerFavorite();
   scheduleViewProgress(m);
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
 }
+async function refreshAdminViewerMedia(index,expected){
+ // Admin's embedded user view intentionally does not refresh every list while
+ // scrolling. A preview may already have become a playable original.
+ if(!ADMIN_ACCOUNT_VIEW||!expected?.id)return;
+ try{
+  const result=await api("media-status",{media:expected.id});
+  if($("viewer").classList.contains("hidden")||
+     S.items[S.viewer]?.id!==expected.id)return;
+  const item=S.items[S.viewer];
+  const wasFull=!!item.available&&!!item.view;
+  item.available=!!result.available;
+  item.kind=result.kind||item.kind;
+  item.mime=result.mime||item.mime;
+  item.view=result.view||null;
+  if(result.thumb)item.thumb=result.thumb;
+  const video=$("view-video");
+  // Don't interrupt an already-playing video merely to renew its URL.
+  if(!wasFull||!item.available||video.error){
+   showViewerMedia();
+   if(item.available&&item.kind==="video"&&item.mime!=="image/gif"){
+    try{$("view-video").load();}catch(_){}
+   }
+  }
+  if(!item.available)notice("La miniatura está disponible; el original aún se está preparando.");
+ }catch(e){
+  // A temporary status error must not erase a previously available video.
+  if(!expected.available)notice("No se pudo comprobar el original. Inténtalo nuevamente.");
+ }
+}
 function openViewer(index){
-  S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
-  document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
-  if(!S.items[index].available)notice("El original se está preparando; la miniatura se muestra si está disponible.");
+ S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
+ document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
+ if(ADMIN_ACCOUNT_VIEW){
+  void refreshAdminViewerMedia(index,S.items[index]);
+ }else if(!S.items[index].available){
+  notice("El original se está preparando; la miniatura se muestra si está disponible.");
+ }
 }
 function closeViewer(){
  $("viewer").classList.add("hidden");
@@ -1139,7 +1181,11 @@ function backToViewedMedia(){
   }));
  });
 }
-function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
+function moveViewer(delta){
+ const i=S.viewer+delta;if(i<0||i>=S.items.length)return;
+ S.viewer=i;showViewerMedia();
+ if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i]);
+}
 function nativeDownload(data){
  const url=location.origin+data.url;
  if(tg?.downloadFile&&tg?.isVersionAtLeast?.("8.0")){
@@ -1837,6 +1883,8 @@ async function getCustomerOffersLink(){
  return customerOffersRequest;
 }
 async function openMoreContent(){
+ if(ADMIN_ACCOUNT_VIEW)
+  return notice("Las ofertas privadas se abren desde la sesión Telegram del propio usuario.");
  const button=$("more-content");
  if(button.disabled)return;
  button.disabled=true;
@@ -1863,6 +1911,8 @@ async function getCustomerChatLink(){
  return customerChatRequest;
 }
 async function openSupportChat(){
+ if(ADMIN_ACCOUNT_VIEW)
+  return notice("El chat privado requiere la sesión del propio usuario de Telegram.");
  const button=$("open-support-chat");
  if(button?.disabled)return;
  if(button)button.disabled=true;
@@ -1878,11 +1928,13 @@ function updateSupportVisibility(screen){
  const admin=!!S.me?.admin;
  const chat=$("open-support-chat");
  const portada=$("go-intro");
- if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin||ADMIN_ACCOUNT_VIEW);
+ if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin);
  if(portada)portada.classList.toggle("hidden",!admin);
 }
 
 if($("quota-connect"))$("quota-connect").onclick=()=>{
+ if(ADMIN_ACCOUNT_VIEW)
+  return notice("La vinculación a DESCARGAS debe completarla este usuario con su propia cuenta de Telegram.");
  // Same bot: open the original DESCARGAS account Mini App in this WebView.
  // Signed Telegram identity stays in the URL fragment, never the HTTP query.
  const miniapp=String(S.me?.quota_link_miniapp||"");
@@ -1996,7 +2048,8 @@ $("select-mode").onclick=()=>{S.selection=!S.selection;S.selected.clear();update
 $("selection-cancel").onclick=()=>{S.selection=false;S.selected.clear();updateSelection();renderItems();};
 $("selection-download").onclick=()=>downloadIds([...S.selected]);
 $("selection-original").onclick=()=>{
- if(!S.folder?.favorites||S.selected.size!==1)return;
+ if(!(S.folder?.favorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls))||
+    S.selected.size!==1)return;
  const id=[...S.selected][0],item=S.items.find(m=>m.id===id);
  if(item)window.CubanitasTools?.locateOriginal?.(item);
 };
@@ -2006,6 +2059,11 @@ $("viewer-next").onclick=()=>moveViewer(1);
 $("close-viewer").onclick=backToViewedMedia;
 $("viewer-download").onclick=()=>downloadIds([S.items[S.viewer]?.id].filter(Boolean));
 $("viewer-admin-delete").onclick=()=>window.CubanitasTools?.adminDeleteSelection?.([S.items[S.viewer]?.id].filter(Boolean));
+$("viewer-admin-original").onclick=()=>{
+ const item=S.items[S.viewer];
+ if(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls&&item?.id)
+  window.CubanitasTools?.locateOriginal?.(item);
+};
 $("viewer-set-cover").onclick=async()=>{
  const media=S.items[S.viewer];
  if(!S.folder?.personal||media?.kind!=="photo"||!media.thumb)return;
