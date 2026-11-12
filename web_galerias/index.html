@@ -11,9 +11,9 @@
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/intro-poster">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=title-button-image-20261111-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=title-button-image-size-20261111-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-title-button-image-20261111"></script>
+<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-title-button-image-size-20261111"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=free-user-menu-gif-20261111-v1"></script>
 </head><body>
 <div id="app" class="app">
@@ -243,10 +243,20 @@
        </select>
      </label>
      <label id="edit-title-text-wrap">Texto del título<input id="edit-title" maxlength="160"></label>
-     <label id="edit-title-image-wrap" class="hidden">Imagen que sustituye al título
-       <input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp">
-       <small>PNG, JPEG o WebP · hasta 5 MB. La imagen sustituye solo al título.</small>
-     </label>
+     <div id="edit-title-image-wrap" class="hidden editor-image-setting">
+       <label>Imagen que sustituye al título
+         <input id="upload-header" type="file" accept="image/png,image/jpeg,image/webp">
+         <small>PNG, JPEG o WebP · hasta 5 MB. La imagen sustituye solo al título.</small>
+       </label>
+       <label for="edit-title_image_height" class="editor-image-size-label">
+         Tamaño de la imagen del nombre
+         <output id="edit-title-image-size-value" for="edit-title_image_height">120 px</output>
+       </label>
+       <input id="edit-title_image_height" type="range" min="40" max="220" step="10" value="120"
+              aria-label="Agrandar o reducir la imagen del nombre de Web Galerías">
+       <div class="editor-image-size-preview"><img id="edit-title-image-preview"
+         alt="Vista previa de la imagen del título" hidden></div>
+     </div>
      <label>Texto principal de publicidad<input id="edit-intro_label"></label>
      <label>Descripción<input id="edit-intro_caption"></label>
      <label>Mostrar texto del botón como
@@ -255,10 +265,23 @@
        </select>
      </label>
      <label id="edit-button-text-wrap">Texto del botón<input id="edit-button_label" maxlength="160"></label>
-     <label id="edit-button-image-wrap" class="hidden">Imagen que sustituye solo al texto del botón
-       <input id="upload-button-label-image" type="file" accept="image/png,image/jpeg,image/webp">
-       <small>PNG, JPEG o WebP · hasta 3 MB. El botón conserva su color, tamaño y función. Se recomienda PNG transparente.</small>
-     </label>
+     <div id="edit-button-image-wrap" class="hidden editor-image-setting">
+       <label>Imagen que sustituye solo al texto del botón
+         <input id="upload-button-label-image" type="file" accept="image/png,image/jpeg,image/webp">
+         <small>PNG, JPEG o WebP · hasta 3 MB. El botón conserva su color, tamaño y función. Se recomienda PNG transparente.</small>
+       </label>
+       <label for="edit-button_image_height" class="editor-image-size-label">
+         Tamaño de la imagen dentro del botón
+         <output id="edit-button-image-size-value" for="edit-button_image_height">30 px</output>
+       </label>
+       <input id="edit-button_image_height" type="range" min="12" max="48" step="2" value="30"
+              aria-label="Agrandar o reducir la imagen dentro del botón">
+       <div class="editor-image-size-preview">
+         <div class="editor-button-image-preview">
+           <img id="edit-button-image-preview" alt="Vista previa de la imagen dentro del botón" hidden>
+         </div>
+       </div>
+     </div>
      <label>Forma de miniaturas<select id="edit-tile_shape"><option value="square">Cuadradas</option><option value="rectangle">Rectangulares</option></select></label>
       <label>Fondo de la portada principal
         <select id="edit-intro_media">
