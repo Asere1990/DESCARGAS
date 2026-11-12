@@ -247,7 +247,7 @@ class GalleryCore:
         """Optional configured original DESCARGAS bot; no guessed bot identity."""
         import re
         name=(os.getenv("GALERIAS_DESCARGAS_BOT") or
-              os.getenv("GALERIAS_RETURN_BOT") or "").lstrip("@")
+              os.getenv("GALERIAS_RETURN_BOT") or "Descargas_Robot").lstrip("@")
         return "https://t.me/"+name if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,31}",name) else None
 
     async def free_granted(self,uid):
