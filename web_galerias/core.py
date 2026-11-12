@@ -374,6 +374,7 @@ class GalleryCore:
           "quota_plus_active":plan["plus_active"],
           "quota_plus_available":bool(allowed and download_plus.configured()),
           "quota_link_bot":GalleryCore.download_link_bot(self),
+          "quota_link_miniapp":getattr(self.s,"descargas_miniapp_url",None) if allowed else None,
           "storage_ready":self.storage.ready,
           "sync_enabled":os.getenv("GALERIAS_SYNC_ENABLED","0")=="1"}
 
