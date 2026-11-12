@@ -462,7 +462,12 @@ async def upload(g,uid,data):
     return {"ok":True,"complete":True,"folder":folder} if is_cover else {"ok":True,"complete":True}
 
 async def asset(g,request):
-    key=request.match_info["key"]
+    requested_key=request.match_info["key"]
+    # Dedicated lightweight display variants. All admin/editor endpoints and
+    # the original uploaded logo bytes continue to work exactly as before.
+    quick=requested_key in ("header-fast","button-label-fast")
+    key={"header-fast":"header","button-label-fast":"button-label-image"}.get(
+        requested_key,requested_key)
     if key=="intro-poster":
         from .intro_video import poster_asset
         return await poster_asset(g,request)
@@ -485,20 +490,25 @@ async def asset(g,request):
             return await stream(g,request,metadata)
     row=await g.db().fetchrow("SELECT mime,body,updated FROM wg_assets WHERE key=$1",key)
     if not row:raise web.HTTPNotFound()
-    # Browser can reuse these two identities without a new multi-MB download.
-    # Validation remains instantaneous after an admin changes the graphic.
+    # Identifiers can still validate instantly after an admin edits art.
     identity=key in ("header","button-label-image")
     revision=str(int(float(row.get("updated") or 0)*1000))
-    etag='"wg-'+key+'-'+revision+'"' if identity else None
+    body=bytes(row["body"])
+    mime=row["mime"]
+    rng=request.headers.get("Range","")
+    if quick and not rng and "image/webp" in request.headers.get("Accept",""):
+        from .fast_intro import fast_identity_asset
+        body,mime=await fast_identity_asset(key,revision,body,mime)
+    etag=('"wg-fast-'+key+'-'+revision+'-'+mime.replace("/","-")+'"' if quick
+          else '"wg-'+key+'-'+revision+'"' if identity else None)
     headers={"Accept-Ranges":"bytes","Cache-Control":"public, no-cache" if identity
              else "public, max-age=300",
              "X-Content-Type-Options":"nosniff"}
+    if quick:headers["Vary"]="Accept"
     if etag:
         headers["ETag"]=etag
         if request.headers.get("If-None-Match")==etag:
             return web.Response(status=304,headers=headers)
-    body=bytes(row["body"])
-    rng=request.headers.get("Range","")
     if rng:
         m=re.fullmatch(r"bytes=(\d*)-(\d*)",rng)
         if not m:raise web.HTTPRequestRangeNotSatisfiable()
@@ -507,5 +517,5 @@ async def asset(g,request):
         if start>end or start>=len(body):raise web.HTTPRequestRangeNotSatisfiable()
         headers["Content-Range"]=f"bytes {start}-{end}/{len(body)}"
         return web.Response(status=206,body=body[start:end+1],
-                            content_type=row["mime"],headers=headers)
-    return web.Response(body=body,content_type=row["mime"],headers=headers)
+                            content_type=mime,headers=headers)
+    return web.Response(body=body,content_type=mime,headers=headers)
