@@ -271,7 +271,7 @@ async def run(g):
                     # Bounded durable queue; don't accumulate abandoned work.
                     await db.execute("""
                         DELETE FROM wg_media_priority
-                        WHERE requested_at<$1
+                        WHERE (requested_at<$1 AND state='queued')
                            OR media IN (SELECT id FROM wg_media
                                         WHERE state NOT IN ('preview','pending'))
                     """, time.time()-JOB_TTL_SECONDS)
