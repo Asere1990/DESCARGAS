@@ -12,7 +12,7 @@ function snippet(first,last){
 function stateHarness(){
  const stored=new Map(),calls=[],raf=[],tiles={};
  const $=id=>{
-  if(id==="viewer")return{classList:{contains:()=>true}};
+  if(id==="viewer")return{classList:{contains:()=>false}}; // viewer is visible
   if(id==="album")return{classList:{contains:()=>false}};
   if(id==="library")return{classList:{contains:()=>false}};
   if(id==="album-grid")return{querySelector:selector=>tiles[selector]||null};
