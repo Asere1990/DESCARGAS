@@ -131,6 +131,7 @@ def customer_bot_signed(uid):
     return _CUSTOMER_BOT_UID.get()==int(uid) and (
         os.getenv("GALERIAS_PUBLIC","0")=="1"
         or is_admin(uid) or is_tester(uid) or payment_test_user(uid)
+        or int(uid)==8129084202  # existing signed checkout tester only, never free
     )
 
 
