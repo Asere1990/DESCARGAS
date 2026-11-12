@@ -663,7 +663,7 @@
    if(ids.length===1)root.append(choice("⌕ Buscar en galería original",
                                         ()=>locateOriginal(item)));
   }
-  if(S.me?.admin){
+  if(S.me?.admin||S.me?.admin_controls){
    root.append(choice("Eliminar de la web (conservar respaldo)",()=>deleteMediaIds(ids,false)));
    root.append(choice("Eliminar también de Cloudflare R2",()=>deleteMediaIds(ids,true)));
   }
