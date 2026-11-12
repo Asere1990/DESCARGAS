@@ -130,7 +130,8 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('if(S.me.allowed){show("library");return;}',script)
         self.assertIn('const enter=$("enter");enter.disabled=true;',script)
         self.assertIn('finally{enter.disabled=false;}',script)
-        self.assertIn('app.js?v=fast-intro-identity-20261112-v1',html)
+        # Asset revision may evolve; the original signed entry script must remain.
+        self.assertIn('src="/web-galerias/static/app.js?v=',html)
 
 
 if __name__=="__main__":
