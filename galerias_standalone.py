@@ -34,6 +34,7 @@ class IsolatedGalleryService:
     def __init__(self):
         self.token=os.getenv("GALERIAS_AUTH_BOT_TOKEN","")
         self.url=os.getenv("RENDER_EXTERNAL_URL","https://localhost").rstrip("/")
+        self.descargas_miniapp_url=None
         try:
             self.cipher=Fernet(os.environ["DESCARGAS_SESSION_KEY"].encode()) if os.getenv("DESCARGAS_SESSION_KEY") else None
         except (ValueError,TypeError):
@@ -67,9 +68,22 @@ class IsolatedGalleryService:
                 snapshot=self.repo.decode(raw.encode("utf-8"))
                 if not isinstance(snapshot,dict):
                     raise ValueError("Invalid encrypted bot runtime configuration")
-                self.token=self.token or str(snapshot.get("token") or "")
+                original_token=str(snapshot.get("token") or "")
+                self.token=self.token or original_token
                 self.api_id=self.api_id or str(snapshot.get("api_id") or "")
                 self.api_hash=self.api_hash or str(snapshot.get("api_hash") or "")
+                # Reuse the authentic DESCARGAS Mini App URL from the encrypted
+                # runtime snapshot; no extra query during gallery user login.
+                if original_token and self.token==original_token:
+                    from urllib.parse import urlsplit
+                    candidate=str(snapshot.get("url") or "").strip()
+                    try: parsed=urlsplit(candidate)
+                    except ValueError: parsed=None
+                    if (parsed and parsed.scheme=="https" and parsed.netloc
+                            and not parsed.username and not parsed.password
+                            and not parsed.query and not parsed.fragment
+                            and parsed.path in ("", "/", "/descargas", "/descargas/")):
+                        self.descargas_miniapp_url=candidate
         except Exception as exc:
             logging.getLogger("web-galerias").error(
                 "Gallery private database/configuration unavailable (%s)",type(exc).__name__)
