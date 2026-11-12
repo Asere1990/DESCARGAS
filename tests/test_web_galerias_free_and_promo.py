@@ -42,7 +42,8 @@ class FreeAndPromo(unittest.IsolatedAsyncioTestCase):
         async def acquire():
             yield c
         g=N(entitled=AsyncMock(return_value=True),storage=N(ready=True),
-            db=lambda:N(acquire=acquire),s=N(cipher=Fernet(Fernet.generate_key())))
+            db=lambda:N(acquire=acquire),s=N(cipher=Fernet(Fernet.generate_key())),
+            free_granted=AsyncMock(return_value=True))
         with patch.object(permissions,"free_access",return_value=True),patch.object(
                 permissions,"is_admin",return_value=False):
             result=await downloads.reserve(g,333,[11,12])
@@ -69,7 +70,8 @@ class FreeAndPromo(unittest.IsolatedAsyncioTestCase):
         async def acquire():
             yield c
         g=N(entitled=AsyncMock(return_value=True),storage=N(ready=True),
-            db=lambda:N(acquire=acquire),s=N(cipher=Fernet(Fernet.generate_key())))
+            db=lambda:N(acquire=acquire),s=N(cipher=Fernet(Fernet.generate_key())),
+            free_granted=AsyncMock(return_value=False))
         with patch.object(permissions,"free_access",return_value=False),patch.object(
                 permissions,"is_admin",return_value=False):
             with self.assertRaises(web.HTTPForbidden):
