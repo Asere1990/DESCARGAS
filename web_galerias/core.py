@@ -178,6 +178,7 @@ class GalleryCore:
         self.moderation_task=None
         self.broadcast_task=None
         self.media_text_task=None
+        self.ocr_task=None
         self.last_error=""
 
     def db(self):
@@ -200,6 +201,9 @@ class GalleryCore:
                         from . import media_text
                         await self.s.repo.pool.execute(media_text.SCHEMA)
                         self.media_text_task=asyncio.create_task(media_text.run(self))
+                        from . import ocr_low_priority
+                        if os.getenv("GALERIAS_OCR_ENABLED","0")=="1":
+                            self.ocr_task=asyncio.create_task(ocr_low_priority.run(self))
                     except Exception as exc:
                         log.warning("Caption/reply/OCR schema setup pending (%s)",
                                     type(exc).__name__)
