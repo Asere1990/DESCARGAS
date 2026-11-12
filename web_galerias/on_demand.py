@@ -183,7 +183,7 @@ async def _process(g, media):
         return
 
     folder = dict(row)
-    folder["id"] = row["folder_id"]
+    folder["id"] = row["folder"]
     uid = None
     try:
         if not active(g):
