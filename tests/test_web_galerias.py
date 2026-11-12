@@ -40,7 +40,8 @@ class LinkTests(unittest.TestCase):
 class DesignTests(unittest.TestCase):
     def test_default_title_and_fixed_limit(self):
         self.assertEqual(DEFAULTS["title"],"Web Galerías")
-        self.assertEqual(cleaned_design({"title":"Mi Galería"})["daily_limit"],100)
+        self.assertEqual(cleaned_design({"title":"Mi Galería"})["daily_limit"],50)
+        self.assertEqual(cleaned_design({"daily_limit":100})["daily_limit"],50)
     def test_colors_whitelisted(self):
         with self.assertRaises(web.HTTPBadRequest):
             cleaned_design({"accent":"red; background:url()"})
@@ -166,7 +167,7 @@ class IOSGalleryUXTests(unittest.TestCase):
         self.assertIn("return await stream_object(",src[start:])
         self.assertNotIn("raise web.HTTPFound",src[start:])
         self.assertIn("max(0,100-used-len(ids))" if False else
-                      '"remaining":None if unlimited else 100-used-len(ids)',src)
+                      '"remaining":None if unlimited else max(0,daily_limit-used-len(ids))',src)
 
 class WatermarkEditorTests(unittest.IsolatedAsyncioTestCase):
     def test_defaults_match_requested_mark_and_work_on_both_media(self):
