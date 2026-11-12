@@ -3,7 +3,8 @@ const $=id=>document.getElementById(id);
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
-const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null};
+const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null,
+ resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const selectionLimit=()=>S.me?.admin?100:10;
 let lastPresence=0;
@@ -21,6 +22,11 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden){lastPrese
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);
  if(id==="album"||id==="library"){lastPresence=0;galleryPresence();}
+ if(id==="library"&&S.me?.allowed){
+  renderLibraryExtras();
+  if(!S.collectionsReady||Date.now()-S.collectionsAt>30000)
+   refreshCollections().catch(()=>{});
+ }
 };
 function notice(message){const t=$("toast");t.textContent=message;t.classList.remove("hidden");clearTimeout(S.toastTimer);S.toastTimer=setTimeout(()=>t.classList.add("hidden"),4200);}
 function renderWatermark(element,config){
@@ -295,12 +301,102 @@ async function refresh(lite=false){
  }
  $("intro-notice").classList.add("hidden");
  if(!lite){
+  if(S.me.allowed)refreshCollections().catch(()=>{});
   await Promise.all([titleReady,buttonReady]);
   if(generation===S.introRenderGeneration){
    intro.classList.remove("intro-loading");
    intro.setAttribute("aria-busy","false");
   }
  }
+}
+function renderLibraryExtras(){
+ if(!S.me?.allowed)return;
+ const latest=S.resumes.find(p=>S.folders.some(f=>Number(f.id)===Number(p.folder)));
+ $("resume-feature").classList.toggle("hidden",!latest);
+ if(latest){
+  $("resume-name").textContent=latest.name||"Tu última galería";
+  $("resume-open").onclick=()=>resumeMedia(latest.media);
+ }
+ $("favorites-counter").textContent=S.collectionsReady?
+  pretty(S.favoritesCount)+" archivos ›":"Fotos y videos guardados ›";
+}
+async function refreshCollections(force=false){
+ if(!S.me?.allowed||S.collectionsPending)return;
+ if(!force&&S.collectionsReady&&Date.now()-S.collectionsAt<30000)return;
+ S.collectionsPending=true;
+ try{
+  const data=await api("user-collections");
+  if(!S.me?.allowed)return;
+  S.resumes=Array.isArray(data.resume)?data.resume:[];
+  S.favoritesCount=Number(data.favorites_count)||0;
+  S.collectionsReady=true;
+  S.collectionsAt=Date.now();
+  renderLibraryExtras();
+  renderFolders();
+ }catch(_){/* A gallery must remain usable if optional shortcuts fail. */}
+ finally{S.collectionsPending=false;}
+}
+async function resumeMedia(media){
+ if(S.resuming)return;
+ S.resuming=true;
+ try{
+  const data=await api("locate-media",{media});
+  ++S.epoch;
+  S.folder=data.folder;S.items=data.items;S.next=data.next;
+  S.search="";S.filter="all";S.selection=false;S.selected.clear();
+  $("query").value="";$("album-title").textContent=data.folder.name;
+  $("album-subtitle").textContent="Retomando tu última foto o video";
+  $("filter-toggle").textContent="Mostrar todo ▾";
+  $("filter-menu").classList.add("hidden");
+  renderDropTargets();updateSelection();show("album");renderItems();
+  $("load-more").classList.toggle("hidden",!S.next);
+  const index=S.items.findIndex(item=>Number(item.id)===Number(data.focus));
+  if(index>=0)openViewer(index);
+ }catch(e){
+  notice("No se puede retomar ese archivo. Puede que ya no esté disponible.");
+  S.resumes=S.resumes.filter(p=>Number(p.media)!==Number(media));
+  renderLibraryExtras();
+ }finally{S.resuming=false;}
+}
+function scheduleViewProgress(m){
+ if(!S.me?.allowed||!m?.id)return;
+ clearTimeout(S.progressTimer);
+ const media=m.id;
+ S.progressTimer=setTimeout(async()=>{
+  try{
+   const result=await api("progress-save",{media});
+   S.resumes=S.resumes.filter(p=>Number(p.folder)!==Number(result.folder));
+   const folder=S.folders.find(f=>Number(f.id)===Number(result.folder));
+   S.resumes.unshift({folder:result.folder,media:result.media,
+     name:folder?.name||"Tu última galería",updated:Date.now()/1000});
+   renderLibraryExtras();
+  }catch(_){/* Do not interrupt photo/video playback on a slow connection. */}
+ },350);
+}
+function updateViewerFavorite(){
+ const item=S.items[S.viewer],button=$("viewer-favorite");
+ button.textContent=item?.favorite?"♥":"♡";
+ button.setAttribute("aria-pressed",String(!!item?.favorite));
+ button.setAttribute("aria-label",item?.favorite?
+  "Quitar de mis favoritos":"Agregar a mis favoritos");
+ button.title=item?.favorite?"Quitar de mis favoritos":"Guardar en mis favoritos";
+}
+async function toggleViewerFavorite(){
+ const item=S.items[S.viewer],button=$("viewer-favorite");
+ if(!item||button.disabled)return;
+ button.disabled=true;
+ const next=!item.favorite;
+ try{
+  await api("favorite-set",{media:item.id,favorite:next});
+  item.favorite=next;
+  if(S.folder?.favorites&&!next)S.favoritesDirty=true;
+  updateViewerFavorite();
+  renderItems();
+  S.collectionsAt=0;
+  refreshCollections(true).catch(()=>{});
+  notice(next?"Guardado en Mis favoritos.":"Quitado de Mis favoritos.");
+ }catch(e){notice(e.message);}
+ finally{button.disabled=false;}
 }
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
@@ -316,6 +412,15 @@ function renderFolders(){
   stats.textContent=pretty(folder.photos)+" fotos · "+pretty(folder.videos)+" videos"+
    (S.me?.admin && folder.pending?" · respaldando…":"");
   card.append(cover,title,stats);
+  const resume=S.resumes.find(p=>Number(p.folder)===Number(folder.id));
+  if(resume){
+   const continueButton=document.createElement("button");
+   continueButton.type="button";continueButton.className="folder-continue";
+   continueButton.textContent="↪ Continuar viendo";
+   continueButton.onclick=e=>{e.stopPropagation();resumeMedia(resume.media);};
+   continueButton.onkeydown=e=>e.stopPropagation();
+   card.append(continueButton);
+  }
   card.onclick=()=>openFolder(folder);
   card.onkeydown=e=>{if(e.key==="Enter")openFolder(folder);};
   root.append(card);
@@ -523,8 +628,12 @@ async function openFolder(folder){
  S.folder=folder;S.items=[];S.next=null;S.search="";S.filter="all";
  S.selection=false;S.selected.clear();
  $("query").value="";$("album-title").textContent=folder.name;
- $("album-subtitle").textContent=folder.personal?pretty(folder.count)+" archivos":
+ $("album-subtitle").textContent=folder.favorites?
+   "Tus fotos y videos guardados":
+   folder.personal?pretty(folder.count)+" archivos":
    pretty(folder.photos)+" fotos · "+pretty(folder.videos)+" videos";
+ $("favorites-notice").classList.toggle("hidden",!folder.favorites);
+ S.favoritesDirty=false;
  $("filter-toggle").textContent="Mostrar todo ▾";$("filter-menu").classList.add("hidden");
  $("filter-toggle").setAttribute("aria-expanded","false");
  renderDropTargets();
@@ -536,7 +645,9 @@ async function loadItems(older=false){
  $("empty-gallery").classList.add("hidden");
  if(!older){S.items=[];$("album-grid").replaceChildren();}
  try{
-  const data=await api("items",{...(S.folder.personal?{collection:S.folder.id}:{folder:S.folder.id}),
+  const data=await api(S.folder.favorites?"favorites-items":"items",{
+    ...(S.folder.favorites?{}:S.folder.personal?
+      {collection:S.folder.id}:{folder:S.folder.id}),
     kind:S.filter,query:S.search,cursor:older?(S.next||0):0});
   if(epoch!==S.epoch)return;
   S.items.push(...data.items);S.next=data.next;
@@ -554,6 +665,10 @@ function renderItems(){
   if(m.thumb){const img=document.createElement("img");img.src=m.thumb;img.loading="lazy";img.decoding="async";img.alt="";
    img.onerror=()=>{img.remove();fallback(b,m);};b.append(img);}else fallback(b,m);
   if(m.kind==="video"){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
+  if(m.favorite){
+   const heart=document.createElement("span");heart.className="favorite-mark";
+   heart.textContent="♥";heart.setAttribute("aria-hidden","true");b.append(heart);
+  }
   attachLongPress(b,m,index);
   b.onclick=()=>{
    if(S.suppressClick===m.id){S.suppressClick=null;return;}
@@ -759,6 +874,8 @@ function showViewerMedia(){
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
   $("viewer-admin-delete").classList.toggle("hidden",!S.me?.admin);
+  updateViewerFavorite();
+  scheduleViewProgress(m);
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
 }
 function openViewer(index){
@@ -766,7 +883,15 @@ function openViewer(index){
   document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
   if(!S.items[index].available)notice("El original se está preparando; la miniatura se muestra si está disponible.");
 }
-function closeViewer(){$("viewer").classList.add("hidden");document.body.classList.remove("gallery-viewer-open");$("view-video").pause();}
+function closeViewer(){
+ $("viewer").classList.add("hidden");
+ document.body.classList.remove("gallery-viewer-open");
+ $("view-video").pause();
+ if(S.folder?.favorites&&S.favoritesDirty){
+  S.favoritesDirty=false;
+  loadItems(false).catch(()=>{});
+ }
+}
 function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
 function nativeDownload(data){
  const url=location.origin+data.url;
@@ -1326,6 +1451,8 @@ $("enter").onclick=async()=>{
  finally{enter.disabled=false;}
 };
 $("go-intro").onclick=()=>show("intro");
+$("open-favorites").onclick=()=>openFolder({favorites:true,name:"Mis favoritos"});
+$("viewer-favorite").onclick=toggleViewerFavorite;
 $("personal-folders-toggle").onclick=()=>setPersonalMenuOpen(!S.personalMenuOpen);
 $("create-personal-folder").onclick=()=>createPersonalFolder();
 $("personal-cover-file").onchange=()=>{
