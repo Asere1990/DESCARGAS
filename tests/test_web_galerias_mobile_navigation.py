@@ -46,7 +46,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         cls.doc.feed(cls.html)
 
     def test_no_duplicate_controls(self):
-        for control in ("go-intro","admin-open","admin-back","admin-refresh",
+        for control in ("open-support-chat","admin-open","admin-back","admin-refresh",
                         "back-library","select-mode","selection-cancel",
                         "selection-download","selection-original","close-viewer","viewer-download",
                         "viewer-prev","viewer-next"):
@@ -54,7 +54,7 @@ class GalleryMobileNavigation(unittest.TestCase):
 
     def test_bottom_buttons_instead_of_unreachable_header_icons(self):
         self.assertEqual(len(self.doc.nav_classes),4)
-        self.assertEqual(set(self.doc.nav_classes[0]),{"go-intro","admin-open"})
+        self.assertEqual(set(self.doc.nav_classes[0]),{"open-support-chat","admin-open"})
         self.assertEqual(set(self.doc.nav_classes[1]),{"back-library","select-mode"})
         self.assertEqual(set(self.doc.nav_classes[2]),{"selection-cancel","selection-organize","selection-original","selection-admin-delete","selection-download"})
         self.assertIn('id="selection-admin-delete" type="button" class="mobile-action mobile-action-danger hidden"',self.html)
@@ -62,7 +62,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertEqual(set(self.doc.nav_classes[3]),{"admin-back","admin-refresh","browser-logout"})
         headers=re.findall(r"<header\b[^>]*>.*?</header>",self.html,re.DOTALL)
         for header in headers:
-            for identifier in ("go-intro","admin-open","admin-back","admin-refresh",
+            for identifier in ("open-support-chat","admin-open","admin-back","admin-refresh",
                                "back-library","select-mode","selection-cancel",
                                "selection-download","close-viewer","viewer-download",
                                "viewer-prev","viewer-next"):
@@ -128,7 +128,7 @@ class GalleryMobileNavigation(unittest.TestCase):
                 self.assertTrue(control.get("aria-label"))
                 self.assertEqual(control.get("type"),"button")
         self.assertIn('id="admin-open" type="button" class="mobile-action mobile-action-primary hidden"',self.html)
-        self.assertIn('$("admin-open").classList.toggle("hidden",!S.me.admin)',self.js)
+        self.assertIn('$("admin-open").classList.toggle("hidden",!S.me.admin||ADMIN_ACCOUNT_VIEW)',self.js)
 
     def test_touch_target_size_and_both_mobile_safe_areas(self):
         self.assertIn("min-height:54px",self.css)
@@ -206,7 +206,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('rel="apple-touch-icon"',self.html)
 
     def test_button_events_preserved(self):
-        for code in ('$("go-intro").onclick=()=>show("intro")',
+        for code in ('$("open-support-chat").onclick=()=>openSupportChat()',
                      '$("admin-open").onclick=openAdminScreen',
                      '$("admin-back").onclick=()=>show("library")',
                      '$("admin-refresh").onclick=loadAdmin'):
