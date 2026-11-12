@@ -1,0 +1,5 @@
+# ONLY for an isolated, explicitly enabled CLOUDFLARE OCR runtime.
+# Do NOT use this file for DESCARGAS or DESCARGAS-WORKER.
+-r requirements.txt
+rapidocr==3.10.0
+onnxruntime==1.31.1

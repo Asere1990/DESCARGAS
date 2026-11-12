@@ -177,6 +177,8 @@ class GalleryCore:
         self.customer_bridge_task=None
         self.moderation_task=None
         self.broadcast_task=None
+        self.media_text_task=None
+        self.ocr_task=None
         self.last_error=""
 
     def db(self):
@@ -193,7 +195,13 @@ class GalleryCore:
                     await self.s.repo.pool.execute(SCHEMA)
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     await self.s.repo.pool.execute(MODERATION_SCHEMA)
+                    # Search enrichment schema/backfill is entirely detached
+                    # from app startup, gallery loading, payments and R2 backups.
                     self.ready=True
+                    from . import media_text,ocr_low_priority
+                    self.media_text_task=asyncio.create_task(media_text.run(self))
+                    if os.getenv("GALERIAS_OCR_ENABLED","0")=="1":
+                        self.ocr_task=asyncio.create_task(ocr_low_priority.run(self))
                     # Broadcast schema/worker is strictly optional: failure
                     # cannot stop galleries, billing or backup.
                     try:
