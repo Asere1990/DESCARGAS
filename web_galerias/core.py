@@ -373,7 +373,7 @@ class GalleryCore:
           "quota_tier":plan["tier"],"quota_linked":plan["linked_descargas"],
           "quota_plus_active":plan["plus_active"],
           "quota_plus_available":bool(allowed and download_plus.configured()),
-          "quota_link_bot":self.download_link_bot(),
+          "quota_link_bot":GalleryCore.download_link_bot(self),
           "storage_ready":self.storage.ready,
           "sync_enabled":os.getenv("GALERIAS_SYNC_ENABLED","0")=="1"}
 
