@@ -882,6 +882,16 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  visibility:hidden;
  pointer-events:none;
 }
+/* The server renders ONLY the current operator-selected public branding.
+   The CTA is visually present but disabled until the signed user bootstrap. */
+#intro.intro-loading.fast-identity .intro-bottom{
+ visibility:visible;
+ pointer-events:auto;
+}
+#intro.fast-identity #enter:disabled{opacity:1;cursor:default;pointer-events:none}
+#intro.fast-identity #intro-headline img{
+ display:block;max-width:100%;margin:0 auto;
+}
 
 
 /* Per-user library conveniences. These contain no duplicated Cloudflare media. */
