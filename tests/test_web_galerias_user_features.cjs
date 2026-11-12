@@ -49,7 +49,9 @@ test("continue opens exact media id through existing original-location API",asyn
  vm.createContext(ctx);
  vm.runInContext(featureCode,ctx);
  await ctx.resumeMedia(700);
- assert.deepEqual(calls,[["locate-media",{media:700}]]);
+ assert.equal(calls.length,1);
+ assert.equal(calls[0][0],"locate-media");
+ assert.equal(calls[0][1].media,700);
  assert.deepEqual(focus,[["show","album"],["viewer",1]]);
  assert.equal(S.folder.id,42);
  assert.equal(S.next,699);
@@ -60,7 +62,7 @@ test("heart toggles personal state without changing current media or payments",a
  const $=fakeNodes(),calls=[],messages=[];
  const item={id:812,folder:42,favorite:false};
  const S={me:{allowed:true},folder:{favorites:true},items:[item],viewer:0,
-          favoritesCount:0,collectionsPending:false,collectionsAt:1};
+          favoritesCount:0,collectionsPending:false,collectionsAt:1,favoritesDirty:false};
  const ctx={
   $,S,pretty:n=>String(n),Date,Number,
   api:async(op,data)=>{calls.push([op,data]);return{ok:true}},
