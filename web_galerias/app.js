@@ -99,6 +99,9 @@ function renderEntryButtonLabel(label,forceText=false){
  button.textContent=text;
  button.setAttribute("aria-label",text);
  if(forceText||S.me?.design?.button_mode!=="image")return;
+ const requested=Number(S.me.design.button_image_height??30);
+ const height=Number.isFinite(requested)?Math.min(48,Math.max(12,requested)):30;
+ button.style.setProperty("--entry-label-image-height",height+"px");
  const image=new Image();
  image.className="enter-label-image";image.alt="";
  image.onload=()=>{
@@ -118,6 +121,31 @@ function updateEditorLabelChoices(){
  $("edit-button-text-wrap").classList.toggle("hidden",buttonImage);
  $("edit-button-image-wrap").classList.toggle("hidden",!buttonImage);
 }
+function updateEditorImageSizes(){
+ const titleHeight=Number($("edit-title_image_height").value);
+ const buttonHeight=Number($("edit-button_image_height").value);
+ $("edit-title-image-size-value").textContent=titleHeight+" px";
+ $("edit-button-image-size-value").textContent=buttonHeight+" px";
+ $("edit-title-image-preview").style.height=titleHeight+"px";
+ $("edit-button-image-preview").style.height=buttonHeight+"px";
+}
+function loadEditorImagePreview(kind){
+ const asset=kind==="title"?"header":"button-label-image";
+ const image=$("edit-"+kind+"-image-preview");
+ if(image.dataset.objectUrl){
+  URL.revokeObjectURL(image.dataset.objectUrl);
+  delete image.dataset.objectUrl;
+ }
+ const file=$("upload-"+asset).files?.[0];
+ image.hidden=true;
+ image.onload=()=>{image.hidden=false;};
+ image.onerror=()=>{image.hidden=true;};
+ if(file){
+  const url=URL.createObjectURL(file);
+  image.dataset.objectUrl=url;image.src=url;
+ }else image.src="/web-galerias/assets/"+asset+"?t="+Date.now();
+ updateEditorImageSizes();
+}
 function applyDesign(d){const r=document.documentElement.style;
  r.setProperty("--accent",d.accent);r.setProperty("--bg",d.background);r.setProperty("--text",d.text_color);
  r.setProperty("--button",d.button_color);r.setProperty("--tile-aspect",d.tile_shape==="rectangle"?"4 / 3":"1");
@@ -136,7 +164,13 @@ function applyDesign(d){const r=document.documentElement.style;
  if(d.header_mode==="image"){
    const image=new Image();
    image.alt=d.title;
-   image.style.cssText="max-width:min(90vw,460px);max-height:120px;object-fit:contain";
+   const requested=Number(d.title_image_height??120);
+   const height=Number.isFinite(requested)?Math.min(220,Math.max(40,requested)):120;
+   image.style.height=height+"px";
+   image.style.maxHeight=height+"px";
+   image.style.maxWidth="min(92vw,600px)";
+   image.style.width="auto";
+   image.style.objectFit="contain";
    image.onload=()=>{
      if(S.titleImageGeneration!==titleGeneration)return;
      headline.replaceChildren(image);
@@ -1072,14 +1106,21 @@ function switchAdminTab(tab){
 function populateEditor(){
  const d=S.me.design;
  for(const k of ["title","intro_label","intro_caption","button_label","header_mode","button_mode","tile_shape",
-                 "intro_fit","intro_media","button_color","accent","background","text_color"])
-  $("edit-"+k).value=d[k]||(k==="button_mode"?"text":"");
+                 "intro_fit","intro_media","button_color","accent","background","text_color",
+                 "title_image_height","button_image_height"])
+  $("edit-"+k).value=d[k]??(k==="button_mode"?"text":"");
  updateEditorLabelChoices();
+ loadEditorImagePreview("title");
+ loadEditorImagePreview("button");
  populateWatermarkEditor(d);
 }
 async function saveDesign(){
- const design={};for(const k of ["title","intro_label","intro_caption","button_label","header_mode","button_mode","tile_shape",
-               "intro_fit","intro_media","button_color","accent","background","text_color"])design[k]=$("edit-"+k).value;
+ const design={};
+ for(const k of ["title","intro_label","intro_caption","button_label","header_mode","button_mode","tile_shape",
+                 "intro_fit","intro_media","button_color","accent","background","text_color"])
+  design[k]=$("edit-"+k).value;
+ for(const k of ["title_image_height","button_image_height"])
+  design[k]=Number($("edit-"+k).value);
  design.daily_limit=100;
  try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
 }
@@ -1218,6 +1259,8 @@ async function confirmEditorChanges(){
                     "header_mode","button_mode","tile_shape","intro_fit","intro_media","button_color",
                     "accent","background","text_color"])
    design[key]=$("edit-"+key).value;
+  for(const key of ["title_image_height","button_image_height"])
+   design[key]=Number($("edit-"+key).value);
   design.daily_limit=100;
   status.textContent="Guardando identidad y marca de agua…";
   await api("admin-design",{design});
@@ -1413,11 +1456,15 @@ for(const key of ["enabled","line1","line2","position","opacity","size","color"]
 }
 for(const selector of ["header_mode","button_mode"])
  $("edit-"+selector).onchange=updateEditorLabelChoices;
+for(const key of ["title_image_height","button_image_height"])
+ $("edit-"+key).oninput=updateEditorImageSizes;
 for(const key of ["logo","header","button-label-image","intro","intro-photo"])
  $("upload-"+key).onchange=()=>{
   const file=$("upload-"+key).files?.[0];
   if(key==="header"&&file)$("edit-header_mode").value="image";
   if(key==="button-label-image"&&file)$("edit-button_mode").value="image";
+  if(key==="header"||key==="button-label-image")
+   loadEditorImagePreview(key==="header"?"title":"button");
   if(key==="intro"&&file){
    $("upload-intro-photo").value="";
    $("edit-intro_media").value="video";
