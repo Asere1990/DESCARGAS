@@ -992,3 +992,13 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  #library #favorites-counter{font-size:10px}
  #tab-comercio .commercial-metric strong{font-size:20px}
 }
+
+
+/* Touch favorites: prevent browser double-tap zoom, preserve long-press menu. */
+#album .media-tile{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+#album .media-tile .favorite-mark{animation:favorite-heart-pop .24s ease-out both}
+@keyframes favorite-heart-pop{
+ from{transform:scale(.48);opacity:.5}
+ to{transform:scale(1);opacity:1}
+}
+#album .selection-actions #selection-show-original{font-size:12px;line-height:1.15}
