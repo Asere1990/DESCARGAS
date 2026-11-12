@@ -1,4 +1,4 @@
-"""Vistas con enlaces temporales y descarga diaria atómica de 100 archivos."""
+"""Vistas con enlaces temporales y descarga diaria atómica por nivel."""
 import asyncio
 import json
 import re
@@ -93,9 +93,11 @@ async def reserve(g,uid,ids):
     if not await g.entitled(uid):raise web.HTTPForbidden(text="Acceso no vigente.")
     if not g.storage.ready:raise web.HTTPServiceUnavailable(text="El respaldo aún no está disponible.")
     from .permissions import is_admin
-    # The per-request bound stays 10 for customers. Only the DAILY counter
-    # is unlimited for verified free grants (file or admin-managed database).
-    unlimited=await g.free_granted(uid)
+    # The batch limit stays unchanged; only the daily allowance varies.
+    from . import download_plus
+    plan=await download_plus.tier(g,uid)
+    unlimited=plan["quota_unlimited"]
+    daily_limit=plan["daily_limit"]
     limit=100 if is_admin(uid) else 10
     if not isinstance(ids,list) or not 1<=len(ids)<=limit:
         raise web.HTTPBadRequest(text=f"Selecciona de 1 a {limit} archivos.")
@@ -117,8 +119,8 @@ async def reserve(g,uid,ids):
             await c.execute("""INSERT INTO wg_quota(uid,day,used) VALUES($1,$2,0)
                ON CONFLICT DO NOTHING""",uid,day)
             used=await c.fetchval("SELECT used FROM wg_quota WHERE uid=$1 AND day=$2 FOR UPDATE",uid,day)
-            if used+len(ids)>100:
-                raise web.HTTPForbidden(text=f"Te quedan {max(0,100-used)} descargas hoy.")
+            if used+len(ids)>daily_limit:
+                raise web.HTTPForbidden(text=f"Te quedan {max(0,daily_limit-used)} descargas hoy.")
             await c.execute("UPDATE wg_quota SET used=used+$3 WHERE uid=$1 AND day=$2",uid,day,len(ids))
         ticket=secrets.token_urlsafe(30)
         await c.execute("""INSERT INTO wg_download_tickets(token,uid,ids,day,expires)
@@ -131,8 +133,9 @@ async def reserve(g,uid,ids):
             for item in ids]
     return {"url":"/web-galerias/download/"+ticket,"count":len(ids),
             "files":files,"name":files[0]["name"] if len(files)==1 else "web-galerias.zip",
-            "remaining":None if unlimited else 100-used-len(ids),
-            "quota_unlimited":unlimited}
+            "remaining":None if unlimited else max(0,daily_limit-used-len(ids)),
+            "quota_unlimited":unlimited,"quota_daily_limit":daily_limit,
+            "quota_tier":plan["tier"]}
 
 async def download(g,request):
     token=request.match_info["ticket"]
