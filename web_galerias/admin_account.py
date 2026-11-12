@@ -114,6 +114,27 @@ async def operation(g, actor, op, data):
     if op == "admin-view-collections":
         return await user_features.collections(g, target)
 
+    if op == "admin-view-favorite-set":
+        result = await user_features.set_favorite(g, target, data)
+        await g.log(actor, f"admin-user-favorite:{target}")
+        return result
+
+    if op.startswith("admin-view-personal-"):
+        source_op = op.removeprefix("admin-view-")
+        # The same personal actions, with verified admin ownership of the
+        # session and an explicit user target; never mutate the admin's folders.
+        allowed = {
+            "personal-create", "personal-add", "personal-remove",
+            "personal-move", "personal-rename", "personal-delete",
+            "personal-set-cover", "personal-cover-upload",
+            "personal-cover-reset",
+        }
+        if source_op not in allowed:
+            raise web.HTTPNotFound()
+        result = await personal.operation(g, target, source_op, data)
+        await g.log(actor, f"admin-user-personal:{target}:{source_op}")
+        return result
+
     if op == "admin-view-favorites":
         result = await user_features.items(g, target, data)
         return {
