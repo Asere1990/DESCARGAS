@@ -51,7 +51,7 @@ test("admins see Portada, regular users see fixed Chat with no bubble",()=>{
  assert.ok(html.includes('Chat con soporte<span id="support-unread"'));
  assert.ok(html.includes('id="go-intro"'));
  assert.ok(js.includes('$("go-intro").onclick=()=>show("intro")'));
- assert.ok(js.includes('if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin||ADMIN_ACCOUNT_VIEW)'));
+ assert.ok(js.includes('if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin)'));
  assert.ok(js.includes('if(portada)portada.classList.toggle("hidden",!admin)'));
  assert.ok(!html.includes('id="support-bubble"'));
  assert.ok(js.includes('$("open-support-chat").onclick=()=>openSupportChat()'));
