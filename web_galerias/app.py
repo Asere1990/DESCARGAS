@@ -152,7 +152,7 @@ def mount(app,service):
         return web.Response(text=content,content_type="text/html",headers=intro_page_headers(content))
     async def static(request):
         name=request.match_info["name"]
-        if name not in ("app.js","style.css","admin_tools.js"):raise web.HTTPNotFound()
+        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js"):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/name,headers={
             "Cache-Control":"no-cache","X-Content-Type-Options":"nosniff"})
     async def api(request):
