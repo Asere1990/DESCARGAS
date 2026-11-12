@@ -69,7 +69,7 @@ test("admins can open the original photo/video/GIF from viewer or single selecti
  }
  assert.ok(js.includes('$("viewer-admin-original").onclick=()=>{'));
  assert.ok(js.includes("window.CubanitasTools?.locateOriginal?.(item)"));
- assert.ok(js.includes('ADMIN_ACCOUNT_VIEW&&S.me?.admin'));
+ assert.ok(js.includes('ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls'));
  assert.ok(admin.includes('type:"wg-gallery-admin-open-original",media'));
  assert.ok(admin.includes('event.origin!==location.origin'));
  assert.ok(admin.includes('event.source!==frame.contentWindow'));
@@ -80,8 +80,8 @@ test("admins can open the original photo/video/GIF from viewer or single selecti
  assert.ok(css.includes(".viewer-admin-original"));
 });
 test("regular member gallery is still isolated from admin's original view",()=>{
- assert.ok(js.includes('if(!(S.folder?.favorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin))'));
- assert.ok(js.includes('!(ADMIN_ACCOUNT_VIEW&&S.me?.admin)'));
+ assert.ok(js.includes('if(!(S.folder?.favorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls))'));
+ assert.ok(js.includes('!(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls)'));
  assert.ok(js.includes('if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i])'));
  assert.ok(js.includes('if(ADMIN_ACCOUNT_VIEW){'));
 });
