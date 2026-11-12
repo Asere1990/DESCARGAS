@@ -11,6 +11,7 @@ on:
       - 'tests/test_web_galerias_intro_video.py'
       - 'tests/test_web_galerias_standalone.py'
       - 'tests/test_web_galerias_sync.py'
+      - 'tests/test_web_galerias_favorites_gestures.cjs'
       - 'tests/test_web_galerias_datos_source.py'
       - 'tests/test_web_galerias_mobile_navigation.py'
       - 'tests/test_web_galerias_public_metadata.py'
@@ -55,6 +56,7 @@ jobs:
           node --test tests/test_web_galerias_label_sizes.cjs
           node --test tests/test_web_galerias_no_default_flash.cjs
           node --test tests/test_web_galerias_user_features.cjs
+          node --test tests/test_web_galerias_favorites_gestures.cjs
       - name: Dependencias
         run: pip install -e .
       - name: Tests de Web Galerías
