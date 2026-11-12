@@ -40,8 +40,10 @@ def cleaned_design(value):
             if type(val) is not bool:
                 raise web.HTTPBadRequest(text="Estado de marca de agua inválido.")
             result[key]=val
-        elif key in ("wm_opacity","wm_size"):
-            limits={"wm_opacity":(0,100),"wm_size":(12,42)}
+        elif key in ("wm_opacity","wm_size","title_image_height","button_image_height"):
+            limits={"wm_opacity":(0,100),"wm_size":(12,42),
+                    "title_image_height":(40,220),
+                    "button_image_height":(12,48)}
             lo,hi=limits[key]
             if type(val) is not int or not lo<=val<=hi:
                 raise web.HTTPBadRequest(text="Valor de marca de agua inválido.")
@@ -316,8 +318,10 @@ async def admin_op(g,uid,op,data):
             changes=data.get("design")
             if not isinstance(changes,dict):
                 raise web.HTTPBadRequest(text="Configuración del editor incorrecta.")
-            # Una versión anterior del editor no debe borrar la marca de agua guardada.
-            saved={k:current.get(k,DEFAULTS[k]) for k in WATERMARK_KEYS}
+            # Clients with an older editor must not reset the watermark or
+            # these independently saved image sizes when changing other fields.
+            preserved=WATERMARK_KEYS|{"title_image_height","button_image_height"}
+            saved={k:current.get(k,DEFAULTS[k]) for k in preserved}
             design=cleaned_design({**saved,**changes})
         if op=="admin-design":
             # Switching the visible title/label to an image is permitted only
