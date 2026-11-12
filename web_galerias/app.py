@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
 from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location,user_features,download_plus
-from . import broadcasts,playback
+from . import broadcasts
 from .fast_intro import render_fast_intro
 
 log=logging.getLogger("web-galerias")
@@ -152,10 +152,6 @@ class Gallery(GalleryCore):
             folder=identifier(data.get("folder"))
             return await self.list_items(uid,folder,data.get("query",""),cursor,
                                          token,data.get("kind","all"))
-        if op=="playback-request":
-            return await playback.request_playback(self,uid,data.get("media"))
-        if op=="media-status":
-            return await playback.media_status(self,uid,data.get("media"))
         if op=="locate-media":return await location.locate(self,uid,data)
         if op in ("media-priority","media-status"):
             from . import on_demand
