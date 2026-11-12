@@ -1676,6 +1676,8 @@ async function confirmEditorChanges(){
   const design={};
   for(const key of ["title","intro_label","intro_caption","button_label",
                     "header_mode","button_mode","tile_shape","intro_fit","intro_media","button_color",
+                    "library_brand","library_brand_mode","library_eyebrow","library_eyebrow_mode",
+                    "library_heading","library_heading_mode",
                     "accent","background","text_color"])
    design[key]=$("edit-"+key).value;
   for(const key of ["title_image_height","button_image_height",
