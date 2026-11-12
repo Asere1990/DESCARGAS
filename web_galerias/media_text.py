@@ -197,9 +197,11 @@ async def rebuild(g, folder, changed_ids):
              SET search_caption=$3,search_replies=$4,search_ocr=$5,
                  search_text=$6,metadata_rev=metadata_rev+1
              WHERE folder=$1 AND id=ANY($2::bigint[]) AND state<>'removed'
-               AND (search_caption,search_replies,search_ocr,search_text,
-                    metadata_rev=0) IS DISTINCT FROM
-                   ($3::text,$4::text,$5::text,$6::text,FALSE)
+               AND (search_caption IS DISTINCT FROM $3
+                  OR search_replies IS DISTINCT FROM $4
+                  OR search_ocr IS DISTINCT FROM $5
+                  OR search_text IS DISTINCT FROM $6
+                  OR metadata_rev=0)
              RETURNING id,metadata_rev
            )
            INSERT INTO wg_media_text_outbox(media,revision,next_attempt)
