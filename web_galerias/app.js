@@ -1231,7 +1231,8 @@ function openViewer(index){
   notice("El original se está preparando; la miniatura se muestra si está disponible.");
 }
 function closeViewer(){
- stopVideoPriority();
+ // Some embedded legacy viewers can load this function in isolation.
+ if(typeof stopVideoPriority==="function")stopVideoPriority();
  $("viewer").classList.add("hidden");
  document.body.classList.remove("gallery-viewer-open");
  $("view-video").pause();
