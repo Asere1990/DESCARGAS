@@ -108,7 +108,7 @@ test("favorites checkmarks display download and original-gallery bottom actions"
  }
  const S={me:{admin:false},folder:{favorites:true},selection:true,
   selected:new Set([1]),items:[{id:1,available:true}]};
- const context={$,S,selectionLimit:()=>10};
+ const context={$,S,selectionLimit:()=>10,ADMIN_ACCOUNT_VIEW:false};
  vm.createContext(context);
  vm.runInContext(between(source,"function updateSelection(){","function toggleSelection(id){"),context);
  context.updateSelection();
