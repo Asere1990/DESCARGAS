@@ -1,7 +1,10 @@
 """Mini App Web Galerías, montada aparte del panel y la Mini App existentes."""
 import asyncio
+import base64
+import hashlib
 import io
 import json
+import re
 import logging
 import os
 import time
@@ -42,6 +45,17 @@ HEADERS={
  "Referrer-Policy":"no-referrer","X-Robots-Tag":"noindex, nofollow, noarchive",
  "Content-Security-Policy":"default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'none'; form-action 'self'"
 }
+
+def intro_page_headers(source):
+    """Allow precisely the trusted first-paint button color; never unsafe-inline."""
+    match=re.search(r'<html lang="es" style="(--button:#[0-9a-fA-F]{6})"><head>',source)
+    if not match:return HEADERS
+    digest=base64.b64encode(hashlib.sha256(match.group(1).encode("ascii")).digest()).decode("ascii")
+    headers=dict(HEADERS)
+    headers["Content-Security-Policy"]=HEADERS["Content-Security-Policy"].replace(
+        "style-src 'self';",
+        f"style-src 'self' 'unsafe-hashes' 'sha256-{digest}';")
+    return headers
 
 class Gallery(GalleryCore):
     async def api(self,request):
@@ -135,7 +149,7 @@ def mount(app,service):
         content=(ROOT/"index.html").read_text(encoding="utf-8")
         if not request.path.rstrip("/").endswith("/admin"):
             content=await render_fast_intro(g,content)
-        return web.Response(text=content,content_type="text/html",headers=HEADERS)
+        return web.Response(text=content,content_type="text/html",headers=intro_page_headers(content))
     async def static(request):
         name=request.match_info["name"]
         if name not in ("app.js","style.css","admin_tools.js"):raise web.HTTPNotFound()
