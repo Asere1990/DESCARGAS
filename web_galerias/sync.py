@@ -239,7 +239,7 @@ async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
         if classify(m)[0]:
             changed.add(int(m.id))
     if changed:
-        await media_text.rebuild(g,folder,changed)
+        await media_text.enqueue(g,folder,changed)
     if not await folder_active(g,folder,uid):raise PauseRequested()
     if not source["complete"]:
         await g.db().execute("""UPDATE wg_folders SET scan_cursor=$2,
