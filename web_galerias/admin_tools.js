@@ -353,18 +353,19 @@
    rowDatum(root,"Último acceso",local.last_seen?
      new Date(local.last_seen*1000).toLocaleString("es-US"):"—");
    const actions=document.createElement("div");actions.className="admin-profile-actions";
+   const mirror=mode=>{
+    if(!window.GalleryUserMirror)return notice("Vista administrativa no disponible.");
+    window.GalleryUserMirror.open(uid,mode);
+   };
    const folders=document.createElement("button");folders.className="small-btn strong";
    folders.textContent="📁 Ver carpetas personalizadas";
-   folders.onclick=()=>window.GalleryUserMirror?.open(uid,"folders")||
-     (!window.GalleryUserMirror&&notice("Vista administrativa no disponible."));
+   folders.onclick=()=>mirror("folders");
    const downloads=document.createElement("button");downloads.className="small-btn strong";
    downloads.textContent="⇩ Ver descargas";
-   downloads.onclick=()=>window.GalleryUserMirror?.open(uid,"downloads")||
-     (!window.GalleryUserMirror&&notice("Vista administrativa no disponible."));
+   downloads.onclick=()=>mirror("downloads");
    const favorites=document.createElement("button");favorites.className="small-btn";
    favorites.textContent="♥ Ver favoritos";
-   favorites.onclick=()=>window.GalleryUserMirror?.open(uid,"favorites")||
-     (!window.GalleryUserMirror&&notice("Vista administrativa no disponible."));
+   favorites.onclick=()=>mirror("favorites");
    const perms=document.createElement("button");perms.className="small-btn";
    perms.textContent="Asignar carpetas de acceso";
    perms.onclick=()=>{
