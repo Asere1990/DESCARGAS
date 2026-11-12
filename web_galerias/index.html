@@ -13,10 +13,10 @@
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/header">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/button-label-image">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=favorites-heart-lower-20261112-v3">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=gallery-resume-offers-20261112-v4">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=favorites-heart-lower-20261112-v3"></script>
-<script defer src="/web-galerias/static/admin_tools.js?v=favorites-heart-lower-20261112-v3"></script>
+<script defer src="/web-galerias/static/app.js?v=gallery-resume-offers-20261112-v4"></script>
+<script defer src="/web-galerias/static/admin_tools.js?v=gallery-resume-offers-20261112-v4"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -67,14 +67,6 @@
    <div class="stats"><div><strong id="stat-folders">0</strong><small>Carpetas</small></div>
     <div><strong id="stat-photos">0</strong><small>Fotos</small></div>
     <div><strong id="stat-videos">0</strong><small>Videos</small></div></div>
-   <section id="resume-feature" class="resume-feature hidden" aria-label="Continuar donde lo dejaste">
-     <div class="resume-copy">
-       <small>↪ CONTINUAR DONDE LO DEJASTE</small>
-       <strong id="resume-name"></strong>
-       <span>Regresa a tu última foto o video.</span>
-     </div>
-     <button id="resume-open" type="button" class="resume-action">Continuar ›</button>
-   </section>
    <button id="open-favorites" class="favorites-entry" type="button">
      <span>♥ <strong>Mis favoritos</strong></span>
      <span id="favorites-counter">Tus fotos y videos guardados ›</span>
@@ -94,6 +86,7 @@
     </div>
     <input id="personal-cover-file" type="file" accept="image/jpeg,image/png,image/webp"
       class="hidden" aria-label="Seleccionar portada de carpeta personal">
+    <button id="more-content" type="button" class="more-content-entry" aria-label="Mostrar más contenido y abrir Nuevas Ofertas en Mi Cuenta">✨ Mostrar más contenido</button>
    </div>
    <div class="quota"><span>Descargas disponibles hoy</span><strong id="quota-count">100 de 100</strong>
     <div class="quota-track"><div id="quota-fill"></div></div></div>
@@ -155,7 +148,7 @@
    <div id="viewer-stage" class="viewer-stage"><img id="view-image" alt="" hidden><video id="view-video" controls playsinline hidden></video><div id="viewer-watermark" class="viewer-watermark" aria-hidden="true"></div></div>
    <button id="viewer-favorite" type="button" class="viewer-favorite" aria-label="Agregar a favoritos" aria-pressed="false" title="Guardar en mis favoritos">♡</button>
    <nav class="viewer-bottom" aria-label="Controles del visor">
-    <button id="close-viewer" class="viewer-action" type="button" aria-label="Cerrar visor">✕ Cerrar</button>
+    <button id="close-viewer" class="viewer-action viewer-return" type="button" aria-label="Atrás, volver a esta foto en la galería">‹ Atrás</button>
     <button id="viewer-prev" class="viewer-action" type="button" aria-label="Foto anterior">‹</button>
     <button id="viewer-next" class="viewer-action" type="button" aria-label="Foto siguiente">›</button>
     <button id="viewer-set-cover" class="viewer-action hidden" type="button" aria-label="Usar esta foto como portada de mi carpeta">★ Portada</button>
