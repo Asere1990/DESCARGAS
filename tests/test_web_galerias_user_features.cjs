@@ -38,13 +38,14 @@ test("continue opens exact media id through existing original-location API",asyn
   items:[{id:701},{id:700},{id:699}],
   focus:700,next:699
  };
- const S={me:{allowed:true},resumes:[],folders:[],items:[],next:null};
+ const S={me:{allowed:true},resumes:[],folders:[],items:[],next:null,
+          selected:new Set(),selection:false,epoch:0};
  const ctx={
   $,S,pretty:n=>String(n),Date,Number,
   api:async(op,data)=>{calls.push([op,data]);return result;},
   show:id=>focus.push(["show",id]),openViewer:i=>focus.push(["viewer",i]),
   renderDropTargets:()=>{},updateSelection:()=>{},renderItems:()=>{},
-  notice:()=>{}
+  notice:msg=>{throw Error("Unexpected resume failure: "+msg);}
  };
  vm.createContext(ctx);
  vm.runInContext(featureCode,ctx);
