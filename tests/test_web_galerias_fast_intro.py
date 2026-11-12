@@ -9,6 +9,7 @@ from aiohttp import web
 from PIL import Image
 
 from web_galerias import admin,fast_intro
+from web_galerias.app import intro_page_headers,HEADERS
 
 ROOT=Path(__file__).resolve().parents[1]/"web_galerias"
 PAGE=(ROOT/"index.html").read_text(encoding="utf-8")
@@ -37,6 +38,17 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('id="intro-headline" class="intro-headline">Web Galerías</div>',result)
         self.assertNotIn('"allowed":true',result)
         self.assertNotIn("tgWebAppData=",result)
+
+    def test_first_color_has_strict_inline_style_hash_without_weakening_csp(self):
+        import base64
+        import hashlib
+        page=fast_intro.fast_intro_html(PAGE,{"button_color":"#0A8BCF"},[])
+        policy=intro_page_headers(page)["Content-Security-Policy"]
+        expected=base64.b64encode(
+            hashlib.sha256(b"--button:#0A8BCF").digest()).decode("ascii")
+        self.assertIn("'unsafe-hashes' 'sha256-"+expected+"'",policy)
+        self.assertNotIn("'unsafe-inline'",policy)
+        self.assertEqual(intro_page_headers(PAGE),HEADERS)
 
     def test_custom_label_image_is_eager_and_payment_gate_locked(self):
         source=fast_intro.fast_intro_html(PAGE,{
