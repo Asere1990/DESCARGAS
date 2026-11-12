@@ -60,13 +60,14 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
     async def test_datos_gallery_uses_its_own_service_and_positive_telegram_uid(self):
         db=N(fetchval=AsyncMock(return_value=True),execute=AsyncMock())
         datos=N(ready=True)
-        gallery=N(closed=False,s=N(datos=datos),db=lambda:db)
+        gallery=N(closed=False,s=N(datos=datos),db=lambda:db,storage=N(ready=True))
         seen=[]
         @asynccontextmanager
         async def fake_connected(service,uid):
             seen.append((service,uid))
             yield N()
         folder={"id":7,"peer":-10012345,"source_uid":None,"preferred_uid":None}
+        count_calls=AsyncMock()
         patches=[
             patch("web_galerias.sync.folder_active",new=AsyncMock(return_value=True)),
             patch("web_galerias.sync.choose_account",new=AsyncMock(return_value=-222)),
@@ -74,11 +75,12 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
             patch("descargas_app.account_chat.connected",new=fake_connected),
             patch("web_galerias.sync.find_dialog",new=AsyncMock(return_value="peer")),
             patch("web_galerias.sync.mark_discovery",new=AsyncMock()),
-            patch("web_galerias.sync.refresh_telegram_counts",new=AsyncMock())
+            patch("web_galerias.sync.refresh_telegram_counts",new=count_calls)
         ]
         for p in patches:p.start();self.addCleanup(p.stop)
         await sync_folder(gallery,folder,phase="counts")
         self.assertEqual(seen,[(datos,222)])
+        count_calls.assert_awaited_once()
 
     async def test_admin_validates_only_the_selected_database(self):
         db=N(fetchval=AsyncMock(return_value=True))
