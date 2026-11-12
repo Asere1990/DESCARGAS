@@ -13,7 +13,7 @@ const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
 const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null,
- resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false};
+ resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false,gridTap:null,favoritePending:null};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const selectionLimit=()=>S.me?.admin?100:10;
 let lastPresence=0;
@@ -407,6 +407,50 @@ async function toggleViewerFavorite(){
  }catch(e){notice(e.message);}
  finally{button.disabled=false;}
 }
+// A double tap adds a favorite; it never removes an existing one.
+async function markMediaFavorite(item){
+ if(!item||item.favorite)return;
+ const pending=S.favoritePending||(S.favoritePending=new Set());
+ if(pending.has(item.id))return;
+ pending.add(item.id);
+ item.favorite=true;
+ renderItems(); // Immediate heart in the top corner, even while the API responds.
+ if(!$("viewer").classList.contains("hidden"))updateViewerFavorite();
+ try{
+  await api("favorite-set",{media:item.id,favorite:true});
+  S.collectionsAt=0;
+  refreshCollections(true).catch(()=>{});
+  tg?.HapticFeedback?.notificationOccurred?.("success");
+  notice("Guardado en Mis favoritos.");
+ }catch(e){
+  item.favorite=false;
+  renderItems();
+  if(!$("viewer").classList.contains("hidden"))updateViewerFavorite();
+  notice(e.message);
+ }finally{pending.delete(item.id);}
+}
+function clearGridTap(){
+ if(S.gridTap?.timer)clearTimeout(S.gridTap.timer);
+ S.gridTap=null;
+}
+function galleryTileTap(item,index){
+ const now=Date.now(),previous=S.gridTap;
+ if(previous&&previous.id===item.id&&now-previous.at<=330){
+  clearGridTap();
+  void markMediaFavorite(item);
+  return;
+ }
+ clearGridTap();
+ const folder=S.folder,epoch=S.epoch;
+ const timer=setTimeout(()=>{
+  if(S.gridTap?.id!==item.id)return;
+  S.gridTap=null;
+  if(S.folder!==folder||S.epoch!==epoch||S.selection)return;
+  const actual=S.items.findIndex(x=>x.id===item.id);
+  if(actual>=0)openViewer(actual);
+ },330);
+ S.gridTap={id:item.id,at:now,timer};
+}
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
  const root=$("folders");root.replaceChildren();
@@ -632,6 +676,7 @@ async function addToPersonalFolder(folder,ids){
 }
 
 async function openFolder(folder){
+ clearGridTap();
  finishDrag();
  setDropMenuOpen(false);
  S.folder=folder;S.items=[];S.next=null;S.search="";S.filter="all";
@@ -681,7 +726,7 @@ function renderItems(){
   attachLongPress(b,m,index);
   b.onclick=()=>{
    if(S.suppressClick===m.id){S.suppressClick=null;return;}
-   S.selection?toggleSelection(m.id):openViewer(index);
+   S.selection?toggleSelection(m.id):galleryTileTap(m,index);
   };
   grid.append(b);
  });
@@ -781,9 +826,10 @@ function attachLongPress(b,m,index){
   clear();
   timer=setTimeout(()=>{
    if(!active)return;
-   // In search results and personal folders, holding a touch opens actions.
+   clearGridTap();
+   // Favorites, search results, and personal folders use the existing action sheet.
    // Regular galleries keep the existing drag-to-folder gesture unchanged.
-   if((S.folder?.personal||S.search.trim())&&e.pointerType!=="mouse"){
+   if((S.folder?.personal||S.folder?.favorites||S.search.trim())&&e.pointerType!=="mouse"){
     active=false;held=false;clear();
     S.suppressClick=m.id;
     setTimeout(()=>{if(S.suppressClick===m.id)S.suppressClick=null;},600);
@@ -853,6 +899,12 @@ function updateSelection(){
  $("selection-download").disabled=!S.selected.size||
    [...S.selected].some(id=>!S.items.find(x=>x.id===id)?.available);
  $("selection-organize").disabled=!S.selected.size;
+ // Favorites uses the same checkmark selection and download flow, but
+ // "Mostrar en galería" replaces personal-folder organization.
+ const favorites=!!S.folder?.favorites;
+ $("selection-organize").classList.toggle("hidden",favorites);
+ $("selection-show-original").classList.toggle("hidden",!favorites);
+ $("selection-show-original").disabled=!favorites||!S.selected.size;
 }
 function toggleSelection(id){
  const media=S.items.find(m=>m.id===id);
@@ -1494,6 +1546,7 @@ $("album-create-folder").ondrop=e=>{
  if(ids.length)createPersonalFolder(ids);
 };
 $("selection-organize").onclick=openFolderPicker;
+$("selection-show-original").onclick=()=>window.CubanitasTools?.showFavoriteOriginals?.();
 $("folder-picker-cancel").onclick=()=>$("folder-picker").classList.add("hidden");
 $("save-cancel").onclick=closeSaveSheet;
 $("save-native").onclick=()=>{if(S.saveData)nativeDownload(S.saveData);closeSaveSheet();};
