@@ -156,9 +156,9 @@ def mount(app,service):
         content=(ROOT/"index.html").read_text(encoding="utf-8")
         content=content.replace(
             "</head><body>",
-            '<link rel="stylesheet" href="/web-galerias/static/admin_account.css?v=real-account-20261112-v1">\\n'
-            '<script defer src="/web-galerias/static/admin_account.js?v=real-account-20261112-v1"></script>\\n'
-            "</head><body>",1).replace("\\\\n","\\n")
+            '<link rel="stylesheet" href="/web-galerias/static/admin_account.css?v=real-account-20261112-v1">\n'
+            '<script defer src="/web-galerias/static/admin_account.js?v=real-account-20261112-v1"></script>\n'
+            "</head><body>",1)
         headers=dict(HEADERS)
         headers["Content-Security-Policy"]=HEADERS["Content-Security-Policy"].replace(
             "frame-ancestors https://web.telegram.org",
