@@ -1795,6 +1795,25 @@ function mountSupportBubble(){
 mountSupportBubble();
 
 if($("quota-connect"))$("quota-connect").onclick=()=>{
+ // Same bot: open the original DESCARGAS account Mini App in this WebView.
+ // Signed Telegram identity stays in the URL fragment, never the HTTP query.
+ const miniapp=String(S.me?.quota_link_miniapp||"");
+ if(miniapp&&tg?.initData&&!BROWSER_ADMIN){
+  let target;
+  try{target=new URL(miniapp);}catch(_){target=null;}
+  if(target&&target.protocol==="https:"&&!target.username&&!target.password&&
+     !target.search&&!target.hash&&["/","/descargas","/descargas/"].includes(target.pathname)){
+   target.hash=new URLSearchParams({
+    tgWebAppData:tg.initData,
+    tgWebAppVersion:String(tg.version||"8.0"),
+    tgWebAppPlatform:String(tg.platform||"unknown")
+   }).toString();
+   saveGalleryReturnPosition();
+   window.location.assign(target.href);
+   return;
+  }
+ }
+ // When the entry bot differs, use the existing safe bot-chat fallback.
  const url=S.me?.quota_link_bot;
  if(!url)return notice("Abre el bot DESCARGAS, vincula tu cuenta de Telegram y vuelve aquí.");
  if(!/^https:\/\/t\.me\/[A-Za-z][A-Za-z0-9_]{4,31}$/.test(url))
