@@ -1648,7 +1648,7 @@ function mountSupportBubble(){
 }
 mountSupportBubble();
 
-$("quota-connect").onclick=()=>{
+if($("quota-connect"))$("quota-connect").onclick=()=>{
  const url=S.me?.quota_link_bot;
  if(!url)return notice("Abre el bot DESCARGAS, vincula tu cuenta de Telegram y vuelve aquí.");
  if(!/^https:\/\/t\.me\/[A-Za-z][A-Za-z0-9_]{4,31}$/.test(url))
@@ -1656,7 +1656,7 @@ $("quota-connect").onclick=()=>{
  if(tg?.openTelegramLink)tg.openTelegramLink(url);
  else window.location.assign(url);
 };
-$("quota-plus").onclick=async()=>{
+if($("quota-plus"))$("quota-plus").onclick=async()=>{
  const button=$("quota-plus");
  if(button.disabled)return;
  button.disabled=true;
