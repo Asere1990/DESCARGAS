@@ -890,7 +890,8 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 }
 #intro.fast-identity #enter:disabled{opacity:1;cursor:default;pointer-events:none}
 #intro.fast-identity #intro-headline img{
- display:block;max-width:100%;margin:0 auto;
+ display:block;max-width:min(92vw,600px);width:auto;
+ object-fit:contain;margin:0 auto;
 }
 
 
