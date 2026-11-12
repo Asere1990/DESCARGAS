@@ -9,14 +9,16 @@ y las sesiones de DESCARGAS y DATOS no cambian.
 Conservar todas las variables actuales del servicio CLOUDFLARE y **añadir
 únicamente en Render > CLOUDFLARE > Environment**:
 
-- `GALERIAS_DATOS_DATABASE_URL`: URL **interna** del PostgreSQL
+- `DATOS_DB`: URL **interna** del PostgreSQL
   `DESCARGAS-DB-datos` (no `DESCARGAS-DB`).
-- `GALERIAS_DATOS_SESSION_KEY`: misma clave Fernet
+- `DATOS_KEY`: misma clave Fernet
   `DESCARGAS_SESSION_KEY` configurada **en el servicio DATOS**,
   nunca la clave del servicio DESCARGAS.
 
 No hay que cambiar variables en DATOS ni en DESCARGAS ni reiniciar sus workers.
-No introducir `GALERIAS_DATOS_*` en el repositorio.
+No introducir `DATOS_DB` ni `DATOS_KEY` con valores privados en el repositorio.
+Los antiguos nombres `GALERIAS_DATOS_DATABASE_URL` y `GALERIAS_DATOS_SESSION_KEY`
+seguirán admitiéndose durante la transición, pero no hace falta utilizarlos.
 
 Si faltan los datos o fallan las credenciales, el lector DATOS queda deshabilitado
 y CLOUDFLARE **sigue utilizando DESCARGAS como antes**, sin cambiar el flujo.
@@ -64,7 +66,7 @@ revisa el historial y reintenta los archivos antes inaccesibles.
 4. Probar dos carpetas con cuentas distintas, una en cada fuente, y
    confirmar que los carriles avanzan simultáneamente y sin floodwaits.
 5. Deshacer la integración **solo en CLOUDFLARE** retirando las dos variables
-   `GALERIAS_DATOS_*` o restaurando la versión de CLOUDFLARE anterior.
+   `DATOS_DB` y `DATOS_KEY` o restaurando la versión de CLOUDFLARE anterior.
    Las sesiones originales y los archivos R2 permanecen intactos.
 
 **Importante:** Una cuenta conectada en ambos sistemas no duplica la velocidad.
