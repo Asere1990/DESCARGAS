@@ -146,6 +146,23 @@ class GalleryMobileNavigation(unittest.TestCase):
             self.assertIn(f'id="{control}"',viewer)
         self.assertIn("min-height:55px",self.css)
 
+    def test_viewer_favorite_is_below_media_not_under_telegram_close(self):
+        viewer=self.html.split('<section id="viewer"',1)[1].split('</section>',1)[0]
+        top=viewer.split('<div class="viewer-top"',1)[1].split('</div>',1)[0]
+        self.assertNotIn('id="viewer-favorite"',top)
+        self.assertEqual(viewer.count('id="viewer-favorite"'),1)
+        self.assertLess(viewer.index('id="viewer-stage"'),
+                        viewer.index('id="viewer-favorite"'))
+        self.assertLess(viewer.index('id="viewer-favorite"'),
+                        viewer.index('<nav class="viewer-bottom"'))
+        self.assertIn('#viewer > .viewer-favorite{',self.css)
+        self.assertIn('bottom:calc(98px + max(env(safe-area-inset-bottom,0px)',self.css)
+        self.assertIn('right:15px',self.css)
+        self.assertIn('z-index:32',self.css)
+        self.assertNotIn('#viewer .viewer-top .viewer-favorite{',self.css)
+        # The existing favorite click handler and persistence are unchanged.
+        self.assertIn('$("viewer-favorite").onclick=toggleViewerFavorite;',self.js)
+
     def test_non_admin_cannot_see_backup_status(self):
         self.assertIn('S.me?.admin && folder.pending',self.js)
         self.assertIn('addAdminDatum("Nombre público"',self.js)
