@@ -19,7 +19,7 @@ test("the title and button image sizes update independently in the editor",()=>{
  };
  node("edit-title_image_height").value="220";
  node("edit-button_image_height").value="12";
- const ctx={$:node};
+ const ctx={$:node,updateLibraryEditorSizes:()=>{}};
  vm.createContext(ctx);
  vm.runInContext(block("function updateEditorImageSizes(){",
                         "function loadEditorImagePreview(kind){"),ctx);
