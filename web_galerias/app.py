@@ -153,6 +153,11 @@ class Gallery(GalleryCore):
             return await self.list_items(uid,folder,data.get("query",""),cursor,
                                          token,data.get("kind","all"))
         if op=="locate-media":return await location.locate(self,uid,data)
+        if op in ("media-priority","media-status"):
+            from . import on_demand
+            if op=="media-priority":
+                return await on_demand.request(self,uid,data.get("media"))
+            return await on_demand.status(self,uid,data.get("media"))
         if op=="quota-plus-checkout":return await download_plus.checkout(self,uid)
         if op=="reserve":return await downloads.reserve(self,uid,data.get("ids"))
         raise web.HTTPNotFound()
@@ -282,8 +287,8 @@ def mount(app,service):
         g.task=asyncio.create_task(g.setup())
     async def cleanup(_):
         g.closed=True
-        tasks=(g.sync_task,g.intro_poster_task,g.customer_bridge_task,g.moderation_task,
-               g.broadcast_task,g.media_text_task,g.ocr_task,g.task)
+        tasks=(g.sync_task,g.priority_task,g.intro_poster_task,g.customer_bridge_task,
+               g.moderation_task,g.broadcast_task,g.media_text_task,g.ocr_task,g.task)
         for task in tasks:
             if task:task.cancel()
         await asyncio.gather(*(t for t in tasks if t),return_exceptions=True)
