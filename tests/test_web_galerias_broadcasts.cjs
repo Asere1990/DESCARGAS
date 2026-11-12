@@ -1,0 +1,45 @@
+"use strict";
+const test=require("node:test");
+const assert=require("node:assert/strict");
+const fs=require("node:fs");
+const root=__dirname+"/../web_galerias/";
+const html=fs.readFileSync(root+"index.html","utf8");
+const src=fs.readFileSync(root+"broadcast_ui.js","utf8");
+const app=fs.readFileSync(root+"app.py","utf8");
+const css=fs.readFileSync(root+"style.css","utf8");
+test("support badge counts unread messages without replacing the chat action",()=>{
+ assert.ok(html.includes('id="support-unread"'));
+ assert.ok(css.includes(".support-unread{"));
+ assert.ok(src.includes('api("chat-unread")'));
+ assert.ok(src.includes("badge.classList.toggle"));
+ assert.ok(src.includes('"99+"'));
+ assert.ok(src.includes("document.addEventListener(\"visibilitychange\""));
+ assert.ok(src.includes("setInterval(refreshAll,45000)"));
+ assert.ok(app.includes('op=="chat-unread"'));
+ assert.ok(app.includes('post_signed("chat-unread",{"telegram_id":uid}'));
+ assert.ok(html.includes('id="go-intro"'));
+});
+test("administrator broadcast publishes only after confirmation, supports media and links",()=>{
+ assert.ok(html.includes('data-tab="avisos"'));
+ assert.ok(html.includes('id="admin-notice-message"'));
+ assert.ok(html.includes('id="admin-notice-file"'));
+ assert.ok(html.includes('id="admin-notice-preview-media"'));
+ assert.ok(src.includes("new URLSearchParams({kind:meta.kind,filename:file.name})"));
+ assert.ok(src.includes('confirm:"ENVIAR_A_TODOS"'));
+ assert.ok(src.includes('api("admin-notices-publish"'));
+ assert.ok(src.includes('api("admin-notices-audience")'));
+ assert.ok(src.includes('api("admin-notices-list")'));
+ assert.ok(src.includes('a.target="_blank"'));
+ assert.ok(src.includes('a.rel="noopener noreferrer"'));
+ assert.ok(app.includes('"/web-galerias/admin/notice-upload"'));
+});
+test("recipients have personal inbox with read receipts and private media links",()=>{
+ assert.ok(html.includes('id="notices-open"'));
+ assert.ok(html.includes('id="notices-screen"'));
+ assert.ok(html.includes('id="notices-list"'));
+ assert.ok(src.includes('api("notices-list"'));
+ assert.ok(src.includes('api("notices-mark-read"'));
+ assert.ok(src.includes('api("notices-count"'));
+ assert.ok(app.includes('"/web-galerias/notice-media/{notice}"'));
+ assert.ok(!src.includes("innerHTML"));
+});

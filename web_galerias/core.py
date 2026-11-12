@@ -167,6 +167,7 @@ class GalleryCore:
         self.intro_poster_task=None
         self.customer_bridge_task=None
         self.moderation_task=None
+        self.broadcast_task=None
         self.last_error=""
 
     def db(self):
@@ -184,6 +185,14 @@ class GalleryCore:
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     await self.s.repo.pool.execute(MODERATION_SCHEMA)
                     self.ready=True
+                    # Broadcast schema/worker is strictly optional: failure
+                    # cannot stop galleries, billing or backup.
+                    try:
+                        from . import broadcasts
+                        await self.s.repo.pool.execute(broadcasts.SCHEMA)
+                        self.broadcast_task=asyncio.create_task(broadcasts.run(self))
+                    except Exception as exc:
+                        log.warning("Notices setup pending (%s)", type(exc).__name__)
                     self.moderation_task=asyncio.create_task(run_deletions(self))
                     log.warning("Gallery schema ready; storage=%s",self.storage.ready)
                     # Best-effort low-priority CUSTOMER-SERVICE mirror; never
