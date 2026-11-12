@@ -113,7 +113,7 @@ async def request(g, uid, media):
     async with db.acquire() as connection:
         async with connection.transaction():
             await connection.execute(
-                "SELECT pg_advisory_xact_lock(784, $1::int)", int(row["id"]) % 2147483647)
+                "SELECT pg_advisory_xact_lock(784, 23)")
             existing = await connection.fetchrow(
                 "SELECT state,next_attempt FROM wg_media_priority WHERE media=$1",
                 row["id"])
