@@ -109,7 +109,7 @@ async def apply_webhook(conn,kind,obj,event_time):
     from .payment_link_checkout import (subscription_id_from_invoice,
         subscription_period,invoice_paid_period)
     price=os.environ["GALERIAS_PLUS_PRICE"]
-    link=os.environ["GALERIAS_PLUS_LINK"]
+    link=os.getenv("GALERIAS_PLUS_LINK","")
     sub=None
     if kind in ("checkout.session.completed","checkout.session.async_payment_succeeded"):
         if (obj.get("payment_link")!=link
