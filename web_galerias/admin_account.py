@@ -74,6 +74,11 @@ async def operation(g, actor, op, data):
         # choice, never an automatic subscription change.
         return await download_plus.checkout(g, target)
 
+    if op == "admin-view-media-priority":
+        # The same customer viewer, with that user's exact access checks.
+        from .on_demand import request as queue_priority
+        return await queue_priority(g, target, data.get("media"))
+
     if op == "admin-view-media-status":
         # Re-check the authoritative R2-backed media row each time the admin
         # opens a user folder/favorite/download. The iframe doesn't auto-refresh
