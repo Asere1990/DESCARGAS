@@ -25,6 +25,31 @@ class TitleAndButtonImageTests(unittest.IsolatedAsyncioTestCase):
                          {"image/jpeg","image/png","image/webp"})
         self.assertEqual(MAX_ASSET["button-label-image"],3_000_000)
         self.assertEqual(DEFAULTS["button_color"],"#198ee8")
+        self.assertEqual(DEFAULTS["title_image_height"],120)
+        self.assertEqual(DEFAULTS["button_image_height"],30)
+        for key,lo,hi in (("title_image_height",40,220),
+                          ("button_image_height",12,48)):
+            for accepted in (lo,hi):
+                with self.subTest(key=key,accepted=accepted):
+                    self.assertEqual(admin.cleaned_design({key:accepted})[key],accepted)
+            for rejected in (lo-1,hi+1,None,"100",True,12.5):
+                with self.subTest(key=key,rejected=rejected):
+                    with self.assertRaises(web.HTTPBadRequest):
+                        admin.cleaned_design({key:rejected})
+
+    async def test_legacy_editor_keeps_existing_image_sizes(self):
+        original={**DEFAULTS,"title_image_height":190,"button_image_height":46}
+        db=N(execute=AsyncMock(),fetchval=AsyncMock())
+        g=N(db=lambda:db,design=AsyncMock(return_value=original),log=AsyncMock())
+        with patch.object(admin,"is_admin",return_value=True):
+            result=await admin.admin_op(g,333,"admin-design",{
+                "design":{"title":"Otro título","button_mode":"text","header_mode":"text"}
+            })
+        self.assertEqual(result["design"]["title_image_height"],190)
+        self.assertEqual(result["design"]["button_image_height"],46)
+        self.assertEqual(result["design"]["title"],"Otro título")
+        db.fetchval.assert_not_awaited()
+        self.assertIn("wg_config",db.execute.await_args.args[0])
 
     async def test_button_image_requires_saved_asset_and_does_not_modify_payments(self):
         db=N(fetchval=AsyncMock(return_value=None),execute=AsyncMock())
@@ -96,7 +121,17 @@ class TitleAndButtonImageTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('button.setAttribute("aria-label",text)',js)
         self.assertIn('image.src="/web-galerias/assets/button-label-image',js)
         self.assertIn('.enter-label-image',css)
-        self.assertIn('max-height:30px',css)
+        self.assertIn('height:var(--entry-label-image-height,30px)',css)
+        self.assertIn('height:56px;min-height:56px',css)
+        self.assertIn('max-height:48px',css)
+        for key in ("title_image_height","button_image_height"):
+            self.assertEqual(html.count('id="edit-'+key+'"'),1)
+            self.assertIn('design[key]=Number($("edit-"+key).value)',js)
+        self.assertIn('function updateEditorImageSizes()',js)
+        self.assertIn('image.style.height=height+"px"',js)
+        self.assertIn('button.style.setProperty("--entry-label-image-height",height+"px")',js)
+        self.assertIn('id="edit-title-image-preview"',html)
+        self.assertIn('id="edit-button-image-preview"',html)
         self.assertIn('background:var(--button)',css)
 
 

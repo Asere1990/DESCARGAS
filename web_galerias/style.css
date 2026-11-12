@@ -813,12 +813,15 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #intro #enter.enter-image-label,
 #intro.has-intro-video .intro-bottom #enter.enter-image-label{
  display:flex;align-items:center;justify-content:center;
+ height:56px;min-height:56px;
+ padding-top:0;padding-bottom:0;
 }
 #intro #enter .enter-label-image{
  display:block;
  max-width:100%;
- max-height:30px;
- width:auto;height:auto;
+ max-height:48px;
+ width:auto;
+ height:var(--entry-label-image-height,30px);
  object-fit:contain;
  pointer-events:none;
 }
@@ -827,3 +830,45 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  display:block;color:var(--muted);font-size:11px;line-height:1.45;
  margin-top:5px;font-weight:450;
 }
+
+
+/* Independent sizes; only the image scales, never the CTA shell itself. */
+#tab-diseno .editor-image-setting{
+ margin:5px 0 15px;padding:12px;
+ border:1px solid var(--line);border-radius:14px;
+ background:#ffffff08;
+}
+#tab-diseno .editor-image-setting>label{margin:6px 0 12px}
+#tab-diseno .editor-image-setting .editor-image-size-label{
+ display:flex;flex-direction:row;align-items:center;
+ justify-content:space-between;gap:12px;
+ font-size:13px;color:var(--text);font-weight:650;
+}
+#tab-diseno .editor-image-size-label output{
+ min-width:49px;text-align:right;white-space:nowrap;
+ font-size:12px;font-weight:750;color:var(--accent);
+ font-variant-numeric:tabular-nums;
+}
+#tab-diseno .editor-image-setting input[type=range]{
+ display:block;width:100%;height:27px;min-height:27px;
+ padding:0;margin:7px 0 9px;border:0;background:transparent;
+ accent-color:var(--accent);touch-action:pan-x;
+}
+#tab-diseno .editor-image-size-preview{
+ display:flex;align-items:center;justify-content:center;
+ padding:12px 6px;margin:8px 0 4px;min-height:64px;
+ background:#ffffff0b;border-radius:11px;
+ overflow:hidden;
+}
+#tab-diseno .editor-image-size-preview img{
+ display:block;width:auto;max-width:100%;object-fit:contain;
+}
+#tab-diseno .editor-image-size-preview img[hidden]{display:none!important}
+#tab-diseno .editor-button-image-preview{
+ display:flex;align-items:center;justify-content:center;
+ width:100%;max-width:520px;
+ height:56px;min-height:56px;
+ padding:0 18px;border-radius:16px;
+ background:var(--button);
+}
+#tab-diseno .editor-button-image-preview img{max-height:48px;pointer-events:none}
