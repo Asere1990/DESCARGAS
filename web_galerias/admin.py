@@ -83,6 +83,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op.startswith("admin-notices-"):
+        from . import broadcasts
+        return await broadcasts.admin_operation(g,uid,op,data)
     if op.startswith("admin-view-"):
         from .admin_account import operation as view_operation
         return await view_operation(g,uid,op,data)
