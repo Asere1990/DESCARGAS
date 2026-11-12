@@ -415,8 +415,20 @@ async def restore_from_r2(g,folder,message):
 
 
 async def run(g):
-    """Strictly third-priority enrichment, while client galleries stay fast."""
-    await asyncio.sleep(15)
+    """Prepare metadata after first paint; never hold up Web Galerías startup."""
+    await asyncio.sleep(4)
+    while not g.closed:
+        try:
+            await g.db().execute(SCHEMA)
+            break
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOG.warning("Deferred album text schema pending (%s)",type(exc).__name__)
+            await asyncio.sleep(60)
+    if g.closed:
+        return
+    await asyncio.sleep(10)
     cycle=0
     while not g.closed:
         try:
