@@ -1256,6 +1256,7 @@ function switchAdminTab(tab){
  document.querySelectorAll(".admin-tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("hidden",x.id!=="tab-"+tab));
  if(tab==="usuarios")window.CubanitasTools?.showUserSectionMenu?.();
+ if(tab==="comercio")window.CubanitasTools?.loadCommercial?.();
 }
 function populateEditor(){
  const d=S.me.design;
