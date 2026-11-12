@@ -30,7 +30,7 @@ CREATE INDEX IF NOT EXISTS wg_commercial_events_recent
  ON wg_commercial_events(occurred DESC,kind);
 ALTER TABLE wg_visit_days ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wg_commercial_events ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON wg_visit_days,wg_commercial_events FROM anon,authenticated;
+REVOKE ALL ON wg_visit_days,wg_commercial_events FROM PUBLIC;
 """
 
 
