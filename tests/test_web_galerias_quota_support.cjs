@@ -36,6 +36,7 @@ test("50 and 200 daily limits show accurately without changing the 10-file batch
  assert.equal($("quota-count").textContent,"37 de 50");
  assert.equal($("quota-fill").style.width,"74%");
  assert.equal($("quota-plus").classList.contains("hidden"),false);
+ assert.equal($("quota-connect").classList.contains("hidden"),false);
  S.me.quota_tier="linked";S.me.quota_daily_limit=200;S.me.remaining=150;
  ctx.updateQuotaStatus();
  assert.equal($("quota-count").textContent,"150 de 200");
@@ -45,6 +46,38 @@ test("50 and 200 daily limits show accurately without changing the 10-file batch
  assert.equal($("quota-count").textContent,"Ilimitadas");
  assert.equal($("quota-plus").classList.contains("hidden"),true);
  assert.ok(js.includes("S.me?.admin?100:10"));
+});
+test("free user sees stacked quota offers with price only on Stripe",()=>{
+ assert.ok(html.includes(">Descargar 200 archivos diarios</button>"));
+ assert.ok(html.includes(">♾ Descargas ilimitadas</button>"));
+ assert.ok(!html.includes("+$1.99/mes"));
+ assert.ok(css.includes(".quota-upgrade-actions{display:flex;flex-direction:column;"));
+ assert.ok(css.includes(".quota-upgrade-paid{"));
+});
+test("200/day upgrade goes to the original DESCARGAS Mini App with same-bot signature",()=>{
+ const $=fakeNodes(),links=[],bots=[],saved=[];
+ const signature="user=%7B%22id%22%3A7%7D&auth_date=123&hash=signed";
+ const S={me:{quota_link_miniapp:"https://descargas-eu1x.onrender.com/",
+              quota_link_bot:"https://t.me/Descargas_Robot"}};
+ const tg={initData:signature,version:"8.0",platform:"ios",openTelegramLink:url=>bots.push(url)};
+ const ctx={$,S,tg,BROWSER_ADMIN:false,URL,URLSearchParams,String,
+   window:{location:{assign:url=>links.push(url)}},
+   notice:msg=>{throw Error(msg)},saveGalleryReturnPosition:()=>saved.push(true)};
+ vm.createContext(ctx);
+ vm.runInContext(part('if($("quota-connect"))','if($("quota-plus"))'),ctx);
+ $("quota-connect").onclick();
+ assert.equal(bots.length,0);
+ assert.equal(links.length,1);
+ const opened=new URL(links[0]);
+ assert.equal(opened.origin,"https://descargas-eu1x.onrender.com");
+ assert.equal(opened.pathname,"/");
+ assert.equal(opened.searchParams.has("tgWebAppData"),false);
+ assert.equal(new URLSearchParams(opened.hash.slice(1)).get("tgWebAppData"),signature);
+ assert.equal(saved.length,1);
+ links.length=0;S.me.quota_link_miniapp=null;
+ $("quota-connect").onclick();
+ assert.equal(links.length,0);
+ assert.equal(bots[0],"https://t.me/Descargas_Robot");
 });
 test("Support bubble opens the signed Mi Cuenta chat in the same WebView",async()=>{
  const $=fakeNodes(),links=[],native=[],requests=[];
