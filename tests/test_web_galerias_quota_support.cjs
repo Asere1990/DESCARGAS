@@ -121,7 +121,7 @@ test("fixed blue support button opens verified Customer chat in the same WebView
 });
 test("support is fixed and there is no draggable bubble",()=>{
  assert.ok(html.includes('id="open-support-chat"'));
- assert.ok(html.includes('Chat con soporte</button>'));
+ assert.ok(html.includes('Chat con soporte<span id="support-unread"'));
  assert.ok(!html.includes('id="support-bubble"'));
  assert.ok(html.includes('id="go-intro"'));
  assert.ok(!js.includes("mountSupportBubble()"));
