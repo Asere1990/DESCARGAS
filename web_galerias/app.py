@@ -11,7 +11,7 @@ from aiohttp import web
 from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
-from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location,user_features
+from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location,user_features,download_plus
 
 log=logging.getLogger("web-galerias")
 ROOT=Path(__file__).resolve().parent
@@ -112,6 +112,7 @@ class Gallery(GalleryCore):
             return await self.list_items(uid,folder,data.get("query",""),cursor,
                                          token,data.get("kind","all"))
         if op=="locate-media":return await location.locate(self,uid,data)
+        if op=="quota-plus-checkout":return await download_plus.checkout(self,uid)
         if op=="reserve":return await downloads.reserve(self,uid,data.get("ids"))
         raise web.HTTPNotFound()
 
