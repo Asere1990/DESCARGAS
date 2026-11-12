@@ -13,8 +13,8 @@
 <title>Web Galerías</title>
 <link rel="stylesheet" href="/web-galerias/static/style.css?v=library-identity-20261112-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=library-identity-20261112-v1"></script>
-<script defer src="/web-galerias/static/admin_tools.js?v=admin-user-mirror-20261112-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=admin-original-media-20261112-v1"></script>
+<script defer src="/web-galerias/static/admin_tools.js?v=admin-original-media-20261112-v1"></script>
 <script defer src="/web-galerias/static/broadcast_ui.js?v=announcements-20261112-v1"></script>
 </head><body>
 <div id="app" class="app">
@@ -166,7 +166,10 @@
   </nav>
  </section>
  <section id="viewer" class="viewer hidden" aria-label="Visor de fotos y videos">
-   <div class="viewer-top"><span id="viewer-counter"></span><button id="viewer-admin-delete" class="viewer-admin-delete hidden" type="button" aria-label="Eliminar este archivo de la galería">Eliminar</button></div>
+   <div class="viewer-top"><span id="viewer-counter"></span><div class="viewer-admin-actions">
+     <button id="viewer-admin-original" class="viewer-admin-original hidden" type="button" aria-label="Abrir archivo original en mi galería de administrador">⌕ Ver original</button>
+     <button id="viewer-admin-delete" class="viewer-admin-delete hidden" type="button" aria-label="Eliminar este archivo de la galería">Eliminar</button>
+    </div></div>
    <div id="viewer-stage" class="viewer-stage"><img id="view-image" alt="" hidden><video id="view-video" controls playsinline hidden></video><div id="viewer-watermark" class="viewer-watermark" aria-hidden="true"></div></div>
    <button id="viewer-favorite" type="button" class="viewer-favorite" aria-label="Agregar a favoritos" aria-pressed="false" title="Guardar en mis favoritos">♡</button>
    <nav class="viewer-bottom" aria-label="Controles del visor">
