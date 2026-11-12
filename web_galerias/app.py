@@ -142,6 +142,8 @@ def mount(app,service):
                    "X-Content-Type-Options":"nosniff"})
     async def asset(request):
         return await admin.asset(g,request)
+    async def public_promo(request):
+        return await intro_video.public_promo_status(g,request)
     async def intro_video_upload(request):
         try:
             result=await intro_video.upload(g,request)
@@ -173,6 +175,7 @@ def mount(app,service):
     app.router.add_get("/web-galerias/icon/{size:\\d+}.png",icon)
     app.router.add_get("/web-galerias/static/{name}",static)
     app.router.add_get("/web-galerias/assets/{key}",asset)
+    app.router.add_get("/web-galerias/promo.json",public_promo)
     app.router.add_post("/web-galerias/admin/intro-video",intro_video_upload)
     app.router.add_post("/web-galerias/api",api)
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
