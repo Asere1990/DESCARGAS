@@ -93,6 +93,34 @@ class AlbumTextTests(unittest.IsolatedAsyncioTestCase):
         rebuild.assert_awaited_once_with(g,7,[103,350])
         self.assertIn("DELETE FROM wg_media_text_dirty",db.execute.await_args.args[0])
 
+    async def test_catalog_batch_captures_comments_without_waiting_for_indexing(self):
+        from web_galerias import sync
+        comment=N(id=350,message="Perico",photo=None,document=None,
+                  reply_to=N(reply_to_msg_id=103))
+        photo=N(id=103,message="",photo=object(),document=None,
+                grouped_id=777,reply_to=None)
+        async def stream(**kwargs):
+            for item in (comment,photo):
+                yield item
+        db=N(execute=AsyncMock())
+        g=N(db=lambda:db)
+        source={"complete":False,"scan_cursor":0,"high_water":0}
+        client=N(iter_messages=lambda entity,**kw:stream(**kw))
+        with patch.object(sync,"folder_active",new=AsyncMock(return_value=True)),\
+             patch.object(sync,"catalog",new=AsyncMock()) as catalog,\
+             patch.object(media_text,"capture_reply",new=AsyncMock(
+                 side_effect=[103,None])) as capture,\
+             patch.object(media_text,"enqueue",new=AsyncMock(return_value=2)) as queued,\
+             patch.object(media_text,"rebuild",new=AsyncMock()) as rebuild:
+            count=await sync.catalog_batch(g,7,client,"source",source,uid=88)
+        self.assertEqual(count,2)
+        self.assertEqual(catalog.await_count,2)
+        self.assertEqual(capture.await_count,2)
+        queued.assert_awaited_once()
+        self.assertEqual(queued.await_args.args[0:2],(g,7))
+        self.assertEqual(queued.await_args.args[2],{350,103})
+        rebuild.assert_not_awaited() # Search/build never blocks live preview.
+
     def test_r2_payload_backups_three_independent_text_sources(self):
         item={
           "folder":7,"message":103,"grouped":"777000",
