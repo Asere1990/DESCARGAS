@@ -48,7 +48,8 @@ def cleaned_design(value):
     result=dict(DEFAULTS)
     for key,val in value.items():
         if key=="daily_limit":
-            if val!=100:raise web.HTTPBadRequest(text="El límite diario está fijado en 100.")
+            if val not in (50,100):raise web.HTTPBadRequest(text="El límite básico diario está fijado en 50.")
+            result[key]=50  # Normalize legacy saved design without changing quotas.
         elif key in TEXTS:
             if not isinstance(val,str) or len(val)>160 or any(ord(c)<32 for c in val):
                 raise web.HTTPBadRequest(text="Texto inválido.")
