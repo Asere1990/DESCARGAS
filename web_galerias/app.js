@@ -407,6 +407,29 @@ async function toggleViewerFavorite(){
  }catch(e){notice(e.message);}
  finally{button.disabled=false;}
 }
+// Double tap adds a favorite. A second double tap never removes it;
+ // removal remains an explicit action on the viewer heart.
+const favoriteTapPending=new Set();
+async function saveFavoriteFromDoubleTap(item){
+ if(!item||!S.me?.allowed||item.favorite||favoriteTapPending.has(item.id))return;
+ favoriteTapPending.add(item.id);
+ try{
+  await api("favorite-set",{media:item.id,favorite:true});
+  item.favorite=true;
+  for(const current of S.items)if(current.id===item.id)current.favorite=true;
+  if(S.items.some(current=>current.id===item.id)){
+   renderItems();
+   if(!$("viewer").classList.contains("hidden")&&S.items[S.viewer]?.id===item.id)
+    updateViewerFavorite();
+  }
+  S.collectionsAt=0;
+  refreshCollections(true).catch(()=>{});
+  tg?.HapticFeedback?.notificationOccurred?.("success");
+  notice("♥ Guardado en Mis favoritos.");
+ }catch(e){notice(e.message);}
+ finally{favoriteTapPending.delete(item.id);}
+}
+
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
  const root=$("folders");root.replaceChildren();
@@ -665,6 +688,33 @@ async function loadItems(older=false){
   $("empty-gallery").textContent=S.search?"No se encontraron fotos o videos relacionados.":"Todavía no hay fotos o videos disponibles en esta carpeta.";
  }catch(e){if(epoch===S.epoch)notice(e.message);}
 }
+// Defer one touch click briefly so a second tap saves the photo/video
+// without opening the viewer first. Keyboard and desktop clicks stay instant.
+let pendingMediaTap=null;
+function cancelPendingMediaTap(){
+ if(pendingMediaTap)clearTimeout(pendingMediaTap.timer);
+ pendingMediaTap=null;
+}
+function onMediaTileClick(item,index,event){
+ if(S.suppressClick===item.id){S.suppressClick=null;cancelPendingMediaTap();return;}
+ if(S.selection){cancelPendingMediaTap();toggleSelection(item.id);return;}
+ const coarse=event?.pointerType==="touch"||
+   (event?.detail!==0&&window.matchMedia?.("(pointer:coarse)")?.matches);
+ if(!coarse){cancelPendingMediaTap();openViewer(index);return;}
+ const now=Date.now();
+ const isDouble=pendingMediaTap?.id===item.id&&
+   now-pendingMediaTap.at<=330;
+ cancelPendingMediaTap();
+ if(isDouble){saveFavoriteFromDoubleTap(item);return;}
+ const folder=S.folder,epoch=S.epoch;
+ pendingMediaTap={id:item.id,at:now,timer:setTimeout(()=>{
+  pendingMediaTap=null;
+  const current=S.items.findIndex(m=>m.id===item.id);
+  if(S.folder===folder&&S.epoch===epoch&&!S.selection&&current>=0)
+   openViewer(current);
+ },275)};
+}
+
 function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
@@ -679,10 +729,7 @@ function renderItems(){
    heart.textContent="♥";heart.setAttribute("aria-hidden","true");b.append(heart);
   }
   attachLongPress(b,m,index);
-  b.onclick=()=>{
-   if(S.suppressClick===m.id){S.suppressClick=null;return;}
-   S.selection?toggleSelection(m.id):openViewer(index);
-  };
+  b.onclick=e=>onMediaTileClick(m,index,e);
   grid.append(b);
  });
 }
@@ -783,7 +830,7 @@ function attachLongPress(b,m,index){
    if(!active)return;
    // In search results and personal folders, holding a touch opens actions.
    // Regular galleries keep the existing drag-to-folder gesture unchanged.
-   if((S.folder?.personal||S.search.trim())&&e.pointerType!=="mouse"){
+   if((S.folder?.favorites||S.folder?.personal||S.search.trim())&&e.pointerType!=="mouse"){
     active=false;held=false;clear();
     S.suppressClick=m.id;
     setTimeout(()=>{if(S.suppressClick===m.id)S.suppressClick=null;},600);
@@ -853,6 +900,10 @@ function updateSelection(){
  $("selection-download").disabled=!S.selected.size||
    [...S.selected].some(id=>!S.items.find(x=>x.id===id)?.available);
  $("selection-organize").disabled=!S.selected.size;
+ const inFavorites=!!S.folder?.favorites;
+ $("selection-organize").classList.toggle("hidden",inFavorites);
+ $("selection-original").classList.toggle("hidden",!inFavorites);
+ $("selection-original").disabled=S.selected.size!==1;
 }
 function toggleSelection(id){
  const media=S.items.find(m=>m.id===id);
@@ -1532,6 +1583,11 @@ $("query").oninput=()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>{
 $("select-mode").onclick=()=>{S.selection=!S.selection;S.selected.clear();updateSelection();renderItems();};
 $("selection-cancel").onclick=()=>{S.selection=false;S.selected.clear();updateSelection();renderItems();};
 $("selection-download").onclick=()=>downloadIds([...S.selected]);
+$("selection-original").onclick=()=>{
+ if(!S.folder?.favorites||S.selected.size!==1)return;
+ const id=[...S.selected][0],item=S.items.find(m=>m.id===id);
+ if(item)window.CubanitasTools?.locateOriginal?.(item);
+};
 $("selection-admin-delete").onclick=()=>window.CubanitasTools?.adminDeleteSelection?.([...S.selected]);
 $("viewer-prev").onclick=()=>moveViewer(-1);
 $("viewer-next").onclick=()=>moveViewer(1);
@@ -1548,11 +1604,14 @@ $("viewer-set-cover").onclick=async()=>{
   notice("Esta foto es ahora la portada de "+folder.name+".");
  }catch(e){notice(e.message);}
 };
-let touchStart=null,lastDistance=0,scale=1;
+let touchStart=null,lastDistance=0,scale=1,lastViewerTap=null;
 const stage=$("viewer-stage");
 stage.addEventListener("touchstart",e=>{
  if(e.touches.length===1)touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY};
- if(e.touches.length===2)lastDistance=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+ if(e.touches.length===2){
+  lastViewerTap=null;
+  lastDistance=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+ }
 },{passive:true});
 stage.addEventListener("touchmove",e=>{
  if(e.touches.length===2&&!$("view-image").hidden){
@@ -1563,7 +1622,20 @@ stage.addEventListener("touchmove",e=>{
 stage.addEventListener("touchend",e=>{
  if(e.touches.length===0&&touchStart&&scale===1){
   const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;
-  if(Math.abs(dx)>65&&Math.abs(dx)>Math.abs(dy)*1.3)moveViewer(dx<0?1:-1);
+  if(Math.abs(dx)>65&&Math.abs(dx)>Math.abs(dy)*1.3){
+   lastViewerTap=null;moveViewer(dx<0?1:-1);
+  }else if(Math.abs(dx)<18&&Math.abs(dy)<18&&e.changedTouches.length===1&&
+           (e.target===$("view-image")||e.target===$("view-video"))){
+   const point=e.changedTouches[0],item=S.items[S.viewer],now=Date.now();
+   const rect=e.target.getBoundingClientRect?.();
+   const controls=e.target===$("view-video")&&rect&&point.clientY>rect.bottom-75;
+   if(!controls&&item){
+    const twice=lastViewerTap?.id===item.id&&now-lastViewerTap.at<=330&&
+     Math.hypot(point.clientX-lastViewerTap.x,point.clientY-lastViewerTap.y)<45;
+    lastViewerTap=twice?null:{id:item.id,at:now,x:point.clientX,y:point.clientY};
+    if(twice)saveFavoriteFromDoubleTap(item);
+   }
+  }else lastViewerTap=null;
  }
  if(e.touches.length===0){touchStart=null;lastDistance=0;}
 },{passive:true});
