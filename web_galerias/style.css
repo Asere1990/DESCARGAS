@@ -921,6 +921,18 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  border:1px solid rgba(255,146,174,.17);color:#bdc4d3;
  background:rgba(255,107,157,.06);font-size:11px;line-height:1.5;
 }
+/* On mobile, a second quick tap marks a favorite instead of zooming the page.
+   Keep long-press/drag gestures and normal scrolling unchanged. */
+#album .media-tile{
+ touch-action:manipulation;-webkit-user-select:none;user-select:none;
+ -webkit-tap-highlight-color:transparent;
+}
+#album .selection-actions #selection-original{white-space:nowrap}
+@media(max-width:400px){
+ #album .selection-actions{gap:5px;padding-left:9px;padding-right:9px}
+ #album .selection-actions .mobile-action{font-size:12px;padding:8px 6px}
+}
+
 #album .media-tile .favorite-mark{
  position:absolute;top:6px;left:7px;z-index:2;
  display:grid;place-items:center;pointer-events:none;
