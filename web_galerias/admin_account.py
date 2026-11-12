@@ -47,6 +47,12 @@ async def operation(g, actor, op, data):
     if not await g.entitled(target):
         raise web.HTTPForbidden(text="La membresía de este usuario no está vigente.")
 
+    if op == "admin-view-quota-plus-checkout":
+        # Exactly the same Stripe session flow and entitlement as the
+        # selected user's Plus button; an admin click is an explicit purchase
+        # choice, never an automatic subscription change.
+        return await download_plus.checkout(g, target)
+
     if op == "admin-view-media-status":
         # Re-check the authoritative R2-backed media row each time the admin
         # opens a user folder/favorite/download. The iframe doesn't auto-refresh
