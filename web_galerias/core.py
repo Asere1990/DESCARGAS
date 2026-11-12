@@ -17,6 +17,7 @@ from .covers import COVER_SCHEMA,temporary_cover
 from .admin_browser import SCHEMA as BROWSER_SCHEMA,authenticate as authenticate_browser
 from .user_features import SCHEMA as USER_FEATURES_SCHEMA
 from .commercial import SCHEMA as COMMERCIAL_SCHEMA
+from . import download_plus
 
 SCHEMA="""
 CREATE TABLE IF NOT EXISTS wg_folders(
@@ -108,6 +109,7 @@ SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
 SCHEMA += USER_FEATURES_SCHEMA
 SCHEMA += COMMERCIAL_SCHEMA
+SCHEMA += download_plus.SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
  "title_image_height":120,"button_image_height":30,
@@ -241,6 +243,13 @@ class GalleryCore:
                 pass
         raise web.HTTPUnauthorized(text="Identidad Telegram no verificada.")
 
+    def download_link_bot(self):
+        """Optional configured original DESCARGAS bot; no guessed bot identity."""
+        import re
+        name=(os.getenv("GALERIAS_DESCARGAS_BOT") or
+              os.getenv("GALERIAS_RETURN_BOT") or "").lstrip("@")
+        return "https://t.me/"+name if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{4,31}",name) else None
+
     async def free_granted(self,uid):
         # A dashboard grant/revocation overrides legacy acceso.txt without
         # editing the file or restarting Telegram connections.
@@ -338,7 +347,10 @@ class GalleryCore:
                   ORDER BY date DESC LIMIT 1""",folder["id"])
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
                   temporary_link(self,uid,cover,"thumb")) if cover else None
-        unlimited=bool(allowed and await self.free_granted(uid))
+        plan=await download_plus.tier(self,uid) if allowed else {
+            "daily_limit":download_plus.BASE_LIMIT,"tier":"basic",
+            "quota_unlimited":False,"plus_active":False,"linked_descargas":False}
+        unlimited=bool(plan["quota_unlimited"])
         used=0 if unlimited else (await self.db().fetchval(
             "SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0)
         from .permissions import payment_test_user
@@ -355,8 +367,13 @@ class GalleryCore:
           "folders":folders,"personal_folders":owned_folders,
           "photos":sum(f["photos"] for f in folders),
           "videos":sum(f["videos"] for f in folders),
-          "remaining":max(0,100-used),"used":used,
-          "free_access":unlimited,"quota_unlimited":unlimited,
+          "remaining":None if unlimited else max(0,plan["daily_limit"]-used),"used":used,
+          "free_access":bool(allowed and await self.free_granted(uid)),
+          "quota_unlimited":unlimited,"quota_daily_limit":plan["daily_limit"],
+          "quota_tier":plan["tier"],"quota_linked":plan["linked_descargas"],
+          "quota_plus_active":plan["plus_active"],
+          "quota_plus_available":bool(allowed and download_plus.configured()),
+          "quota_link_bot":self.download_link_bot(),
           "storage_ready":self.storage.ready,
           "sync_enabled":os.getenv("GALERIAS_SYNC_ENABLED","0")=="1"}
 
