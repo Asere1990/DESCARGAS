@@ -33,7 +33,7 @@ class FreeAndPromo(unittest.IsolatedAsyncioTestCase):
                 {"id":12,"size":6,"folder":2,"mime":"image/jpeg","filename":"b.jpg"},
             ])
             execute=AsyncMock()
-            fetchval=AsyncMock(return_value=99)
+            fetchval=AsyncMock(return_value=49)
             @asynccontextmanager
             async def transaction(self):
                 yield
@@ -54,7 +54,7 @@ class FreeAndPromo(unittest.IsolatedAsyncioTestCase):
         c.fetchval.assert_not_awaited()
         c.execute.assert_awaited_once()
 
-    async def test_paid_accounts_keep_100_per_day(self):
+    async def test_paid_accounts_keep_50_per_day(self):
         class Conn:
             fetch=AsyncMock(return_value=[
                 {"id":11,"size":5,"folder":2,"mime":"image/jpeg","filename":"a.jpg"},
