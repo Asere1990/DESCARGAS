@@ -414,7 +414,11 @@ async function api(op,data={}){
    "locate-media":"admin-view-locate",
    "favorite-set":"admin-view-favorite-set",
    "media-status":"admin-view-media-status",
-   "quota-plus-checkout":"admin-view-quota-plus-checkout"
+   "quota-plus-checkout":"admin-view-quota-plus-checkout",
+   "notices-count":"admin-view-notices-count",
+   "notices-list":"admin-view-notices-list",
+   "notices-mark-read":"admin-view-notices-mark-read",
+   "chat-unread":"admin-view-chat-unread"
   };
   const adminOps=new Set([
    "admin-media-remove","admin-mirror-download-dates",
