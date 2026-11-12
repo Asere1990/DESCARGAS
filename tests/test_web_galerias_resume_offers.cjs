@@ -71,7 +71,7 @@ test("Mostrar más contenido navigates to the existing verified Customer Mini Ap
  const $=id=>id==="more-content"?button:{disabled:false};
  const S={};
  const signed="query_id=abc&auth_date=1794500000&hash=verified";
- const ctx={S,$,String,URL,URLSearchParams,BROWSER_ADMIN:false,
+ const ctx={S,$,String,URL,URLSearchParams,BROWSER_ADMIN:false,ADMIN_ACCOUNT_VIEW:false,
   tg:{initData:signed,version:"8.0",platform:"ios",openTelegramLink:url=>native.push(url)},
   window:{location:{assign:url=>opened.push(url)}},
   api:async(op)=>{calls.push(op);return{
@@ -99,7 +99,7 @@ test("Mostrar más contenido navigates to the existing verified Customer Mini Ap
 test("non-Customer bot fallback still performs a visible navigation",async()=>{
  const calls=[],opened=[],button={disabled:false};
  const ctx={
-  $:id=>button,S:{},BROWSER_ADMIN:false,String,
+  $:id=>button,S:{},BROWSER_ADMIN:false,ADMIN_ACCOUNT_VIEW:false,String,
   tg:{openTelegramLink:()=>{throw Error("Swiftgram silently ignored navigation")}},
   window:{location:{assign:url=>opened.push(url)}},
   api:async(op)=>{calls.push(op);return {url:"https://t.me/CustomerRobot?startapp=offers"}},
