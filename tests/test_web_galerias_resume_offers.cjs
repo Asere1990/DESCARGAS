@@ -80,7 +80,7 @@ test("Mostrar más contenido navigates to the existing verified Customer Mini Ap
   notice:msg=>{throw Error("Unexpected offers error "+msg)}
  };
  vm.createContext(ctx);
- vm.runInContext(block("// Swiftgram can ignore","function mountSupportBubble(){"),ctx);
+ vm.runInContext(block("// Swiftgram can ignore","function updateSupportVisibility(screen){"),ctx);
  await ctx.openMoreContent();
  assert.deepEqual(calls,["offers-link"]);
  assert.equal(native.length,0,"Swiftgram's ignored Telegram deep link must not be used");
@@ -106,7 +106,7 @@ test("non-Customer bot fallback still performs a visible navigation",async()=>{
   notice:msg=>{throw Error(msg)}
  };
  vm.createContext(ctx);
- vm.runInContext(block("// Swiftgram can ignore","function mountSupportBubble(){"),ctx);
+ vm.runInContext(block("// Swiftgram can ignore","function updateSupportVisibility(screen){"),ctx);
  await ctx.openMoreContent();
  assert.deepEqual(calls,["offers-link"]);
  assert.deepEqual(opened,["https://t.me/CustomerRobot?startapp=offers"]);
