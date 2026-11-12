@@ -15,13 +15,28 @@ from web_galerias.admin import linked_source_account
 class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_credentials_leave_datos_disabled_and_gallery_intact(self):
         with patch.dict(os.environ,{
-            "GALERIAS_DATOS_DATABASE_URL":"postgres://unreachable/never_use",
+            "DATOS_DB":"postgres://unreachable/never_use",
+            "DATOS_KEY":"",
+            "GALERIAS_DATOS_DATABASE_URL":"",
             "GALERIAS_DATOS_SESSION_KEY":""}):
             reader=DatosReader()
             await reader.start()
             self.assertFalse(reader.ready)
             self.assertEqual(await reader.account_keys(),[])
             self.assertIsNone(reader.repo)
+
+    async def test_short_datos_env_names_take_precedence_over_old_aliases(self):
+        from cryptography.fernet import Fernet
+        key=Fernet.generate_key().decode()
+        with patch.dict(os.environ,{
+            "DATOS_DB":"postgresql://datos-db/private",
+            "DATOS_KEY":key,
+            "GALERIAS_DATOS_DATABASE_URL":"postgresql://wrong/old",
+            "GALERIAS_DATOS_SESSION_KEY":"not-a-fernet-key"}):
+            reader=DatosReader()
+            self.assertEqual(reader.db_url,"postgresql://datos-db/private")
+            self.assertIsNotNone(reader.cipher)
+            self.assertEqual(reader.cipher.decrypt(reader.cipher.encrypt(b"test")),b"test")
 
     async def test_chooser_queries_both_databases_but_deduplicates_same_telegram_uid(self):
         db=N(fetchrow=AsyncMock(return_value={"uid":-222}))
