@@ -37,7 +37,8 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unpaid_test_user_is_denied_until_verified_subscription(self):
         db=SimpleNamespace(fetchrow=AsyncMock(return_value=None),fetchval=AsyncMock(return_value=False))
-        g=SimpleNamespace(db=lambda:db)
+        g=SimpleNamespace(db=lambda:db,
+                          free_granted=AsyncMock(side_effect=lambda uid: uid==OTHER[0]))
         with patch.dict(os.environ,ENV):
             self.assertFalse(await GalleryCore.entitled(g,USER))
             db.fetchrow.assert_awaited_once()
@@ -129,7 +130,7 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('if(S.me.allowed){show("library");return;}',script)
         self.assertIn('const enter=$("enter");enter.disabled=true;',script)
         self.assertIn('finally{enter.disabled=false;}',script)
-        self.assertIn('app.js?v=payment-gate-7536216348-v1',html)
+        self.assertIn('app.js?v=public-free-promo-20261111-v1',html)
 
 
 if __name__=="__main__":
