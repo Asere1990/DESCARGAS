@@ -11,6 +11,27 @@ from . import moderation
 from .core import DEFAULTS,ASSET_MIME,MAX_ASSET,identifier
 from .covers import ALLOWED_MIME,MAX_UPLOAD,optimized_cover,temporary_cover
 
+async def linked_source_account(g, uid, system="descargas"):
+    """Validate the intended registry, with no cross-database writes."""
+    actual=identifier(uid)
+    if system not in ("descargas","datos"):
+        raise web.HTTPBadRequest(text="Sistema de cuentas desconocido.")
+    if system=="datos":
+        datos=getattr(g.s,"datos",None)
+        if not getattr(datos,"ready",False):
+            raise web.HTTPBadRequest(text="La fuente DATOS aún no está conectada a Web Galerías.")
+        valid=await datos.has_account(actual)
+        source_uid=-actual
+    else:
+        valid=await g.db().fetchval("""SELECT EXISTS(
+          SELECT 1 FROM descarga_accounts
+          WHERE uid=$1 AND session IS NOT NULL)""",actual)
+        source_uid=actual
+    if not valid:
+        raise web.HTTPBadRequest(text="La cuenta Telegram ID indicada no está vinculada en ese sistema.")
+    return source_uid
+
+
 TEXTS={"title","button_label","intro_caption","intro_label"}
 WATERMARK_TEXTS={"wm_line1","wm_line2"}
 WATERMARK_KEYS={"wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity","wm_size","wm_color"}
@@ -183,12 +204,8 @@ async def admin_op(g,uid,op,data):
             public_name=public_name.strip()
         account_uid=data.get("account_uid")
         if account_uid is not None and str(account_uid).strip()!="":
-            account_uid=identifier(account_uid)
-            connected=await db.fetchval("""SELECT EXISTS(
-              SELECT 1 FROM descarga_accounts
-              WHERE uid=$1 AND session IS NOT NULL)""",account_uid)
-            if not connected:
-                raise web.HTTPBadRequest(text="La cuenta Telegram ID indicada no está vinculada.")
+            account_uid=await linked_source_account(
+                g,account_uid,data.get("account_system","descargas"))
         else:
             # Permite recuperar las carpetas antiguas sin alterar su cuenta.
             account_uid=None
@@ -233,12 +250,8 @@ async def admin_op(g,uid,op,data):
         return {"ok":True,"id":row["id"]}
     if op=="admin-folder-source":
         folder=identifier(data.get("folder"))
-        account_uid=identifier(data.get("account_uid"))
-        valid=await db.fetchval("""SELECT EXISTS(
-          SELECT 1 FROM descarga_accounts
-          WHERE uid=$1 AND session IS NOT NULL)""",account_uid)
-        if not valid:
-            raise web.HTTPBadRequest(text="La cuenta Telegram ID no está vinculada.")
+        account_uid=await linked_source_account(
+            g,data.get("account_uid"),data.get("account_system","descargas"))
         row=await db.fetchrow("""UPDATE wg_folders SET
             preferred_uid=$2,source_uid=$2,
             scan_cursor=0,high_water=0,complete=FALSE,
