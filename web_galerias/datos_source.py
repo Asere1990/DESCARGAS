@@ -34,8 +34,13 @@ class ReadOnlyDatosRepository(Repository):
 
 class DatosReader:
     def __init__(self):
-        self.db_url = os.getenv("GALERIAS_DATOS_DATABASE_URL", "").strip()
-        raw_key = os.getenv("GALERIAS_DATOS_SESSION_KEY", "").strip()
+        # Only CLOUDFLARE uses these short, source-specific names. Its
+        # DATABASE_URL and DESCARGAS_SESSION_KEY stay bound to DESCARGAS.
+        # The former longer names remain accepted for a safe transition.
+        self.db_url = (os.getenv("DATOS_DB") or
+                       os.getenv("GALERIAS_DATOS_DATABASE_URL") or "").strip()
+        raw_key = (os.getenv("DATOS_KEY") or
+                   os.getenv("GALERIAS_DATOS_SESSION_KEY") or "").strip()
         try:
             self.cipher = Fernet(raw_key.encode()) if raw_key else None
         except (ValueError, TypeError):
