@@ -13,9 +13,9 @@
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/header">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/button-label-image">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=public-free-promo-20261111-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=favorites-progress-commercial-20261112-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=public-free-promo-20261111-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=favorites-progress-commercial-20261112-v1"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=public-free-promo-20261111-v1"></script>
 </head><body>
 <div id="app" class="app">
@@ -67,6 +67,18 @@
    <div class="stats"><div><strong id="stat-folders">0</strong><small>Carpetas</small></div>
     <div><strong id="stat-photos">0</strong><small>Fotos</small></div>
     <div><strong id="stat-videos">0</strong><small>Videos</small></div></div>
+   <section id="resume-feature" class="resume-feature hidden" aria-label="Continuar donde lo dejaste">
+     <div class="resume-copy">
+       <small>↪ CONTINUAR DONDE LO DEJASTE</small>
+       <strong id="resume-name"></strong>
+       <span>Regresa a tu última foto o video.</span>
+     </div>
+     <button id="resume-open" type="button" class="resume-action">Continuar ›</button>
+   </section>
+   <button id="open-favorites" class="favorites-entry" type="button">
+     <span>♥ <strong>Mis favoritos</strong></span>
+     <span id="favorites-counter">Tus fotos y videos guardados ›</span>
+   </button>
    <div class="section-heading"><h2>Álbumes</h2><span id="folder-counter" class="muted"></span></div>
    <div id="folders" class="folders"></div>
    <div id="personal-section" class="personal-section hidden">
@@ -95,6 +107,7 @@
   <header class="topbar album-topbar">
     <div class="album-heading"><strong id="album-title">Carpeta</strong><small id="album-subtitle"></small></div>
   </header>
+  <div id="favorites-notice" class="favorites-notice hidden">♥ Los favoritos solo guardan una referencia personal. Los originales siguen en sus galerías.</div>
   <div class="search"><span>⌕</span><input id="query" type="search" placeholder="Buscar por caption o comentarios" autocomplete="off"></div>
   <div class="album-filter-bar">
     <div class="filter-wrap">
@@ -137,7 +150,7 @@
   </nav>
  </section>
  <section id="viewer" class="viewer hidden" aria-label="Visor de fotos y videos">
-   <div class="viewer-top"><span id="viewer-counter"></span><button id="viewer-admin-delete" class="viewer-admin-delete hidden" type="button" aria-label="Eliminar este archivo de la galería">Eliminar</button></div>
+   <div class="viewer-top"><span id="viewer-counter"></span><button id="viewer-favorite" type="button" class="viewer-favorite" aria-label="Agregar a favoritos" aria-pressed="false" title="Guardar en mis favoritos">♡</button><button id="viewer-admin-delete" class="viewer-admin-delete hidden" type="button" aria-label="Eliminar este archivo de la galería">Eliminar</button></div>
    <div id="viewer-stage" class="viewer-stage"><img id="view-image" alt="" hidden><video id="view-video" controls playsinline hidden></video><div id="viewer-watermark" class="viewer-watermark" aria-hidden="true"></div></div>
    <nav class="viewer-bottom" aria-label="Controles del visor">
     <button id="close-viewer" class="viewer-action" type="button" aria-label="Cerrar visor">✕ Cerrar</button>
@@ -156,7 +169,7 @@
     <span aria-hidden="true"> · </span>En línea: <strong id="admin-online-count">—</strong>
    </p>
    <nav class="admin-tabs"><button data-tab="carpetas" class="active">Carpetas</button>
-    <button data-tab="usuarios">Usuarios ▾</button><button data-tab="diseno">Editor visual</button>
+    <button data-tab="usuarios">Usuarios ▾</button><button data-tab="comercio">Estadísticas</button><button data-tab="diseno">Editor visual</button>
     <button data-tab="estado">Respaldo</button></nav>
    <div id="tab-carpetas" class="tab">
     <div class="admin-folder-first"><h2>Galerías</h2><div id="admin-folders"></div></div>
@@ -252,6 +265,29 @@
       <label>Visibilidad<select id="permission-mode"><option value="all">Todas las carpetas</option><option value="selected">Solo las seleccionadas</option></select></label>
       <div id="permission-folders" class="check-folders"></div>
       <button id="save-permissions" class="primary compact">Guardar permisos</button>
+     </div>
+   </div>
+   <div id="tab-comercio" class="tab hidden" aria-label="Estadísticas comerciales">
+     <div class="panel-card commercial-dashboard">
+       <h2>📊 Estadísticas comerciales</h2>
+       <p class="muted">Datos de Web Galerías · Sin consultar Stripe en tiempo real</p>
+       <div class="commercial-controls">
+         <label for="commercial-range">Período
+           <select id="commercial-range">
+             <option value="7">Últimos 7 días</option>
+             <option value="30" selected>Últimos 30 días</option>
+             <option value="90">Últimos 90 días</option>
+           </select>
+         </label>
+         <button id="commercial-refresh" class="small-btn strong" type="button">↻ Actualizar</button>
+       </div>
+       <p id="commercial-period" class="muted"></p>
+       <div id="commercial-metrics" class="commercial-metrics" aria-live="polite"></div>
+       <div class="commercial-chart-card">
+         <h3>Visitantes y compras confirmadas</h3>
+         <div id="commercial-trend" class="commercial-trend" aria-label="Resumen de los últimos días"></div>
+       </div>
+       <p id="commercial-note" class="muted commercial-note">Las métricas comerciales se registrarán desde que se active esta función. No reconstruimos pagos antiguos ni datos de visitantes que no existan.</p>
      </div>
    </div>
    <div id="tab-diseno" class="tab hidden">
