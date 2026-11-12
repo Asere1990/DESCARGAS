@@ -150,9 +150,23 @@ def mount(app,service):
         if not request.path.rstrip("/").endswith("/admin"):
             content=await render_fast_intro(g,content)
         return web.Response(text=content,content_type="text/html",headers=intro_page_headers(content))
+    async def admin_view_page(request):
+        # The real, unchanged customer document runs in an isolated iframe.
+        # Only signed admin API requests supply the selected user's data.
+        content=(ROOT/"index.html").read_text(encoding="utf-8")
+        content=content.replace(
+            "</head><body>",
+            '<link rel="stylesheet" href="/web-galerias/static/admin_account.css?v=real-account-20261112-v1">\\n'
+            '<script defer src="/web-galerias/static/admin_account.js?v=real-account-20261112-v1"></script>\\n'
+            "</head><body>",1).replace("\\\\n","\\n")
+        headers=dict(HEADERS)
+        headers["Content-Security-Policy"]=HEADERS["Content-Security-Policy"].replace(
+            "frame-ancestors https://web.telegram.org",
+            "frame-ancestors 'self' https://web.telegram.org")
+        return web.Response(text=content,content_type="text/html",headers=headers)
     async def static(request):
         name=request.match_info["name"]
-        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css"):raise web.HTTPNotFound()
+        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css","admin_account.js","admin_account.css"):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/name,headers={
             "Cache-Control":"no-cache","X-Content-Type-Options":"nosniff"})
     async def api(request):
@@ -225,6 +239,8 @@ def mount(app,service):
     app.router.add_get("/web-galerias/",page)
     app.router.add_get("/web-galerias/admin",page)
     app.router.add_get("/web-galerias/admin/",page)
+    app.router.add_get("/web-galerias/admin/view",admin_view_page)
+    app.router.add_get("/web-galerias/admin/view/",admin_view_page)
     app.router.add_post("/web-galerias/admin/login",login)
     app.router.add_post("/web-galerias/admin/logout",logout)
     app.router.add_get("/web-galerias/manifest.webmanifest",manifest)
