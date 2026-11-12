@@ -184,6 +184,49 @@ async def operation(g, uid, op, data):
         """,now,now-75)
         return {"paid":int(row["paid"] or 0),"online":int(row["online"] or 0)}
 
+    if op == "admin-free-access-status":
+        target=identifier(data.get("telegram_id"))
+        override=await db.fetchval("SELECT enabled FROM wg_free_access WHERE uid=$1",target)
+        return {"telegram_id":target,
+                "free_access":await g.free_granted(target),
+                "override":override,"admin":is_admin(target)}
+
+    if op == "admin-free-access-set":
+        target=identifier(data.get("telegram_id"))
+        enabled=data.get("enabled")
+        if type(enabled) is not bool or data.get("confirm")!="CAMBIAR_ACCESO_GRATIS":
+            raise web.HTTPBadRequest(text="Confirma el cambio de acceso gratuito.")
+        if is_admin(target):
+            raise web.HTTPForbidden(text="No se modifican cuentas administradoras.")
+        # User may not have visited Web Galerías yet: grants remain saved.
+        await db.execute("""INSERT INTO wg_free_access(uid,enabled,updated,changed_by)
+          VALUES($1,$2,$3,$4) ON CONFLICT(uid) DO UPDATE
+          SET enabled=excluded.enabled,updated=excluded.updated,
+              changed_by=excluded.changed_by""",target,enabled,time.time(),uid)
+        await g.log(uid,"admin-free-grant" if enabled else "admin-free-revoke")
+        return {"ok":True,"telegram_id":target,"free_access":enabled}
+
+    if op == "admin-free-access-list":
+        after=identifier(data.get("after",0),0)
+        file_grants=sorted(uid for uid in file_ids(ACCESS)
+                           if not payment_test_user(uid))
+        rows=await db.fetch("""
+            WITH file_ids AS (SELECT unnest($1::bigint[]) AS uid),
+                 candidates AS (
+                   SELECT uid FROM file_ids UNION SELECT uid FROM wg_free_access
+                 )
+            SELECT c.uid,u.name,COALESCE(gr.enabled,f.uid IS NOT NULL) AS active
+            FROM candidates c LEFT JOIN file_ids f ON f.uid=c.uid
+            LEFT JOIN wg_free_access gr ON gr.uid=c.uid
+            LEFT JOIN wg_users u ON u.uid=c.uid
+            WHERE c.uid>$2
+            ORDER BY c.uid LIMIT 51
+        """,file_grants,after)
+        return {"users":[{"telegram_id":int(r["uid"]),
+                         "name":str(r["name"] or "Usuario"),
+                         "free_access":bool(r["active"])} for r in rows[:50]],
+                "next":int(rows[49]["uid"]) if len(rows)>50 else None}
+
     if op == "admin-users-page":
         # Load only the selected list; never enumerate all user records first.
         scope=data.get("scope","all")
@@ -215,11 +258,13 @@ async def operation(g, uid, op, data):
           SELECT u.uid,u.name,u.last_seen,
                  COALESCE(s.state IN ('active','trialing') AND s.paid_until>$1,FALSE) AS paid,
                  COALESCE(b.blocked,FALSE) AS blocked,
-                 COALESCE(p.updated>$2 AND p.view IN ('library','album','viewer'),FALSE) AS online
+                 COALESCE(p.updated>$2 AND p.view IN ('library','album','viewer'),FALSE) AS online,
+                 COALESCE(gr.enabled,u.uid=ANY($7::bigint[])) AS is_free
           FROM wg_users u
           LEFT JOIN wg_subscriptions s ON s.uid=u.uid
           LEFT JOIN wg_access_blocks b ON b.uid=u.uid
           LEFT JOIN wg_gallery_presence p ON p.uid=u.uid
+          LEFT JOIN wg_free_access gr ON gr.uid=u.uid
           WHERE ($3::text='' OR POSITION($3 IN LOWER(u.name))>0
                         OR POSITION($3 IN u.uid::text)>0)
             AND ($4::double precision IS NULL
@@ -230,10 +275,10 @@ async def operation(g, uid, op, data):
                      AND s.paid_until>$1 AND NOT COALESCE(b.blocked,FALSE))
                OR ($6='expired' AND s.paid_until>0
                      AND (s.state NOT IN ('active','trialing') OR s.paid_until<=$1))
-               OR ($6='free' AND u.uid=ANY($7::bigint[])
+               OR ($6='free' AND COALESCE(gr.enabled,u.uid=ANY($7::bigint[]))
                      AND NOT COALESCE(b.blocked,FALSE))
                OR ($6='visitors' AND (s.uid IS NULL OR s.paid_until<=0)
-                     AND NOT (u.uid=ANY($7::bigint[]))
+                     AND NOT COALESCE(gr.enabled,u.uid=ANY($7::bigint[]))
                      AND NOT (u.uid=ANY($9::bigint[])))
             )
             AND ($8::int=0 OR u.last_seen>=$1-($8::int*3600))
@@ -243,7 +288,7 @@ async def operation(g, uid, op, data):
         return {"users":[{
             "telegram_id":int(r["uid"]),"name":str(r["name"] or "Usuario"),
             "paid":bool(r["paid"]),"blocked":bool(r["blocked"]),
-            "free_access":int(r["uid"]) in free_ids and not r["blocked"],
+            "free_access":bool(r["is_free"]) and not r["blocked"],
             "online":bool(r["online"]) and not r["blocked"],
             "last_seen":r["last_seen"],
         } for r in page],
@@ -254,13 +299,18 @@ async def operation(g, uid, op, data):
         target=identifier(data.get("telegram_id"))
         row=await db.fetchrow("""
             SELECT u.uid,u.name,u.first_seen,u.last_seen,
-              s.state,s.paid_until,COALESCE(b.blocked,FALSE) AS blocked
+              s.state,s.paid_until,COALESCE(b.blocked,FALSE) AS blocked,
+              gr.enabled AS free_override
             FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
-            LEFT JOIN wg_access_blocks b ON b.uid=u.uid WHERE u.uid=$1""",target)
+            LEFT JOIN wg_access_blocks b ON b.uid=u.uid
+            LEFT JOIN wg_free_access gr ON gr.uid=u.uid
+            WHERE u.uid=$1""",target)
         if not row:raise web.HTTPNotFound(text="Usuario no registrado.")
+        override=row["free_override"]
         return {**dict(row),"telegram_id":target,
-                "free_access":bool(is_tester(target) and not payment_test_user(target)
-                                   and not row["blocked"])}
+                "free_access":bool((override if override is not None
+                                  else is_tester(target) and not payment_test_user(target))
+                                  and not row["blocked"])}
 
     if op == "admin-user-access-change":
         target=identifier(data.get("telegram_id"))
