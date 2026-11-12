@@ -181,6 +181,7 @@ function updateEditorLabelChoices(){
  $("edit-title-image-wrap").classList.toggle("hidden",!titleImage);
  $("edit-button-text-wrap").classList.toggle("hidden",buttonImage);
  $("edit-button-image-wrap").classList.toggle("hidden",!buttonImage);
+ updateLibraryEditorChoices();
 }
 function updateEditorImageSizes(){
  const titleHeight=Number($("edit-title_image_height").value);
@@ -189,6 +190,7 @@ function updateEditorImageSizes(){
  $("edit-button-image-size-value").textContent=buttonHeight+" px";
  $("edit-title-image-preview").style.height=titleHeight+"px";
  $("edit-button-image-preview").style.height=buttonHeight+"px";
+ updateLibraryEditorSizes();
 }
 function loadEditorImagePreview(kind){
  const asset=kind==="title"?"header":"button-label-image";
@@ -207,6 +209,80 @@ function loadEditorImagePreview(kind){
  }else image.src="/web-galerias/assets/"+asset+"?t="+Date.now();
  updateEditorImageSizes();
 }
+
+const LIBRARY_SLOTS=["library_brand","library_eyebrow","library_heading"];
+const LIBRARY_FALLBACKS={library_brand:"Web Galerías",library_eyebrow:"MI COLECCIÓN",library_heading:"Mis galerías"};
+const LIBRARY_TARGETS={library_brand:"brand-name",library_eyebrow:"collection-eyebrow",library_heading:"collection-heading"};
+function updateLibraryEditorChoices(){
+ for(const slot of LIBRARY_SLOTS){
+  const image=$("edit-"+slot+"_mode").value==="image";
+  $("edit-"+slot+"-text-wrap").classList.toggle("hidden",image);
+  $("edit-"+slot+"-image-wrap").classList.toggle("hidden",!image);
+ }
+}
+function updateLibraryEditorSizes(){
+ for(const slot of LIBRARY_SLOTS){
+  const height=Number($("edit-"+slot+"_image_height").value);
+  $("edit-"+slot+"-image-size-value").textContent=height+" px";
+  $("edit-"+slot+"-image-preview").style.height=height+"px";
+ }
+}
+function loadLibraryEditorPreview(slot){
+ const asset=slot.replaceAll("_","-"),image=$("edit-"+slot+"-image-preview");
+ if(image.dataset.objectUrl){
+  URL.revokeObjectURL(image.dataset.objectUrl);
+  delete image.dataset.objectUrl;
+ }
+ image.hidden=true;
+ image.onload=()=>{image.hidden=false;};
+ image.onerror=()=>{image.hidden=true;};
+ const file=$("upload-"+asset).files?.[0];
+ if(file){
+  const url=URL.createObjectURL(file);
+  image.dataset.objectUrl=url;image.src=url;
+ }else image.src="/web-galerias/assets/"+asset+"?t="+Date.now();
+ updateLibraryEditorSizes();
+}
+function applyLibraryIdentity(d){
+ const generation=(S.libraryIdentityGeneration||0)+1;
+ S.libraryIdentityGeneration=generation;
+ for(const slot of LIBRARY_SLOTS){
+  const element=$(LIBRARY_TARGETS[slot]);if(!element)continue;
+  const label=String(d[slot]??LIBRARY_FALLBACKS[slot]);
+  const mode=d[slot+"_mode"]==="image"?"image":"text";
+  element.setAttribute("aria-label",label);
+  if(mode!=="image"){
+   element.classList.remove("library-slot-image");
+   element.textContent=label;continue;
+  }
+  element.classList.add("library-slot-image");
+  const asset=slot.replaceAll("_","-");
+  const src="/web-galerias/assets/"+asset+
+    (S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
+  const value=Number(d[slot+"_image_height"]);
+  const height=Number.isFinite(value)?value:
+    (slot==="library_brand"?60:slot==="library_eyebrow"?44:100);
+  const current=element.querySelector("img[data-library-image]");
+  if(current&&current.getAttribute("src")===src){
+   current.alt=label;
+   current.style.height=height+"px";
+   current.style.maxHeight=height+"px";
+   continue;
+  }
+  const image=new Image();
+  image.setAttribute("data-library-image",slot);
+  image.alt=label;image.style.height=height+"px";
+  image.style.maxHeight=height+"px";image.style.maxWidth="100%";
+  image.style.width="auto";image.style.objectFit="contain";
+  image.onload=()=>{
+   if(S.libraryIdentityGeneration===generation)element.replaceChildren(image);
+  };
+  image.onerror=()=>{
+   if(S.libraryIdentityGeneration===generation)element.textContent=label;
+  };
+  image.src=src;
+ }
+}
 function applyDesign(d){const r=document.documentElement.style;
  r.setProperty("--accent",d.accent);r.setProperty("--bg",d.background);r.setProperty("--text",d.text_color);
  r.setProperty("--button",d.button_color);r.setProperty("--tile-aspect",d.tile_shape==="rectangle"?"4 / 3":"1");
@@ -222,7 +298,7 @@ function applyDesign(d){const r=document.documentElement.style;
    Number(headline.dataset.fastTitleHeight)===Number(d.title_image_height??120));
  if(!reusable)headline.textContent=d.title;
  headline.setAttribute("aria-label",d.title);
- $("brand-name").textContent=d.title;
+ applyLibraryIdentity(d);
  $("intro-subtitle").textContent=d.intro_caption;
  $("intro-placeholder").lastElementChild.textContent=d.intro_label;
  document.title=d.title;
@@ -1477,7 +1553,7 @@ async function savePermissions(){
 async function uploadAsset(key,file,folder=null){
  if(!file)return false;
  const allowed=key==="intro"?25_000_000:
-   (key==="header"||key==="folder-cover"||key==="intro-photo")?5_000_000:3_000_000;
+   (key==="header"||key==="folder-cover"||key==="intro-photo"||key.startsWith("library-"))?5_000_000:3_000_000;
  const progress=key==="folder-cover"?$("new-cover-status"):$("upload-progress");
  if(!file.size||file.size>allowed){
   progress.textContent="Archivo demasiado grande. Límite: "+(allowed/1_000_000)+" MB.";
