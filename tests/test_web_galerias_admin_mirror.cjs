@@ -48,7 +48,7 @@ test("signed administrator keeps their own identity and customer quota is not de
 });
 test("admins see Portada, regular users see fixed Chat with no bubble",()=>{
  assert.ok(html.includes('id="open-support-chat"'));
- assert.ok(html.includes("Chat con soporte</button>"));
+ assert.ok(html.includes('Chat con soporte<span id="support-unread"'));
  assert.ok(html.includes('id="go-intro"'));
  assert.ok(js.includes('$("go-intro").onclick=()=>show("intro")'));
  assert.ok(js.includes('if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin||ADMIN_ACCOUNT_VIEW)'));
