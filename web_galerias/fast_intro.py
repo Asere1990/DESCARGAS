@@ -110,3 +110,54 @@ async def render_fast_intro(g, source):
         # A temporary DB failure must not break the entry document; the
         # existing authenticated bootstrap remains the source of truth.
         return source
+
+
+# In-memory derived assets are public presentation graphics only.
+# Original operator uploads remain unchanged in the Gallery DB.
+import asyncio
+import io
+from PIL import Image, ImageOps
+
+_FAST_IMAGES = {}
+_FAST_LOCK = asyncio.Lock()
+
+
+def _compress_identity_image(data, mime, key):
+    if mime not in ("image/png", "image/jpeg", "image/webp") or len(data)<120_000:
+        return data, mime
+    try:
+        with Image.open(io.BytesIO(data)) as source:
+            width, height = source.size
+            if not (0 < width * height <= 14_000_000):
+                return data, mime
+            image = ImageOps.exif_transpose(source)
+            target = (2048, 780) if key=="header" else (1536, 216)
+            image.thumbnail(target, Image.Resampling.LANCZOS)
+            if image.mode not in ("RGB", "RGBA"):
+                image = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+            out = io.BytesIO()
+            image.save(out, format="WEBP", quality=92, method=4)
+            result = out.getvalue()
+            if result and len(result)<len(data)*.85:
+                return result, "image/webp"
+    except (OSError, ValueError, TypeError, MemoryError):
+        pass
+    return data, mime
+
+
+async def fast_identity_asset(key, revision, raw, mime):
+    cache_key = (key, revision)
+    record = _FAST_IMAGES.get(cache_key)
+    if record is not None:
+        return record
+    async with _FAST_LOCK:
+        record = _FAST_IMAGES.get(cache_key)
+        if record is None:
+            record = await asyncio.to_thread(
+                _compress_identity_image, raw, mime, key)
+            # Strictly bounded: the newest graphic for each identity.
+            for existing in tuple(_FAST_IMAGES):
+                if existing[0] == key and existing != cache_key:
+                    del _FAST_IMAGES[existing]
+            _FAST_IMAGES[cache_key] = record
+    return record
