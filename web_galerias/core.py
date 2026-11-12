@@ -177,6 +177,7 @@ class GalleryCore:
         self.customer_bridge_task=None
         self.moderation_task=None
         self.broadcast_task=None
+        self.media_text_task=None
         self.last_error=""
 
     def db(self):
@@ -193,6 +194,15 @@ class GalleryCore:
                     await self.s.repo.pool.execute(SCHEMA)
                     await self.s.repo.pool.execute(BROWSER_SCHEMA)
                     await self.s.repo.pool.execute(MODERATION_SCHEMA)
+                    # Search enrichment has its own schema and R2 outbox.
+                    # Failure never stops original gallery access or Stripe.
+                    try:
+                        from . import media_text
+                        await self.s.repo.pool.execute(media_text.SCHEMA)
+                        self.media_text_task=asyncio.create_task(media_text.run(self))
+                    except Exception as exc:
+                        log.warning("Caption/reply/OCR schema setup pending (%s)",
+                                    type(exc).__name__)
                     self.ready=True
                     # Broadcast schema/worker is strictly optional: failure
                     # cannot stop galleries, billing or backup.
