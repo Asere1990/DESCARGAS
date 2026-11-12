@@ -1,0 +1,29 @@
+/* Additions to the SAME user gallery, only in /admin/view. */
+.admin-account-notice{
+ margin:0 0 14px;border:1px solid #3988b962;
+ padding:10px 12px;border-radius:12px;font-size:12px;
+ font-weight:700;color:#bde6ff;background:#12466e50;
+}
+#admin-account-history-link{margin-top:10px;border-color:#277dc38a}
+#admin-account-history-link span:first-child{font-size:15px;color:#a6dbff;font-weight:800}
+#admin-account-history-link span:last-child{font-size:11px;color:#a8c8e4}
+.admin-account-dates{background:var(--bg);min-height:100dvh}
+.admin-account-dates main{padding-top:20px}
+.admin-account-quota{
+ border-radius:17px;background:#ffffff0d;border:1px solid var(--line);
+ padding:18px;display:flex;flex-direction:column;gap:8px;
+ margin:0 0 12px;
+}
+.admin-account-quota strong{font-size:20px}
+.admin-account-quota span{font-size:13px;color:var(--muted)}
+.admin-account-disclaimer{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:20px}
+.admin-account-date-grid{display:grid;gap:10px}
+.admin-account-date{
+ width:100%;min-height:80px;border:1px solid var(--line);border-radius:15px;
+ background:#ffffff0e;color:var(--text);padding:16px;
+ display:flex;flex-direction:column;align-items:flex-start;gap:8px;
+ text-align:left;
+}
+.admin-account-date strong{font-size:16px}
+.admin-account-date small{font-size:12px;color:var(--muted)}
+/* The original viewer and selection tools retain all their existing rules. */
