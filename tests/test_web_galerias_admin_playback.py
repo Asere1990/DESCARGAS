@@ -21,7 +21,7 @@ class AdminPlaybackTests(unittest.IsolatedAsyncioTestCase):
                  permitted=AsyncMock(return_value=True))
         return gallery,db
 
-    async def test_stale_preview_becomes_playable_with_signed_admin_link(self):
+    async def test_stale_preview_becomes_playable_with_exact_user_link(self):
         gallery,db=self._client()
         with patch.object(admin_account,"is_admin",return_value=True), \
              patch.object(admin_account,"temporary_link",
@@ -33,10 +33,10 @@ class AdminPlaybackTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(data["available"])
         self.assertEqual(data["kind"],"video")
         self.assertEqual(data["mime"],"video/mp4")
-        self.assertIn("admin=111",data["view"])
+        self.assertIn("admin=987654321",data["view"])
         self.assertIn("media=55",data["view"])
-        self.assertNotIn("admin=987654321",data["view"])
-        gallery.permitted.assert_awaited_once_with(111,7)
+        self.assertNotIn("admin=111",data["view"])
+        gallery.permitted.assert_awaited_once_with(987654321,7)
         gallery.entitled.assert_awaited_once_with(987654321)
 
     async def test_when_original_still_pending_never_claim_it_is_playable(self):
