@@ -130,7 +130,7 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('if(S.me.allowed){show("library");return;}',script)
         self.assertIn('const enter=$("enter");enter.disabled=true;',script)
         self.assertIn('finally{enter.disabled=false;}',script)
-        self.assertIn('app.js?v=swiftgram-customer-navigation-20261112-v2',html)
+        self.assertIn('app.js?v=fast-intro-identity-20261112-v1',html)
 
 
 if __name__=="__main__":
