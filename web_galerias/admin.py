@@ -32,11 +32,15 @@ async def linked_source_account(g, uid, system="descargas"):
     return source_uid
 
 
-TEXTS={"title","button_label","intro_caption","intro_label"}
+TEXTS={"title","button_label","intro_caption","intro_label",
+       "library_brand","library_eyebrow","library_heading"}
 WATERMARK_TEXTS={"wm_line1","wm_line2"}
 WATERMARK_KEYS={"wm_enabled","wm_line1","wm_line2","wm_position","wm_opacity","wm_size","wm_color"}
 COLORS={"button_color","accent","background","text_color","wm_color"}
 CHOICES={"header_mode":{"text","image"},"button_mode":{"text","image"},
+         "library_brand_mode":{"text","image"},
+         "library_eyebrow_mode":{"text","image"},
+         "library_heading_mode":{"text","image"},
          "tile_shape":{"square","rectangle"},
          "intro_fit":{"cover","contain"},
          "intro_media":{"video","photo","gif"},
@@ -62,10 +66,15 @@ def cleaned_design(value):
             if type(val) is not bool:
                 raise web.HTTPBadRequest(text="Estado de marca de agua inválido.")
             result[key]=val
-        elif key in ("wm_opacity","wm_size","title_image_height","button_image_height"):
+        elif key in ("wm_opacity","wm_size","title_image_height","button_image_height",
+                    "library_brand_image_height","library_eyebrow_image_height",
+                    "library_heading_image_height"):
             limits={"wm_opacity":(0,100),"wm_size":(12,42),
                     "title_image_height":(40,220),
-                    "button_image_height":(12,48)}
+                    "button_image_height":(12,48),
+                    "library_brand_image_height":(24,140),
+                    "library_eyebrow_image_height":(16,100),
+                    "library_heading_image_height":(28,200)}
             lo,hi=limits[key]
             if type(val) is not int or not lo<=val<=hi:
                 raise web.HTTPBadRequest(text="Valor de marca de agua inválido.")
@@ -347,7 +356,10 @@ async def admin_op(g,uid,op,data):
                 raise web.HTTPBadRequest(text="Configuración del editor incorrecta.")
             # Clients with an older editor must not reset the watermark or
             # these independently saved image sizes when changing other fields.
-            preserved=WATERMARK_KEYS|{"title_image_height","button_image_height"}
+            preserved=WATERMARK_KEYS|{"title_image_height","button_image_height",
+                         "library_brand","library_brand_mode","library_brand_image_height",
+                         "library_eyebrow","library_eyebrow_mode","library_eyebrow_image_height",
+                         "library_heading","library_heading_mode","library_heading_image_height"}
             saved={k:current.get(k,DEFAULTS[k]) for k in preserved}
             design=cleaned_design({**saved,**changes})
         if op=="admin-design":
@@ -357,6 +369,9 @@ async def admin_op(g,uid,op,data):
             for mode_key,asset_key,label in (
                 ("header_mode","header","título"),
                 ("button_mode","button-label-image","botón"),
+                 ("library_brand_mode","library-brand","nombre de la web junto al logo"),
+                 ("library_eyebrow_mode","library-eyebrow","rótulo de la colección"),
+                 ("library_heading_mode","library-heading","título Mis galerías"),
             ):
                 if design.get(mode_key)=="image":
                     found=await db.fetchval(
@@ -500,7 +515,8 @@ async def asset(g,request):
     row=await g.db().fetchrow("SELECT mime,body,updated FROM wg_assets WHERE key=$1",key)
     if not row:raise web.HTTPNotFound()
     # Identifiers can still validate instantly after an admin edits art.
-    identity=key in ("header","button-label-image")
+    identity=key in ("header","button-label-image",
+                     "library-brand","library-eyebrow","library-heading")
     revision=str(int(float(row.get("updated") or 0)*1000))
     body=bytes(row["body"])
     mime=row["mime"]
