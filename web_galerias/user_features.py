@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS wg_favorites(
 -- Web API, not interpreted as a Supabase database role.
 ALTER TABLE wg_view_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wg_favorites ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON wg_view_progress,wg_favorites FROM anon,authenticated;
+REVOKE ALL ON wg_view_progress,wg_favorites FROM PUBLIC;
 """
 
 
