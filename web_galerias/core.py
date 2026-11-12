@@ -15,6 +15,8 @@ from .moderation import SCHEMA as MODERATION_SCHEMA, run_deletions
 from .personal import PERSONAL_SCHEMA,folders as personal_folders,media_filter
 from .covers import COVER_SCHEMA,temporary_cover
 from .admin_browser import SCHEMA as BROWSER_SCHEMA,authenticate as authenticate_browser
+from .user_features import SCHEMA as USER_FEATURES_SCHEMA
+from .commercial import SCHEMA as COMMERCIAL_SCHEMA
 
 SCHEMA="""
 CREATE TABLE IF NOT EXISTS wg_folders(
@@ -104,6 +106,8 @@ CREATE TABLE IF NOT EXISTS wg_free_access(
 """
 SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
+SCHEMA += USER_FEATURES_SCHEMA
+SCHEMA += COMMERCIAL_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
  "title_image_height":120,"button_image_height":30,
@@ -299,9 +303,20 @@ class GalleryCore:
 
     async def bootstrap(self,uid,name=""):
         now=time.time()
-        await self.db().execute("""INSERT INTO wg_users(uid,first_seen,last_seen,name)
-          VALUES($1,$2,$2,$3) ON CONFLICT(uid) DO UPDATE SET
-          last_seen=$2,name=excluded.name""",uid,now,str(name)[:100])
+        # Record at most one daily visit without an extra database roundtrip.
+        # Both writes are one statement, keeping first paint responsive.
+        await self.db().execute("""
+          WITH registered AS (
+           INSERT INTO wg_users(uid,first_seen,last_seen,name)
+           VALUES($1,$2,$2,$3)
+           ON CONFLICT(uid) DO UPDATE SET
+            last_seen=excluded.last_seen,name=excluded.name
+           RETURNING uid
+          )
+          INSERT INTO wg_visit_days(uid,visit_day)
+          SELECT uid,$4 FROM registered
+          ON CONFLICT(uid,visit_day) DO NOTHING
+        """,uid,now,str(name)[:100],utc_day())
         allowed=await self.entitled(uid)
         folders=await self.folder_list(uid) if allowed else []
         owned_folders=await personal_folders(self,uid) if allowed else []
@@ -354,16 +369,20 @@ class GalleryCore:
         query=normal(query.strip())[:100]
         kind=media_filter(kind)
         if query:
-            rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key
+            rows=await self.db().fetch("""SELECT id,folder,kind,mime,filename,date,width,height,size,state,thumb_key,
+              EXISTS(SELECT 1 FROM wg_favorites v
+                     WHERE v.uid=$5 AND v.media=wg_media.id) AS favorite
               FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
               AND ($3::text='all' OR kind=$3)
               AND to_tsvector('simple',search_text) @@ plainto_tsquery('simple',$2)
-              AND id<$4 ORDER BY id DESC LIMIT 61""",folder,query,kind,cursor or 2**63-1)
+              AND id<$4 ORDER BY id DESC LIMIT 61""",folder,query,kind,cursor or 2**63-1,uid)
         else:
-            rows=await self.db().fetch("""SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key
+            rows=await self.db().fetch("""SELECT id,folder,kind,mime,filename,date,width,height,size,state,thumb_key,
+              EXISTS(SELECT 1 FROM wg_favorites v
+                     WHERE v.uid=$4 AND v.media=wg_media.id) AS favorite
               FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
               AND ($2::text='all' OR kind=$2)
-              AND id<$3 ORDER BY id DESC LIMIT 61""",folder,kind,cursor or 2**63-1)
+              AND id<$3 ORDER BY id DESC LIMIT 61""",folder,kind,cursor or 2**63-1,uid)
         result=[]
         for x in rows[:60]:
             item=dict(x)
