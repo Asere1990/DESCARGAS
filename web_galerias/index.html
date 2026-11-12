@@ -13,10 +13,10 @@
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/header">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/button-label-image">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=favorites-progress-commercial-20261112-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=favorites-gestures-20261112-v2">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=favorites-progress-commercial-20261112-v1"></script>
-<script defer src="/web-galerias/static/admin_tools.js?v=favorites-progress-commercial-20261112-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=favorites-gestures-20261112-v2"></script>
+<script defer src="/web-galerias/static/admin_tools.js?v=favorites-gestures-20261112-v2"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -145,6 +145,7 @@
    <span id="selection-count" class="selection-counter">0 de 10</span>
    <button id="selection-cancel" type="button" class="mobile-action" aria-label="Cancelar selección">Cancelar</button>
    <button id="selection-organize" type="button" class="mobile-action" aria-label="Guardar selección en carpeta personal">A carpeta</button>
+   <button id="selection-show-original" type="button" class="mobile-action hidden" aria-label="Mostrar un archivo seleccionado en su galería original">⌕ Mostrar en galería</button>
    <button id="selection-admin-delete" type="button" class="mobile-action mobile-action-danger hidden" aria-label="Eliminar fotos o videos seleccionados de la galería">Eliminar</button>
    <button id="selection-download" type="button" class="mobile-action mobile-action-primary" aria-label="Descargar archivos seleccionados">Descargar</button>
   </nav>
