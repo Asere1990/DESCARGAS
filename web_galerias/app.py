@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
 from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location,user_features,download_plus
+from . import broadcasts
 from .fast_intro import render_fast_intro
 
 log=logging.getLogger("web-galerias")
@@ -91,6 +92,19 @@ class Gallery(GalleryCore):
         if isinstance(op,str) and op.startswith("admin-"):
             return await admin.admin_op(self,uid,op,data)
         if not await self.entitled(uid):raise web.HTTPForbidden(text="Acceso no autorizado.")
+        if op=="chat-unread":
+            from .customer_bridge import ready as bridge_ready,post_signed
+            if is_admin(uid) or not bridge_ready():
+                return {"count":0}
+            try:
+                response=await post_signed("chat-unread",{"telegram_id":uid},timeout=4)
+                return {"count":max(0,min(9999,int(response.get("count") or 0)))}
+            except Exception as exc:
+                log.warning("Customer chat unread temporarily unavailable (%s)",
+                            type(exc).__name__)
+                return {"count":0}
+        if isinstance(op,str) and op.startswith("notices-"):
+            return await broadcasts.user_operation(self,uid,op,data)
         if isinstance(op,str) and op.startswith("personal-"):
             return await personal.operation(self,uid,op,data)
         if op in ("offers-link","chat-link"):
@@ -166,7 +180,7 @@ def mount(app,service):
         return web.Response(text=content,content_type="text/html",headers=headers)
     async def static(request):
         name=request.match_info["name"]
-        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css","admin_account.js","admin_account.css"):raise web.HTTPNotFound()
+        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css","admin_account.js","admin_account.css","broadcast_ui.js"):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/name,headers={
             "Cache-Control":"no-cache","X-Content-Type-Options":"nosniff"})
     async def api(request):
@@ -235,6 +249,11 @@ def mount(app,service):
         return await downloads.save_file(g,request)
     async def stripe(request):
         return await payments.webhook(g,request)
+    async def notices_upload(request):
+        result=await broadcasts.upload(g,request)
+        return web.json_response(result,headers={"Cache-Control":"no-store"})
+    async def notice_media(request):
+        return await broadcasts.media(g,request)
     app.router.add_get("/web-galerias",page)
     app.router.add_get("/web-galerias/",page)
     app.router.add_get("/web-galerias/admin",page)
@@ -249,6 +268,8 @@ def mount(app,service):
     app.router.add_get("/web-galerias/assets/{key}",asset)
     app.router.add_get("/web-galerias/promo.json",public_promo)
     app.router.add_post("/web-galerias/admin/intro-video",intro_video_upload)
+    app.router.add_post("/web-galerias/admin/notice-upload",notices_upload)
+    app.router.add_get("/web-galerias/notice-media/{notice}",notice_media)
     app.router.add_post("/web-galerias/api",api)
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
     app.router.add_get("/web-galerias/cover/{folder}",cover)
@@ -261,7 +282,7 @@ def mount(app,service):
         g.task=asyncio.create_task(g.setup())
     async def cleanup(_):
         g.closed=True
-        tasks=(g.sync_task,g.intro_poster_task,g.customer_bridge_task,g.moderation_task,g.task)
+        tasks=(g.sync_task,g.intro_poster_task,g.customer_bridge_task,g.moderation_task,g.broadcast_task,g.task)
         for task in tasks:
             if task:task.cancel()
         await asyncio.gather(*(t for t in tasks if t),return_exceptions=True)
