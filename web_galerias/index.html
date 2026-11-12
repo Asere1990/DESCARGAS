@@ -60,9 +60,9 @@
   <main class="container">
    <div class="library-branding" aria-label="Identidad de Web Galerías">
     <img id="brand-logo" alt="" hidden><span id="brand-icon" aria-hidden="true">▦</span>
-    <strong id="brand-name">Web Galerías</strong>
+    <strong id="brand-name" aria-label="Web Galerías">Web Galerías</strong>
    </div>
-   <div class="eyebrow">MI COLECCIÓN</div><h1>Mis galerías</h1>
+   <div class="eyebrow" id="collection-eyebrow" aria-label="MI COLECCIÓN">MI COLECCIÓN</div><h1 id="collection-heading" aria-label="Mis galerías">Mis galerías</h1>
    <div class="stats"><div><strong id="stat-folders">0</strong><small>Carpetas</small></div>
     <div><strong id="stat-photos">0</strong><small>Fotos</small></div>
     <div><strong id="stat-videos">0</strong><small>Videos</small></div></div>
@@ -394,6 +394,68 @@
           <option value="contain">Mostrar completo (puede dejar bandas)</option>
         </select>
       </label></div>
+     <div class="panel-card" id="editor-library-identity">
+      <h2>Textos e imágenes de «Mis galerías»</h2>
+      <p class="muted">Personaliza por separado el nombre que aparece al lado del logo, «MI COLECCIÓN» y «Mis galerías». Puedes escribir otro texto o sustituir cada uno por una imagen PNG transparente, JPG o WebP. No modifica los textos de la portada.</p>
+      <div class="library-editor-group">
+       <h3>Nombre al lado del logo</h3>
+       <label for="edit-library_brand_mode">Presentación
+        <select id="edit-library_brand_mode"><option value="text">Texto editable</option><option value="image">Imagen que sustituye al texto</option></select>
+       </label>
+       <label id="edit-library_brand-text-wrap" for="edit-library_brand">Texto
+        <input id="edit-library_brand" maxlength="160" value="Web Galerías">
+       </label>
+       <div id="edit-library_brand-image-wrap" class="editor-image-setting hidden">
+        <label for="upload-library-brand">Imagen del nombre
+         <input id="upload-library-brand" type="file" accept="image/png,image/jpeg,image/webp">
+        </label>
+        <label for="edit-library_brand_image_height">Altura de la imagen
+         <output id="edit-library_brand-image-size-value" for="edit-library_brand_image_height">60 px</output>
+        </label>
+        <input id="edit-library_brand_image_height" type="range" min="24" max="140" step="2" value="60">
+        <div class="editor-image-size-preview"><img id="edit-library_brand-image-preview" alt="Vista previa del nombre" hidden></div>
+       </div>
+      </div>
+      <div class="library-editor-group">
+       <h3>Rótulo «MI COLECCIÓN»</h3>
+       <label for="edit-library_eyebrow_mode">Presentación
+        <select id="edit-library_eyebrow_mode"><option value="text">Texto editable</option><option value="image">Imagen que sustituye al texto</option></select>
+       </label>
+       <label id="edit-library_eyebrow-text-wrap" for="edit-library_eyebrow">Texto
+        <input id="edit-library_eyebrow" maxlength="160" value="MI COLECCIÓN">
+       </label>
+       <div id="edit-library_eyebrow-image-wrap" class="editor-image-setting hidden">
+        <label for="upload-library-eyebrow">Imagen del rótulo
+         <input id="upload-library-eyebrow" type="file" accept="image/png,image/jpeg,image/webp">
+        </label>
+        <label for="edit-library_eyebrow_image_height">Altura de la imagen
+         <output id="edit-library_eyebrow-image-size-value" for="edit-library_eyebrow_image_height">44 px</output>
+        </label>
+        <input id="edit-library_eyebrow_image_height" type="range" min="16" max="100" step="2" value="44">
+        <div class="editor-image-size-preview"><img id="edit-library_eyebrow-image-preview" alt="Vista previa del rótulo" hidden></div>
+       </div>
+      </div>
+      <div class="library-editor-group">
+       <h3>Título «Mis galerías»</h3>
+       <label for="edit-library_heading_mode">Presentación
+        <select id="edit-library_heading_mode"><option value="text">Texto editable</option><option value="image">Imagen que sustituye al texto</option></select>
+       </label>
+       <label id="edit-library_heading-text-wrap" for="edit-library_heading">Texto
+        <input id="edit-library_heading" maxlength="160" value="Mis galerías">
+       </label>
+       <div id="edit-library_heading-image-wrap" class="editor-image-setting hidden">
+        <label for="upload-library-heading">Imagen del título
+         <input id="upload-library-heading" type="file" accept="image/png,image/jpeg,image/webp">
+        </label>
+        <label for="edit-library_heading_image_height">Altura de la imagen
+         <output id="edit-library_heading-image-size-value" for="edit-library_heading_image_height">100 px</output>
+        </label>
+        <input id="edit-library_heading_image_height" type="range" min="28" max="200" step="2" value="100">
+        <div class="editor-image-size-preview"><img id="edit-library_heading-image-preview" alt="Vista previa del título" hidden></div>
+       </div>
+      </div>
+      <small class="muted">Cada imagen puede ocupar hasta 5 MB. El texto se conserva para restaurarlo al seleccionar «Texto editable».</small>
+     </div>
     <div class="panel-card"><h2>Colores</h2>
       <div class="color-grid"><label>Botón<input type="color" id="edit-button_color"></label>
        <label>Destacado<input type="color" id="edit-accent"></label>
