@@ -38,6 +38,8 @@ CREATE INDEX IF NOT EXISTS wg_media_pending_ocr ON wg_media(id DESC)
  WHERE state IN ('preview','ready') AND thumb_key IS NOT NULL AND NOT ocr_checked;
 CREATE INDEX IF NOT EXISTS wg_media_grouped_text
  ON wg_media(folder,grouped) WHERE grouped IS NOT NULL;
+CREATE INDEX IF NOT EXISTS wg_media_text_backfill_pending ON wg_media(id)
+ WHERE state IN ('preview','ready') AND metadata_rev=0;
 CREATE TABLE IF NOT EXISTS wg_media_text_dirty(
  folder BIGINT NOT NULL,
  message BIGINT NOT NULL,
