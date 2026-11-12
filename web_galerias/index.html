@@ -15,6 +15,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="/web-galerias/static/app.js?v=fixed-support-account-20261112-v1"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=admin-user-mirror-20261112-v1"></script>
+<script defer src="/web-galerias/static/broadcast_ui.js?v=announcements-20261112-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -69,6 +70,10 @@
      <span>♥ <strong>Mis favoritos</strong></span>
      <span id="favorites-counter">Tus fotos y videos guardados ›</span>
    </button>
+   <button id="notices-open" class="favorites-entry notices-entry" type="button" aria-label="Abrir avisos de Web Galerías">
+     <span>📣 <strong>Mis avisos</strong></span>
+     <span id="notices-unread">Notificaciones ›</span>
+   </button>
    <div class="section-heading"><h2>Álbumes</h2><span id="folder-counter" class="muted"></span></div>
    <div id="folders" class="folders"></div>
    <div id="personal-section" class="personal-section hidden">
@@ -98,9 +103,20 @@
   </main>
   <nav class="mobile-actions" aria-label="Accesos de Web Galerías">
    <button id="go-intro" type="button" class="mobile-action hidden" aria-label="Volver a la portada"><span aria-hidden="true">⌂</span> Portada</button>
-   <button id="open-support-chat" type="button" class="mobile-action mobile-action-primary hidden" aria-label="Abrir chat con soporte"><span aria-hidden="true">💬</span> Chat con soporte</button>
+   <button id="open-support-chat" type="button" class="mobile-action mobile-action-primary hidden" aria-label="Abrir chat con soporte"><span aria-hidden="true">💬</span> Chat con soporte<span id="support-unread" class="support-unread hidden" aria-label="Mensajes de soporte sin leer">0</span></button>
    <button id="admin-open" type="button" class="mobile-action mobile-action-primary hidden" aria-label="Abrir administración"><span aria-hidden="true">⚙</span> Administración</button>
   </nav>
+ </section>
+ <section id="notices-screen" class="screen hidden" aria-label="Notificaciones Web Galerías">
+  <header class="topbar album-topbar"><strong>📣 Mis avisos</strong></header>
+  <main class="container notices-container">
+   <p class="muted">Mensajes de Web Galerías. Puedes abrir enlaces y ver fotos, videos o GIFs.</p>
+   <div id="notices-list" class="notices-list" aria-live="polite"></div>
+   <button id="notices-more" type="button" class="load-more hidden">Mostrar avisos anteriores</button>
+  </main>
+  <div class="mobile-actions">
+   <button id="notices-back" type="button" class="mobile-action mobile-action-primary" aria-label="Volver a mis galerías">‹ Volver a galerías</button>
+  </div>
  </section>
  <section id="album" class="screen hidden">
   <header class="topbar album-topbar">
@@ -171,7 +187,8 @@
    </p>
    <nav class="admin-tabs"><button data-tab="carpetas" class="active">Carpetas</button>
     <button data-tab="usuarios">Usuarios ▾</button><button data-tab="comercio">Estadísticas</button><button data-tab="diseno">Editor visual</button>
-    <button data-tab="estado">Respaldo</button></nav>
+    <button data-tab="estado">Respaldo</button>
+     <button data-tab="avisos">📣 Aviso general</button></nav>
    <div id="tab-carpetas" class="tab">
     <div class="admin-folder-first"><h2>Galerías</h2><div id="admin-folders"></div></div>
     <details class="panel-card admin-tools-fold"><summary>＋ Agregar carpeta ▾</summary>
@@ -268,6 +285,31 @@
       <button id="save-permissions" class="primary compact">Guardar permisos</button>
      </div>
    </div>
+    <div id="tab-avisos" class="tab hidden">
+     <section class="panel-card admin-notice-editor" aria-label="Enviar notificación general">
+      <h2>📣 Notificación para todos</h2>
+      <p id="admin-notices-audience" class="muted">Consultando usuarios registrados…</p>
+      <p class="muted">Se mostrará a todos los usuarios registrados en Web Galerías. También se intentará entregar por Telegram a quienes hayan iniciado conversación con el bot.</p>
+      <label for="admin-notice-message">Mensaje / enlaces clicables</label>
+      <textarea id="admin-notice-message" rows="5" maxlength="3000" placeholder="Escribe aquí. Para una frase clicable: [Ver oferta](https://ejemplo.com)"></textarea>
+      <label for="admin-notice-file">Adjuntar foto, video o GIF (opcional)
+       <input id="admin-notice-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,.mov">
+      </label>
+      <p class="muted">Hasta 25 MB para imágenes y GIFs, o 60 MB para video. Con multimedia el texto admite hasta 800 caracteres.</p>
+      <div class="admin-notice-preview" aria-label="Vista previa del aviso">
+       <h3>Vista previa</h3>
+       <div id="admin-notice-preview-media"></div>
+       <p id="admin-notice-preview-text">Escribe un mensaje para visualizarlo.</p>
+      </div>
+      <button id="admin-notice-send" type="button" class="primary compact">📣 Enviar a todos los usuarios</button>
+      <p id="admin-notice-status" class="muted" role="status" aria-live="polite"></p>
+     </section>
+     <section class="panel-card">
+      <h3>Envíos recientes</h3>
+      <button id="admin-notices-refresh" type="button" class="small-btn">Actualizar entregas</button>
+      <div id="admin-notices-history" class="admin-notices-history"></div>
+     </section>
+    </div>
    <div id="tab-comercio" class="tab hidden" aria-label="Estadísticas comerciales">
      <div class="panel-card commercial-dashboard">
        <h2>📊 Estadísticas comerciales</h2>
