@@ -284,7 +284,7 @@ async def reply_backfill_batch(g,folder,client,entity,guard,limit=70):
         if parent:
             touched.update((int(m.id),int(parent)))
     if touched:
-        await media_text.rebuild(g,folder,touched)
+        await media_text.enqueue(g,folder,touched)
     await guard()
     await db.execute("""
       UPDATE wg_folders SET reply_scan_cursor=$2 WHERE id=$1 AND active
