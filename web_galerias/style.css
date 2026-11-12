@@ -911,10 +911,11 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #library #favorites-counter{color:var(--muted);font-size:11px;text-align:right}
 #library .folder-continue{
  display:inline-flex;align-items:center;justify-content:center;
- margin-top:8px;padding:7px 11px;min-height:34px;
- border-radius:10px;background:rgba(32,151,233,.15);
+ margin-top:6px;padding:5px 9px;min-height:29px;
+ border-radius:8px;background:rgba(32,151,233,.13);
  border:1px solid rgba(80,161,225,.35);color:#a9ddff;
- font-size:11px;font-weight:750;max-width:100%;
+ font-size:10px;font-weight:750;max-width:100%;
+ white-space:nowrap;letter-spacing:0;
 }
 #album .favorites-notice{
  margin:9px 17px -1px;padding:11px 13px;border-radius:11px;
@@ -1010,3 +1011,27 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  #library #favorites-counter{font-size:10px}
  #tab-comercio .commercial-metric strong{font-size:20px}
 }
+
+
+/* Compact discovery shortcut, immediately below Mis carpetas. */
+#library .more-content-entry{
+ display:flex;align-items:center;justify-content:center;gap:8px;
+ width:100%;min-height:45px;margin:14px 0 1px;padding:10px 12px;
+ background:rgba(26,136,221,.13);color:#9ed4ff;
+ border:1px solid rgba(89,164,228,.38);border-radius:12px;
+ font-size:13px;font-weight:750;touch-action:manipulation;
+}
+#library .more-content-entry:active{background:rgba(26,136,221,.25)}
+/* Back and Favorite form a symmetric pair above the bottom viewer controls. */
+#viewer .viewer-bottom #close-viewer.viewer-return{
+ position:fixed;z-index:32;left:15px;
+ bottom:calc(98px + max(env(safe-area-inset-bottom,0px),
+   var(--tg-safe-area-inset-bottom,0px),
+   var(--tg-content-safe-area-inset-bottom,0px)));
+ flex:none;width:100px;min-width:0;min-height:48px;
+ padding:9px 13px;background:rgba(10,14,24,.8);
+ color:#fff;border:1px solid rgba(255,255,255,.45);
+ font-size:13px;border-radius:14px;
+ box-shadow:0 5px 20px rgba(0,0,0,.35);
+}
+#viewer .viewer-bottom #close-viewer.viewer-return:active{background:rgba(30,60,86,.92)}

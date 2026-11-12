@@ -50,7 +50,7 @@ def signed_payload(data: dict):
 
 
 async def post_signed(operation: str, data: dict, *, timeout=6):
-    if operation not in {"verify", "sync", "profile"}:
+    if operation not in {"verify", "sync", "profile", "offers-link"}:
         raise ValueError("Unknown bridge operation")
     body, headers = signed_payload(data)
     async with httpx.AsyncClient(

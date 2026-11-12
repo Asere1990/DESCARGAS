@@ -110,8 +110,8 @@ class PersonalFeaturesTests(unittest.IsolatedAsyncioTestCase):
         markup=(root/"index.html").read_text(encoding="utf-8")
         js=(root/"app.js").read_text(encoding="utf-8")
         style=(root/"style.css").read_text(encoding="utf-8")
-        for name in ("resume-feature","resume-open","open-favorites",
-                     "viewer-favorite","favorites-counter"):
+        for name in ("more-content","open-favorites",
+                     "viewer-favorite","favorites-counter","close-viewer"):
             self.assertIn('id="'+name+'"',markup)
         self.assertIn('api("user-collections")',js)
         self.assertIn('api("progress-save",{media})',js)
@@ -121,7 +121,11 @@ class PersonalFeaturesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('if(id==="library"&&S.me?.allowed)',js)
         self.assertIn('S.me?.admin?100:10',js)
         self.assertIn('.favorite-mark',style)
-        self.assertIn('.resume-feature',style)
+        self.assertNotIn('id="resume-feature"',markup)
+        self.assertIn('className="folder-continue"',js)
+        self.assertIn('function backToViewedMedia()',js)
+        self.assertIn('api("offers-link")',js)
+        self.assertIn('#library .more-content-entry{',style)
 
 
 if __name__=="__main__":
