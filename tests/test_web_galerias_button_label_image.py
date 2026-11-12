@@ -119,7 +119,7 @@ class TitleAndButtonImageTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('if(S.me.allowed){show("library");return;}',js)
         self.assertIn('button.replaceChildren(image)',js)
         self.assertIn('button.setAttribute("aria-label",text)',js)
-        self.assertIn('image.src="/web-galerias/assets/button-label-image',js)
+        self.assertIn('image.src="/web-galerias/assets/button-label-fast',js)
         self.assertIn('.enter-label-image',css)
         self.assertIn('height:var(--entry-label-image-height,30px)',css)
         self.assertIn('height:56px;min-height:56px',css)
