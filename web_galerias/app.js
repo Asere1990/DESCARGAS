@@ -71,13 +71,15 @@ function updateQuotaStatus(){
  $("quota-count").textContent=unlimited?"Ilimitadas":pretty(remaining)+" de "+pretty(limit);
  $("quota-fill").style.width=unlimited?"100%":Math.max(0,Math.min(100,remaining/limit*100))+"%";
  const linked=S.me.quota_tier==="linked";
- $("quota-tier").textContent=unlimited?
+ const tierLabel=$("quota-tier");
+ if(!tierLabel)return; // A running session may still hold the previous HTML.
+ tierLabel.textContent=unlimited?
    (S.me.quota_plus_active?"♾ Descargas ilimitadas · extra mensual activo":
      "♾ Descargas ilimitadas · autorización existente"):
    linked?"🔗 Cuenta vinculada a DESCARGAS · 200 archivos diarios":
      "Plan básico · 50 archivos diarios";
- $("quota-connect").classList.toggle("hidden",unlimited||linked);
- $("quota-plus").classList.toggle("hidden",unlimited||!S.me.quota_plus_available);
+ $("quota-connect")?.classList.toggle("hidden",unlimited||linked);
+ $("quota-plus")?.classList.toggle("hidden",unlimited||!S.me.quota_plus_available);
 }
 function watermarkFromEditor(){
  return {
