@@ -46,7 +46,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         cls.doc.feed(cls.html)
 
     def test_no_duplicate_controls(self):
-        for control in ("open-support-chat","admin-open","admin-back","admin-refresh",
+        for control in ("go-intro","open-support-chat","admin-open","admin-back","admin-refresh",
                         "back-library","select-mode","selection-cancel",
                         "selection-download","selection-original","close-viewer","viewer-download",
                         "viewer-prev","viewer-next"):
@@ -54,7 +54,7 @@ class GalleryMobileNavigation(unittest.TestCase):
 
     def test_bottom_buttons_instead_of_unreachable_header_icons(self):
         self.assertEqual(len(self.doc.nav_classes),4)
-        self.assertEqual(set(self.doc.nav_classes[0]),{"open-support-chat","admin-open"})
+        self.assertEqual(set(self.doc.nav_classes[0]),{"go-intro","open-support-chat","admin-open"})
         self.assertEqual(set(self.doc.nav_classes[1]),{"back-library","select-mode"})
         self.assertEqual(set(self.doc.nav_classes[2]),{"selection-cancel","selection-organize","selection-original","selection-admin-delete","selection-download"})
         self.assertIn('id="selection-admin-delete" type="button" class="mobile-action mobile-action-danger hidden"',self.html)
@@ -62,7 +62,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertEqual(set(self.doc.nav_classes[3]),{"admin-back","admin-refresh","browser-logout"})
         headers=re.findall(r"<header\b[^>]*>.*?</header>",self.html,re.DOTALL)
         for header in headers:
-            for identifier in ("open-support-chat","admin-open","admin-back","admin-refresh",
+            for identifier in ("go-intro","open-support-chat","admin-open","admin-back","admin-refresh",
                                "back-library","select-mode","selection-cancel",
                                "selection-download","close-viewer","viewer-download",
                                "viewer-prev","viewer-next"):
@@ -206,7 +206,8 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('rel="apple-touch-icon"',self.html)
 
     def test_button_events_preserved(self):
-        for code in ('$("open-support-chat").onclick=()=>openSupportChat()',
+        for code in ('$("go-intro").onclick=()=>show("intro")',
+                     '$("open-support-chat").onclick=()=>openSupportChat()',
                      '$("admin-open").onclick=openAdminScreen',
                      '$("admin-back").onclick=()=>show("library")',
                      '$("admin-refresh").onclick=loadAdmin'):
