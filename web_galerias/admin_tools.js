@@ -5,7 +5,7 @@
  const state={folder:null,media:[],next:null,selected:new Set(),usersNext:null,usersLoaded:false,busy:false,
    userPage:1,userPages:[null],userQuery:"",usersBusy:false,userItems:[],selectedUid:null,
    folders:[],folderOpened:null,folderNext:null,folderItems:[],mediaBusy:false,
-   userScope:"",userLoadGeneration:0};
+   userScope:"",userLoadGeneration:0,freeAfter:null,freeBusy:false};
  const fmt=n=>Number(n||0).toLocaleString("es-ES");
 
  function adminRefreshed(admin){
@@ -145,6 +145,7 @@
   $("admin-user-section").value="";
   $("admin-users-details").classList.add("hidden");
   $("admin-user-permissions").classList.add("hidden");
+  $("admin-free-access-manager").classList.add("hidden");
   $("admin-user-profile").classList.add("hidden");
   $("admin-users").replaceChildren();
  }
@@ -155,7 +156,9 @@
   state.usersLoaded=false;
   $("admin-users-details").classList.toggle("hidden",!section||section==="permissions");
   $("admin-user-permissions").classList.toggle("hidden",section!=="permissions");
+  $("admin-free-access-manager").classList.toggle("hidden",section!=="free");
   $("admin-user-profile").classList.add("hidden");
+  if(section==="free")loadFreeList(false);
   if(!section||section==="permissions")return;
   const titles={paid:"Membresías activas",expired:"Membresías vencidas",
    free:"⭐ Accesos gratuitos",profiles:"Fichas de usuarios",
@@ -163,7 +166,7 @@
    all:"Todos los usuarios de la web"};
   const explain={paid:"Miembros que pagaron y mantienen una suscripción Web vigente.",
    expired:"Miembros que pagaron anteriormente, pero su membresía ya no está vigente.",
-   free:"Personas autorizadas gratuitamente mediante acceso.txt. Descargas diarias ilimitadas.",
+   free:"Gestiona accesos gratuitos mediante Telegram ID, incluso antes de que la persona abra la web. Descargas diarias ilimitadas.",
    profiles:"Busca y toca un nombre para consultar datos, carpetas y permisos.",
    recent:"Última actividad registrada por usuario. No es un historial de todas las visitas.",
    visitors:"Personas que abrieron la web sin haber comprado una membresía.",
@@ -173,6 +176,54 @@
   $("admin-users-since-wrap").classList.toggle("hidden",section!=="recent");
   $("admin-users-query").value="";
   loadUserPage(true);
+ }
+ function freeUid(){
+  const value=$("admin-free-uid").value.trim();
+  if(!/^[1-9][0-9]{4,18}$/.test(value))throw Error("Introduce un Telegram ID válido.");
+  return Number(value);
+ }
+ async function freeCheck(){
+  try{
+   const result=await api("admin-free-access-status",{telegram_id:freeUid()});
+   $("admin-free-status").textContent=result.admin?
+    "Administrador: su acceso no puede retirarse aquí.":
+    result.free_access?"★ Acceso gratuito activo.":"Sin acceso gratuito.";
+  }catch(e){$("admin-free-status").textContent=e.message;}
+ }
+ async function freeUpdate(enabled){
+  let target;
+  try{target=freeUid();}catch(e){notice(e.message);return;}
+  const action=enabled?"CONCEDER":"QUITAR";
+  if(!confirm(action+" acceso gratuito a "+target+"? La suscripción Stripe no se modificará."))return;
+  if(state.freeBusy)return;
+  state.freeBusy=true;
+  try{
+   await api("admin-free-access-set",{telegram_id:target,enabled,
+     confirm:"CAMBIAR_ACCESO_GRATIS"});
+   $("admin-free-status").textContent=enabled?
+    "★ Acceso gratuito activado para "+target+".":"Acceso gratuito retirado para "+target+".";
+   state.usersLoaded=false;
+   await loadFreeList(false);
+   if(state.userScope==="free")loadUserPage(true);
+  }catch(e){notice(e.message);}
+  finally{state.freeBusy=false;}
+ }
+ async function loadFreeList(more=false){
+  try{
+   const after=more?state.freeAfter:null;
+   const result=await api("admin-free-access-list",{after:after||0});
+   const root=$("admin-free-list");
+   if(!more)root.replaceChildren();
+   for(const item of result.users||[]){
+    const btn=document.createElement("button");btn.type="button";
+    btn.className="admin-user-list-row";btn.setAttribute("role","listitem");
+    btn.textContent=(item.free_access?"★ ":"○ ")+(item.name||"Usuario")+" · "+item.telegram_id;
+    btn.onclick=()=>{$("admin-free-uid").value=item.telegram_id;freeCheck();};
+    root.append(btn);
+   }
+   state.freeAfter=result.next||null;
+   $("admin-free-more").classList.toggle("hidden",!state.freeAfter);
+  }catch(e){notice(e.message);}
  }
  function renderUserRows(){
   const root=$("admin-users");root.replaceChildren();
@@ -539,6 +590,10 @@
   $("admin-media-kind").onchange=()=>{if(state.folder)loadAdminMedia(false);};
   let userTimer;
   $("admin-user-section").onchange=changeUserSection;
+  $("admin-free-check").onclick=freeCheck;
+  $("admin-free-grant").onclick=()=>freeUpdate(true);
+  $("admin-free-revoke").onclick=()=>freeUpdate(false);
+  $("admin-free-more").onclick=()=>loadFreeList(true);
   $("admin-users-since").onchange=()=>loadUserPage(true);
   $("admin-users-query").oninput=()=>{
    clearTimeout(userTimer);

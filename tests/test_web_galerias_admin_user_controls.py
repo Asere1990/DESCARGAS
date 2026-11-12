@@ -25,9 +25,9 @@ class GalleryAdminControls(unittest.IsolatedAsyncioTestCase):
     async def test_paginated_paid_online_roster_does_not_fetch_full_profiles(self):
         db=N(fetch=AsyncMock(return_value=[
             {"uid":50,"name":"Luisa","last_seen":1800.0,
-             "paid":True,"online":True,"blocked":False},
+             "paid":True,"online":True,"blocked":False,"is_free":False},
             {"uid":49,"name":"Rosa","last_seen":1700.0,
-             "paid":False,"online":False,"blocked":True}]))
+             "paid":False,"online":False,"blocked":True,"is_free":False}]))
         g=N(db=lambda:db)
         with patch.object(moderation,"is_admin",return_value=True):
             result=await moderation.operation(g,1,"admin-users-page",
@@ -117,8 +117,8 @@ class GalleryAdminControls(unittest.IsolatedAsyncioTestCase):
 
     async def test_removed_tester_cannot_bypass_block_with_free_access(self):
         db=N(fetchval=AsyncMock(return_value=True))
-        fake=N(db=lambda:db)
-        with patch.object(core,"is_admin",return_value=False),patch.object(core,"pilot_allowed",return_value=True):
+        fake=N(db=lambda:db,free_granted=AsyncMock(return_value=True))
+        with patch.object(core,"is_admin",return_value=False):
             self.assertFalse(await core.GalleryCore.entitled(fake,55))
         db.fetchval.assert_awaited()
 

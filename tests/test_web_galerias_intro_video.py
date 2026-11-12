@@ -58,8 +58,9 @@ class IntroVideoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(written[key],fake_mp4)
         self.assertEqual(written[poster_key],fake_poster)
         self.assertEqual(storage.object_size.await_count,2)
-        sql,payload=db.execute.await_args.args
-        self.assertIn("VALUES('intro_promo'",sql)
+        sql,config_key,payload=db.execute.await_args.args
+        self.assertIn("VALUES($1,$2::jsonb)",sql)
+        self.assertEqual(config_key,"intro_promo")
         metadata=json.loads(payload)
         self.assertEqual(metadata["mime"],"video/mp4")
         self.assertEqual(metadata["key"],key)

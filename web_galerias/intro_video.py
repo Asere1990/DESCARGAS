@@ -17,6 +17,8 @@ from aiohttp import web
 
 MAX_INTRO_UPLOAD=80*1024*1024
 MAX_INTRO_OUTPUT=80*1024*1024
+# Telegram cloud Bot API URL fetch accepts smaller public media files.
+MAX_WEB_PROMO_OUTPUT=19*1024*1024
 ALLOWED_VIDEO={"video/mp4":".mp4","video/quicktime":".mov","video/webm":".webm"}
 UPLOAD_LOCK=asyncio.Lock()
 # Preserve enough memory for the gallery API, Telegram sync and R2 while
@@ -236,11 +238,31 @@ async def poster_asset(g,request):
                  "X-Content-Type-Options":"nosniff"})
 
 
+async def public_promo_status(g,request):
+    """One stable offer: existing gallery cover until a separately uploaded
+    Web-promo MP4 is fully verified. Never return both media kinds.
+    No customer identity or private R2 keys are exposed.
+    """
+    raw=await g.db().fetchval(
+        "SELECT value FROM wg_config WHERE key='web_promo'")
+    meta=json.loads(raw) if isinstance(raw,str) else (raw or {})
+    valid=(isinstance(meta,dict) and meta.get("mime")=="video/mp4"
+           and isinstance(meta.get("key"),str)
+           and meta["key"].startswith("web-galerias/web-promo/")
+           and isinstance(meta.get("size"),int)
+           and 0<meta["size"]<=MAX_WEB_PROMO_OUTPUT)
+    return web.json_response({"kind":"video" if valid else "photo"},
+        headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
+
+
 async def upload(g,request):
     from .permissions import is_admin
     uid=await g.auth(request)
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     if not g.storage.ready:raise web.HTTPServiceUnavailable(text="Cloudflare R2 no está disponible.")
+    kind=request.headers.get("X-Intro-Kind","intro").strip()
+    if kind not in ("intro","web-promo"):
+        raise web.HTTPBadRequest(text="Tipo de promoción inválido.")
     mime=request.headers.get("X-Intro-Mime","").lower().strip()
     if mime not in ALLOWED_VIDEO:
         raise web.HTTPBadRequest(text="El video debe ser MP4, MOV o WebM.")
@@ -274,9 +296,13 @@ async def upload(g,request):
             if not good:raise web.HTTPBadRequest(text="Formato del video incorrecto.")
             require_video_memory()
             await asyncio.to_thread(transcode_intro,source,output)
+            if kind=="web-promo" and output.stat().st_size>MAX_WEB_PROMO_OUTPUT:
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=MAX_WEB_PROMO_OUTPUT,actual_size=output.stat().st_size)
             poster=folder/"first-frame.jpg"
             await asyncio.to_thread(extract_poster,output,poster)
-            stem="web-galerias/presentation/"+secrets.token_hex(16)
+            stem=("web-galerias/web-promo/" if kind=="web-promo"
+                  else "web-galerias/presentation/")+secrets.token_hex(16)
             key=stem+".mp4"
             poster_key=stem+".jpg"
             await g.storage.upload(output,key,"video/mp4")
@@ -296,15 +322,18 @@ async def upload(g,request):
             metadata={"key":key,"mime":"video/mp4","size":size,
                       "poster_key":poster_key,"poster_size":poster_size,
                       "updated":time.time()}
+            config_key="web_promo" if kind=="web-promo" else "intro_promo"
             await g.db().execute("""INSERT INTO wg_config(key,value)
-              VALUES('intro_promo',$1::jsonb)
-              ON CONFLICT(key) DO UPDATE SET value=excluded.value""",json.dumps(metadata))
-            await g.log(uid,"admin-intro-video")
-    return {"ok":True,"complete":True,"video":"mp4",
+              VALUES($1,$2::jsonb)
+              ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+              config_key,json.dumps(metadata))
+            await g.log(uid,"admin-web-promo-video" if kind=="web-promo"
+                        else "admin-intro-video")
+    return {"ok":True,"complete":True,"video":"mp4","kind":kind,
             "size":size,"message":"Video convertido, guardado y verificado."}
 
 
-async def stream(g,request,metadata):
+async def stream(g,request,metadata,scope="presentation"):
     """Serve the R2 MP4 as a same-origin resource with byte-range support.
 
     The browser remains on Web Galerías, and iPhone can request seeking ranges.
@@ -314,7 +343,9 @@ async def stream(g,request,metadata):
     if not isinstance(metadata,dict) or metadata.get("mime")!="video/mp4":
         raise web.HTTPNotFound(text="Video publicitario no encontrado.")
     key=g.storage.safe_key(metadata.get("key",""))
-    if not key.startswith("web-galerias/presentation/"):
+    if scope not in ("presentation","web-promo") or not key.startswith(
+        "web-galerias/"+scope+"/"
+    ):
         raise web.HTTPNotFound()
     full_size=metadata.get("size")
     if type(full_size) is not int or full_size<=0:

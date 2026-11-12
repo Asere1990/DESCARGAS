@@ -113,7 +113,7 @@ class TitleAndButtonImageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(html.count('id="upload-header"'),1)
         self.assertEqual(html.count('id="upload-button-label-image"'),1)
         self.assertIn('class="primary">ENTRAR A LA GALERÍA</button>',html)
-        self.assertIn('["logo","header","button-label-image","intro-photo","intro"]',js)
+        self.assertIn('["logo","header","button-label-image","intro-photo","intro","web-promo"]',js)
         self.assertIn('renderEntryButtonLabel("COMPRAR MEMBRESÍA",true)',js)
         self.assertIn('$("enter").textContent="COMPRAR MEMBRESÍA"',js)
         self.assertIn('if(S.me.allowed){show("library");return;}',js)

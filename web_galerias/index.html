@@ -10,11 +10,13 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/web-galerias/icon/180.png">
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/intro-poster">
+<link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/header">
+<link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/button-label-image">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=hero-atomic-first-paint-20261111-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=public-free-promo-20261111-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=payment-gate-7536216348-v1-hero-atomic-first-paint-20261111"></script>
-<script defer src="/web-galerias/static/admin_tools.js?v=free-user-menu-gif-20261111-v1"></script>
+<script defer src="/web-galerias/static/app.js?v=public-free-promo-20261111-v1"></script>
+<script defer src="/web-galerias/static/admin_tools.js?v=public-free-promo-20261111-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -207,6 +209,23 @@
         </select>
        </label>
      </div>
+     <section id="admin-free-access-manager" class="panel-card hidden" aria-label="Gestionar accesos gratuitos">
+       <h2>⭐ Usuario · acceso gratuito</h2>
+       <p class="muted">Autoriza o revoca por Telegram ID. No cambia Stripe ni los archivos de Telegram. Los autorizados pueden descargar sin límite diario y sin marca de agua.</p>
+       <label for="admin-free-uid">Telegram ID
+         <input id="admin-free-uid" inputmode="numeric" pattern="[1-9][0-9]{4,18}"
+                maxlength="19" placeholder="Telegram ID">
+       </label>
+       <div class="row-actions">
+         <button id="admin-free-check" type="button" class="small-btn">Consultar</button>
+         <button id="admin-free-grant" type="button" class="small-btn strong">Conceder acceso gratis</button>
+         <button id="admin-free-revoke" type="button" class="small-btn">Quitar acceso gratis</button>
+       </div>
+       <p id="admin-free-status" class="muted" role="status"></p>
+       <h3>Accesos gratuitos guardados</h3>
+       <div id="admin-free-list" class="admin-free-list" role="list"></div>
+       <button id="admin-free-more" type="button" class="small-btn hidden">Ver más</button>
+     </section>
      <section id="admin-users-details" class="panel-card admin-users-details hidden" aria-label="Listado de usuarios">
       <h2 id="admin-users-heading">Usuarios de Web Galerías</h2>
       <p id="admin-users-explainer" class="muted">Lista paginada; selecciona un nombre para abrir la ficha.</p>
@@ -342,7 +361,13 @@
       <label>Foto o GIF promocional
         <input id="upload-intro-photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
       </label>
-      <label>Video publicitario<input id="upload-intro" type="file" accept="video/mp4,video/quicktime,video/webm"></label>
+      <label>Video publicitario de la portada principal
+        <input id="upload-intro" type="file" accept="video/mp4,video/quicktime,video/webm">
+      </label>
+      <label>🎬 Video promo Web · oferta de Telegram
+        <input id="upload-web-promo" type="file" accept="video/mp4,video/quicktime,video/webm">
+        <small>Opcional. Hasta que lo subas, «Nuevas ofertas» muestra la foto de portada de Web Galerías. Cuando el video esté guardado y verificado, lo sustituye directamente sin mostrar primero la foto. No altera el fondo principal.</small>
+      </label>
       <p class="muted">Logo hasta 3 MB · título hasta 5 MB · texto gráfico del botón hasta 3 MB · foto o GIF hasta 5 MB · video hasta 80 MB.</p>
       <p class="muted">Escoge video, foto o GIF animado. El video conserva su primer fotograma mientras comienza la reproducción; el GIF se anima sin reproductor.</p>
       <p class="muted">El video MOV, MP4 o WebM se convertirá automáticamente a MP4 compatible. Para publicarlo, pulsa Confirmar cambios.</p>
