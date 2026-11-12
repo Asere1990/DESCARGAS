@@ -78,22 +78,29 @@ async def ocr_once(g):
        UPDATE wg_media m SET ocr_next_attempt=$1+180,
               ocr_attempts=ocr_attempts+1
        FROM due WHERE m.id=due.id
-       RETURNING m.id,m.folder,m.message,m.thumb_key,m.ocr_attempts
+       RETURNING m.id,m.folder,m.message,m.thumb_key,
+                 m.file_key,m.kind,m.size,m.state,m.ocr_attempts
     """,now)
     if not row:
         return False
     try:
         def thumbnail():
+            # Prefer high-resolution original screenshots (names are often
+            # too small in 640 px thumbnails). Never read a full video/GIF.
+            original=(row["kind"]=="photo" and row["file_key"] and
+                      row["state"]=="ready" and 0<int(row["size"] or 0)<=8_000_000)
+            key=row["file_key"] if original else row["thumb_key"]
+            maximum=8_000_000 if original else 3_000_000
             client=g.storage._client()
             obj=client.get_object(Bucket=g.storage.bucket,
-                                  Key=g.storage.safe_key(row["thumb_key"]))
+                                  Key=g.storage.safe_key(key))
             stream=obj["Body"]
             try:
-                payload=stream.read(3000001)
+                payload=stream.read(maximum+1)
             finally:
                 stream.close()
-            if len(payload)>3000000:
-                raise ValueError("Thumbnail too large for OCR")
+            if len(payload)>maximum:
+                raise ValueError("Source too large for bounded OCR")
             from PIL import Image
             with Image.open(BytesIO(payload)) as image:
                 if image.width*image.height>18000000:
