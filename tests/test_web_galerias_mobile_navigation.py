@@ -58,7 +58,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertEqual(set(self.doc.nav_classes[1]),{"back-library","select-mode"})
         self.assertEqual(set(self.doc.nav_classes[2]),{"selection-cancel","selection-organize","selection-original","selection-admin-delete","selection-download"})
         self.assertIn('id="selection-admin-delete" type="button" class="mobile-action mobile-action-danger hidden"',self.html)
-        self.assertIn('classList.toggle("hidden",!S.me?.admin)',self.js)
+        self.assertIn('classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls))',self.js)
         self.assertEqual(set(self.doc.nav_classes[3]),{"admin-back","admin-refresh","browser-logout"})
         headers=re.findall(r"<header\b[^>]*>.*?</header>",self.html,re.DOTALL)
         for header in headers:
