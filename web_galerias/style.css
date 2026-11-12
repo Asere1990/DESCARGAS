@@ -1064,17 +1064,4 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  background:rgba(18,135,95,.22);color:#b2fce7;border-color:rgba(72,194,145,.5);
 }
 #library .quota-upgrade-button:active{filter:brightness(1.15)}
-/* Users can drag the Support button; it is not part of any gallery card.
-   Clamp the actual position in JS to the Telegram header/safe-area bounds. */
-.support-bubble{
- position:fixed;z-index:36;top:59%;right:18px;width:56px;height:56px;
- display:flex;align-items:center;justify-content:center;
- border-radius:999px;border:1px solid rgba(190,232,255,.72);
- background:linear-gradient(145deg,#2fbcff,#1367b0);color:#fff;
- font-size:25px;box-shadow:0 7px 23px #0009,0 0 0 4px #147cd42a;
- cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
- -webkit-tap-highlight-color:transparent;
-}
-.support-bubble:active{cursor:grabbing}
-.support-bubble:focus-visible{outline:3px solid #d5f1ff;outline-offset:3px}
-@media(prefers-reduced-motion:reduce){.support-bubble{transition:none}}
+
