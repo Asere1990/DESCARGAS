@@ -4,46 +4,53 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const root=__dirname+"/../web_galerias/";
 const html=fs.readFileSync(root+"index.html","utf8");
-const app=fs.readFileSync(root+"app.py","utf8");
-const core=fs.readFileSync(root+"core.py","utf8");
-const css=fs.readFileSync(root+"style.css","utf8");
-const mirrorCss=fs.readFileSync(root+"admin_mirror.css","utf8");
+const server=fs.readFileSync(root+"app.py","utf8");
+const js=fs.readFileSync(root+"app.js","utf8");
 const admin=fs.readFileSync(root+"admin_tools.js","utf8");
-const mirror=fs.readFileSync(root+"admin_mirror.js","utf8");
-
-test("user profile opens all collections in independent full-screen view",()=>{
+const account=fs.readFileSync(root+"admin_account.js","utf8");
+const accountCss=fs.readFileSync(root+"admin_account.css","utf8");
+const hostCss=fs.readFileSync(root+"admin_mirror.css","utf8");
+const core=fs.readFileSync(root+"core.py","utf8");
+test("clicking a customer opens the same original gallery document, not an imitation",()=>{
  assert.ok(html.includes('id="admin-mirror"'));
- assert.ok(html.includes('id="admin-mirror-body"'));
- for(const x of ["folders","favorites","downloads"])
-  assert.ok(html.includes('id="admin-mirror-tab-'+x+'"'));
- assert.ok(!html.includes('src="/web-galerias/static/admin_mirror.js'));
- assert.ok(admin.includes('asset("script","admin_mirror.js")'));
- assert.ok(admin.includes('asset("link","admin_mirror.css")'));
- assert.ok(!css.includes("Independent admin-only user view"));
- assert.ok(app.includes('"admin_mirror.js"'));
- assert.ok(app.includes('"admin_mirror.css"'));
- for(const x of ['mirror("folders")','mirror("downloads")','mirror("favorites")'])
-  assert.ok(admin.includes(x));
- assert.ok(!admin.includes("folders.onclick=()=>loadUserFolders(uid)"));
- assert.ok(admin.includes("actions.append(folders,downloads,favorites,perms,toggle)"));
- assert.ok(mirrorCss.includes("#admin-mirror .admin-mirror-body{"));
- assert.ok(mirrorCss.includes("overflow:auto;overscroll-behavior:contain;"));
+ assert.ok(admin.includes('void openUserAccount(u.telegram_id)'));
+ assert.ok(admin.includes('new URL("/web-galerias/admin/view",location.origin)'));
+ assert.ok(admin.includes("frame.src=target.href"));
+ assert.ok(admin.includes("tgWebAppData:tg.initData"));
+ assert.ok(!admin.includes('asset("script","admin_mirror.js")'));
+ assert.ok(server.includes('(ROOT/"index.html").read_text(encoding="utf-8")'));
+ assert.ok(server.includes('"/web-galerias/admin/view"'));
+ assert.ok(server.includes('"admin_account.js"'));
+ assert.ok(js.includes("ADMIN_ACCOUNT_VIEW"));
+ assert.ok(js.includes("admin-view-bootstrap"));
+ assert.ok(js.includes("admin-view-favorites"));
+ assert.ok(js.includes("admin-view-items"));
+ assert.ok(js.includes("admin-view-locate"));
+ assert.ok(hostCss.includes("admin-real-account-frame"));
 });
-test("admin viewer uses user-like media tiles but never touches the gallery user session",()=>{
- new (require("node:vm").Script)(mirror);
- assert.ok(mirror.includes('api("admin-mirror-folder-items"')||
-           mirror.includes('"admin-mirror-folder-items"'));
- assert.ok(mirror.includes('"admin-mirror-favorites"'));
- assert.ok(mirror.includes('api("admin-mirror-download-dates"'));
- assert.ok(mirror.includes('api("admin-mirror-download-items"'));
- assert.ok(mirror.includes('state.items.forEach((item,i)=>grid.append(tile(item,i)))'));
- assert.ok(mirror.includes('v.controls=true'));
- assert.ok(!mirror.includes("quota-plus-checkout"));
- assert.ok(!mirror.includes("personal-move"));
- assert.ok(!mirror.includes("tg.initData="));
-});
-test("download history is based on the existing counted ticket ledger",()=>{
+test("downloads appear as an admin section in the original user gallery",()=>{
  assert.ok(core.includes("wg_download_tickets_user_day"));
- assert.ok(mirror.includes("No confirma que iPhone/Telegram"));
- assert.ok(mirror.includes("archivos contabilizados"));
+ assert.ok(account.includes('$("open-favorites").after(historyButton)'));
+ assert.ok(account.includes('show("admin-account-download-days")'));
+ assert.ok(account.includes("openFolder({"));
+ assert.ok(js.includes('if(fromDownloads&&window.GalleryAccountAdmin?.showDownloadDays)'));
+ assert.ok(js.includes('api("admin-mirror-download-items"'));
+ assert.ok(account.includes("No confirma si Telegram o el iPhone"));
+ assert.ok(accountCss.includes(".admin-account-date"));
+});
+test("signed administrator keeps their own identity and customer quota is not debited",()=>{
+ assert.ok(js.includes('const raw=ADMIN_ACCOUNT_VIEW?'));
+ assert.ok(js.includes("ADMIN_ACCOUNT_INITDATA"));
+ assert.ok(js.includes("op:reads[op],telegram_id:ADMIN_ACCOUNT_UID"));
+ assert.ok(js.includes('else if(op==="reserve")'));
+ assert.ok(js.includes('if(ADMIN_ACCOUNT_VIEW||!S.me?.allowed||!m?.id)return;'));
+ assert.ok(!account.includes("user.session"));
+});
+test("the chat button replaces Portada and no floating bubble exists",()=>{
+ assert.ok(html.includes('id="open-support-chat"'));
+ assert.ok(html.includes("Chat con soporte</button>"));
+ assert.ok(!html.includes('id="go-intro"'));
+ assert.ok(!html.includes('id="support-bubble"'));
+ assert.ok(js.includes('$("open-support-chat").onclick=()=>openSupportChat()'));
+ assert.ok(!js.includes("mountSupportBubble"));
 });

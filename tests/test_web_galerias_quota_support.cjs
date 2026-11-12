@@ -29,7 +29,7 @@ test("50 and 200 daily limits show accurately without changing the 10-file batch
  const $=fakeNodes();
  const S={me:{quota_unlimited:false,quota_tier:"basic",
    quota_daily_limit:50,remaining:37,quota_plus_available:true}};
- const ctx={$,S,pretty:n=>String(n),Number,Math};
+ const ctx={$,S,pretty:n=>String(n),Number,Math,ADMIN_ACCOUNT_VIEW:false};
  vm.createContext(ctx);
  vm.runInContext(part("function updateQuotaStatus(){","function watermarkFromEditor(){"),ctx);
  ctx.updateQuotaStatus();
@@ -79,12 +79,12 @@ test("200/day upgrade goes to the original DESCARGAS Mini App with same-bot sign
  assert.equal(links.length,0);
  assert.equal(bots[0],"https://t.me/Descargas_Robot");
 });
-test("Support bubble opens the signed Mi Cuenta chat in the same WebView",async()=>{
+test("fixed blue support button opens verified Customer chat in the same WebView",async()=>{
  const $=fakeNodes(),links=[],native=[],requests=[];
  const S={me:{allowed:true}};
  const signed="user=%7B%22id%22%3A7%7D&auth_date=1794500000&hash=verified";
  const ctx={
-  $,S,BROWSER_ADMIN:false,URL,URLSearchParams,
+  $,S,BROWSER_ADMIN:false,ADMIN_ACCOUNT_VIEW:false,URL,URLSearchParams,
   api:async(op)=>{requests.push(op);return{
    url:"https://t.me/CustomerSupportRobot?startapp=chat",
    web_url:"https://customer-service-uimy.onrender.com/cubanas"}},
@@ -95,7 +95,7 @@ test("Support bubble opens the signed Mi Cuenta chat in the same WebView",async(
   notice:()=>{throw Error("Unexpected error")}
  };
  vm.createContext(ctx);
- vm.runInContext(part("// Swiftgram can ignore","function mountSupportBubble(){"),ctx);
+ vm.runInContext(part("// Swiftgram can ignore",'if($("quota-connect"))'),ctx);
  await ctx.openSupportChat();
  assert.deepEqual(requests,["chat-link"]);
  assert.equal(native.length,0);
@@ -106,52 +106,25 @@ test("Support bubble opens the signed Mi Cuenta chat in the same WebView",async(
  assert.equal(opened.searchParams.get("tgWebAppStartParam"),"chat");
  assert.equal(new URLSearchParams(opened.hash.slice(1)).get("tgWebAppData"),signed);
  assert.equal(opened.searchParams.get("tgWebAppData"),null);
- assert.equal($("support-bubble").disabled,false);
- ctx.updateSupportVisibility("album");
- assert.equal($("support-bubble").classList.contains("hidden"),false);
- ctx.updateSupportVisibility("admin");
- assert.equal($("support-bubble").classList.contains("hidden"),true);
+ assert.equal($("open-support-chat").disabled,false);
+ ctx.updateSupportVisibility("library");
+ assert.equal($("open-support-chat").classList.contains("hidden"),false);
 });
-test("draggable customer chat does not activate on a drag",()=>{
- const events={};const saved={};const hits=[];
- const button={
-  offsetWidth:56,offsetHeight:56,style:{},
-  addEventListener:(name,fn)=>events[name]=fn,
-  getBoundingClientRect:()=>({left:Number.parseFloat(button.style.left)||0,
-     top:Number.parseFloat(button.style.top)||0}),
-  setPointerCapture:()=>{}
- };
- const ctx={
-  $:()=>button,
-  innerWidth:390,innerHeight:844,
-  window:{addEventListener:()=>{}},
-  localStorage:{getItem:()=>null,setItem:(k,v)=>saved[k]=v},
-  Math,JSON,Number,parseFloat,
-  setTimeout:()=>1,
-  openSupportChat:()=>hits.push("open")
- };
- vm.createContext(ctx);
- vm.runInContext(part("function mountSupportBubble(){",'$("open-favorites")'),ctx);
- // The trailing mountSupportBubble() call is included by the block.
- assert.ok(events.pointerdown);
- const oldX=button.style.left,oldY=button.style.top;
- events.pointerdown({pointerType:"touch",pointerId:2,clientX:265,clientY:480});
- events.pointermove({pointerId:2,clientX:145,clientY:240});
- events.pointerup({pointerId:2});
- events.click({preventDefault:()=>{}});
- assert.notEqual(button.style.left,oldX);
- assert.notEqual(button.style.top,oldY);
- assert.equal(hits.length,0,"Dragging must not open the customer chat");
- assert.ok(saved.wg_customer_support_button_v1);
- assert.ok(JSON.parse(saved.wg_customer_support_button_v1).x<.85);
+test("support is fixed and there is no draggable bubble",()=>{
+ assert.ok(html.includes('id="open-support-chat"'));
+ assert.ok(html.includes('Chat con soporte</button>'));
+ assert.ok(!html.includes('id="support-bubble"'));
+ assert.ok(!html.includes('id="go-intro"'));
+ assert.ok(!js.includes("mountSupportBubble()"));
+ assert.ok(!js.includes("wg_customer_support_button_v1"));
+ assert.ok(js.includes('$("open-support-chat").onclick=()=>openSupportChat()'));
 });
 test("customer support and upgrade components are independent of existing payment buttons",()=>{
- assert.ok(html.includes('id="support-bubble"'));
+ assert.ok(html.includes('id="open-support-chat"'));
  assert.ok(html.includes('id="quota-plus"'));
  assert.ok(html.includes('id="quota-connect"'));
  assert.ok(js.includes('api("quota-plus-checkout")'));
  assert.ok(js.includes('api("checkout")'));
  assert.ok(js.includes('api("chat-link")'));
- assert.ok(css.includes(".support-bubble{"));
- assert.ok(css.includes("touch-action:none"));
+ assert.ok(css.includes(".mobile-action-primary"));
 });
