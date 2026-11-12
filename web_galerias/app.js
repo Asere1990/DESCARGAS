@@ -9,6 +9,10 @@ function gallerySourceInput(value){
 }
 
 const $=id=>document.getElementById(id);
+// This is only a visual size; the entry remains disabled until signed auth.
+const fastButtonHeight=Number($("enter")?.dataset.fastButtonHeight);
+if(Number.isFinite(fastButtonHeight)&&fastButtonHeight>=12&&fastButtonHeight<=48)
+ $("enter").style.setProperty("--entry-label-image-height",fastButtonHeight+"px");
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
@@ -131,6 +135,9 @@ function renderEntryButtonLabel(label,forceText=false){
     button.dataset.fastButtonLabel===text){
   button.classList.add("enter-image-label");
   button.setAttribute("aria-label",text);
+  const initialHeight=Number(button.dataset.fastButtonHeight);
+  if(Number.isFinite(initialHeight)&&initialHeight>=12&&initialHeight<=48)
+   button.style.setProperty("--entry-label-image-height",initialHeight+"px");
   return new Promise(resolve=>{
    if(fast.complete){if(!fast.naturalWidth)button.textContent=text;resolve();return;}
    fast.addEventListener("load",resolve,{once:true});
