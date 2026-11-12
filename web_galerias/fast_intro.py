@@ -37,6 +37,42 @@ def fast_intro_html(source, design, asset_keys):
     size = safe_height(d.get("title_image_height"), 40, 220, 120)
     button_size = safe_height(d.get("button_image_height"), 12, 48, 30)
 
+
+    # The collection lives behind the intro. Pre-render its three operator-owned
+    # elements too: no placeholder flash before the signed user bootstrap.
+    library_specs = (
+        ("library_brand","brand-name","strong","",24,140,60),
+        ("library_eyebrow","collection-eyebrow","div",' class="eyebrow"',16,100,44),
+        ("library_heading","collection-heading","h1","",28,200,100),
+    )
+    original_library = (
+        '<strong id="brand-name" aria-label="Web Galerías">Web Galerías</strong>',
+        '<div class="eyebrow" id="collection-eyebrow" aria-label="MI COLECCIÓN">MI COLECCIÓN</div>',
+        '<h1 id="collection-heading" aria-label="Mis galerías">Mis galerías</h1>',
+    )
+    library_replacements = []
+    for original, (field, element_id, tag, additional, lo, hi, fallback) in zip(
+            original_library, library_specs):
+        text = str(d.get(field) or DEFAULTS[field])[:160]
+        escaped = html.escape(text, quote=True)
+        asset_key = field.replace("_","-")
+        if d.get(field+"_mode") == "image" and asset_key in asset_keys:
+            height = safe_height(d.get(field+"_image_height"), lo, hi, fallback)
+            presentation = (
+                f'<{tag}{additional} id="{element_id}" class="library-slot-image" '
+                f'aria-label="{escaped}">'
+                f'<img data-library-image="{field}" '
+                f'src="/web-galerias/assets/{asset_key}" '
+                f'loading="lazy" decoding="async" alt="{escaped}" '
+                f'height="{height}"></{tag}>'
+            )
+        else:
+            presentation = (
+                f'<{tag}{additional} id="{element_id}" '
+                f'aria-label="{escaped}">{escaped}</{tag}>'
+            )
+        library_replacements.append((original, presentation))
+
     title_html = (
         f'<div id="intro-headline" class="intro-headline" '
         f'data-fast-title-label="{title_safe}" data-fast-title-height="{size}">'
@@ -72,6 +108,7 @@ def fast_intro_html(source, design, asset_keys):
         ('<button id="enter" class="primary">ENTRAR A LA GALERÍA</button>',
          button_html),
     ]
+    exact.extend(library_replacements)
     if (source.count('<html lang="es"><head>') != 1 or
             any(source.count(old) != 1 for old, _ in exact)):
         return source  # No partial mutation or incorrect presentation.
@@ -104,7 +141,8 @@ async def render_fast_intro(g, source):
         design = await g.design()
         rows = await g.db().fetch(
             "SELECT key FROM wg_assets WHERE key=ANY($1::text[])",
-            ["header", "button-label-image"])
+            ["header", "button-label-image",
+             "library-brand", "library-eyebrow", "library-heading"])
         return fast_intro_html(source, design, [r["key"] for r in rows])
     except Exception:
         # A temporary DB failure must not break the entry document; the
