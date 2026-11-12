@@ -29,6 +29,7 @@ on:
       - 'tests/test_web_galerias_download_plus.py'
       - 'tests/test_web_galerias_quota_support.cjs'
       - 'tests/test_web_galerias_resume_offers.cjs'
+      - 'tests/test_web_galerias_cross_app_return.cjs'
       - 'tests/test_web_galerias_commercial.py'
       - 'tests/test_web_galerias_user_features.cjs'
       - 'tests/test_web_galerias_favorite_gestures.cjs'
@@ -62,6 +63,7 @@ jobs:
           node --test tests/test_web_galerias_user_features.cjs
           node --test tests/test_web_galerias_favorite_gestures.cjs
           node --test tests/test_web_galerias_resume_offers.cjs
+          node --test tests/test_web_galerias_cross_app_return.cjs
           node --test tests/test_web_galerias_quota_support.cjs
       - name: Dependencias
         run: pip install -e .

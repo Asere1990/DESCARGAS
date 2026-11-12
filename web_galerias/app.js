@@ -1544,6 +1544,82 @@ $("go-intro").onclick=()=>show("intro");
 // even after Customer Service returns HTTP 200. Use the signed in-webview
 // navigation already established by Mi Cuenta -> Web Galerías, in reverse.
 let customerOffersLink=null,customerOffersWebUrl=null,customerOffersRequest=null;
+// Only small navigation coordinates are stored, never signed Telegram data,
+// media URLs, access keys, or contents. The browser keeps the full gallery
+// document in history when supported; this recovers it if Swiftgram reloads.
+const CROSS_APP_RETURN_KEY="wg_cross_app_return_v1";
+function saveGalleryReturnPosition(){
+ if(!S.me?.allowed||typeof document==="undefined")return;
+ const inViewer=!$("viewer").classList.contains("hidden");
+ const inAlbum=!$("album").classList.contains("hidden");
+ const screen=inViewer?"viewer":inAlbum?"album":
+     !$("library").classList.contains("hidden")?"library":"intro";
+ let media=inViewer?Number(S.items[S.viewer]?.id||0):0;
+ if(inAlbum&&!inViewer){
+  const tiles=document.querySelectorAll("#album-grid [data-media-id]");
+  for(const tile of tiles){
+   const rect=tile.getBoundingClientRect();
+   if(rect.bottom>170&&rect.top<innerHeight-90){
+    media=Number(tile.dataset.mediaId||0);
+    break;
+   }
+  }
+ }
+ const folder=S.folder;
+ try{
+  sessionStorage.setItem(CROSS_APP_RETURN_KEY,JSON.stringify({
+   v:1,at:Date.now(),screen,folderId:Number(folder?.id||0),
+   favorites:!!folder?.favorites,personal:!!folder?.personal,
+   media:Number.isSafeInteger(media)&&media>0?media:0,
+   scrollY:Math.max(0,Math.floor(window.scrollY||0))
+  }));
+ }catch(_){}
+}
+async function restoreGalleryReturnPosition(){
+ let data=null;
+ try{
+  const raw=sessionStorage.getItem(CROSS_APP_RETURN_KEY);
+  sessionStorage.removeItem(CROSS_APP_RETURN_KEY);
+  if(raw)data=JSON.parse(raw);
+ }catch(_){}
+ if(!data||data.v!==1||!Number.isFinite(data.at)||
+    Date.now()-data.at<0||Date.now()-data.at>30*60*1000||!S.me?.allowed)
+  return false;
+ try{
+  if(data.screen==="viewer"&&Number.isSafeInteger(data.media)&&data.media>0){
+   await resumeMedia(data.media);return true;
+  }
+  if(data.screen==="album"){
+   let folder=null;
+   if(data.favorites)folder={favorites:true,name:"Mis favoritos"};
+   else if(data.personal){
+    const personal=S.personal.find(f=>Number(f.id)===data.folderId);
+    if(personal)folder={...personal,personal:true};
+   }else folder=S.folders.find(f=>Number(f.id)===data.folderId);
+   if(folder){
+    await openFolder(folder);
+    const media=Number(data.media),offset=Number(data.scrollY);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+     const tile=Number.isSafeInteger(media)&&media>0?
+       $("album-grid").querySelector('[data-media-id="'+media+'"]'):null;
+     if(tile)tile.scrollIntoView({block:"center",inline:"nearest",behavior:"instant"});
+     else window.scrollTo(0,Number.isFinite(offset)?Math.max(0,offset):0);
+    }));
+    return true;
+   }
+  }
+  if(data.screen==="library"){
+   show("library");
+   requestAnimationFrame(()=>requestAnimationFrame(()=>
+    window.scrollTo(0,Number.isFinite(data.scrollY)?Math.max(0,data.scrollY):0)));
+   return true;
+  }
+ }catch(_){/* Gallery remains available even when a previous media is gone. */}
+ return false;
+}
+if(window.addEventListener)window.addEventListener("pageshow",event=>{
+ if(event.persisted){try{sessionStorage.removeItem(CROSS_APP_RETURN_KEY);}catch(_){}}
+});
 function navigateCustomerScreen(telegramUrl,webUrl,destination){
  if(webUrl&&tg?.initData&&!BROWSER_ADMIN){
   let target;
@@ -1559,11 +1635,13 @@ function navigateCustomerScreen(telegramUrl,webUrl,destination){
    tgWebAppVersion:String(tg.version||"8.0"),
    tgWebAppPlatform:String(tg.platform||"unknown")
   }).toString();
+  saveGalleryReturnPosition();
   window.location.assign(target.href);
   return;
  }
  // For an entry bot other than CUSTOMER-SERVICE, never swallow a tap.
  // A normal navigation is more reliable in nonofficial Telegram clients.
+ saveGalleryReturnPosition();
  window.location.assign(telegramUrl);
 }
 async function getCustomerOffersLink(){
@@ -1954,7 +2032,8 @@ $("browser-logout").onclick=async()=>{
   return;
  }
  try{tg?.ready();tg?.expand();if(tg?.requestFullscreen)try{tg.requestFullscreen();}catch(_){}
-  show("intro");await refresh();}
+  show("intro");await refresh();
+  await restoreGalleryReturnPosition();}
  catch(e){$("intro-notice").textContent=e.message;notice(e.message);}
 })();
 /* Actualizar las vistas mientras llegan los originales. No interrumpir el visor,
