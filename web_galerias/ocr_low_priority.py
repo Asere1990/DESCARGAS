@@ -108,7 +108,7 @@ async def ocr_once(g):
           SET ocr_text=$2,ocr_checked=TRUE,ocr_next_attempt=0
           WHERE id=$1 AND state IN ('preview','ready')
         """,row["id"],str(result)[:2500])
-        await media_text.rebuild(g,int(row["folder"]),[int(row["message"])])
+        await media_text.enqueue(g,int(row["folder"]),[int(row["message"])])
         return True
     except asyncio.CancelledError:
         raise
