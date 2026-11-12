@@ -75,7 +75,7 @@ ALTER TABLE wg_notice_uploads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wg_notice_reads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE wg_notice_deliveries ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON wg_notices,wg_notice_uploads,wg_notice_reads,wg_notice_deliveries
- FROM PUBLIC,anon,authenticated;
+ FROM PUBLIC;
 """
 KINDS = {
  "photo": {"image/jpeg": ".jpg", "image/png": ".png",
@@ -152,22 +152,19 @@ async def admin_operation(g, uid, op, data):
     if op == "admin-notices-list":
         rows = await db.fetch("""
            SELECT n.id,n.message,n.media_kind,n.created,n.audience,
-            COUNT(d.uid) FILTER (WHERE d.status='delivered')::int AS delivered,
-            COUNT(d.uid) FILTER (WHERE d.status='unreachable')::int AS unreachable,
-            COUNT(d.uid) FILTER (WHERE d.status IN ('pending','retry','sending'))::int AS pending,
-            COUNT(r.uid)::int AS read_in_web
-           FROM wg_notices n
-           LEFT JOIN wg_notice_deliveries d ON d.notice=n.id
-           LEFT JOIN wg_notice_reads r ON r.notice=n.id
-           WHERE n.published GROUP BY n.id ORDER BY n.id DESC LIMIT 15
+            (SELECT COUNT(*)::int FROM wg_notice_deliveries d
+              WHERE d.notice=n.id AND d.status='delivered') AS delivered,
+            (SELECT COUNT(*)::int FROM wg_notice_deliveries d
+              WHERE d.notice=n.id AND d.status='unreachable') AS unreachable,
+            (SELECT COUNT(*)::int FROM wg_notice_deliveries d
+              WHERE d.notice=n.id AND d.status IN
+                ('pending','retry','sending')) AS pending,
+            (SELECT COUNT(*)::int FROM wg_notice_reads r
+              WHERE r.notice=n.id) AS read_in_web
+           FROM wg_notices n WHERE n.published
+           ORDER BY n.id DESC LIMIT 15
         """)
-        # Avoid multiplication of counts caused by joining deliveries and reads.
-        result = []
-        for n in rows:
-            record = dict(n)
-            record.pop("read_in_web", None)
-            result.append(record)
-        return {"notices": result}
+        return {"notices": [dict(n) for n in rows]}
     if op == "admin-notices-publish":
         content = data.get("message", "")
         token = data.get("upload_token")
