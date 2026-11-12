@@ -72,10 +72,17 @@ def fast_intro_html(source, design, asset_keys):
         ('<button id="enter" class="primary">ENTRAR A LA GALERÍA</button>',
          button_html),
     ]
-    if any(source.count(old) != 1 for old, _ in exact):
+    if (source.count('<html lang="es"><head>') != 1 or
+            any(source.count(old) != 1 for old, _ in exact)):
         return source  # No partial mutation or incorrect presentation.
     for old, new in exact:
         source = source.replace(old, new, 1)
+    # First-paint color comes from the same operator setting as the later
+    # private design; no default-light-blue to configured-blue switch.
+    button_color = safe_color(d.get("button_color"), DEFAULTS["button_color"])
+    source = source.replace(
+        '<html lang="es"><head>',
+        f'<html lang="es" style="--button:{button_color}"><head>', 1)
     # One optional preload per chosen asset: avoid a guaranteed 404 for a
     # text-only button. Both use the *identical* URL as the on-screen image.
     selected = []
