@@ -30,7 +30,7 @@ function makeNode(){
   },
   attrs:{},
   setAttribute(k,v){this.attrs[k]=v;},
-  textContent:"",style:{},hidden:false,
+  textContent:"",style:{setProperty(k,v){this[k]=v;}},hidden:false,
   replaceChildren(...els){this.children=els;},
  };
 }
