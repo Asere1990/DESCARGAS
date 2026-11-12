@@ -290,7 +290,7 @@
   }catch(e){if(token===state.userLoadGeneration)notice(e.message);}
   finally{if(token===state.userLoadGeneration)state.usersBusy=false;}
  }
- let accountHostStyle=null;
+ let accountHostStyle=null,accountMessageHandler=null;
  async function openUserAccount(uid){
   // Never switch the signed Telegram identity. All user-specific reads run
   // through admin-view-* APIs checked against the actual admin actor.
@@ -309,6 +309,10 @@
   }
   try{await accountHostStyle;}catch(e){return notice(e.message);}
   const root=$("admin-mirror");
+  if(accountMessageHandler){
+   window.removeEventListener("message",accountMessageHandler);
+   accountMessageHandler=null;
+  }
   root.replaceChildren();
   root.classList.add("admin-real-account");
   const header=document.createElement("header");header.className="admin-mirror-head";
@@ -323,6 +327,10 @@
   close.className="admin-mirror-navbtn";close.textContent="✕";
   close.title="Salir de esta cuenta";
   const quit=()=>{
+   if(accountMessageHandler){
+    window.removeEventListener("message",accountMessageHandler);
+    accountMessageHandler=null;
+   }
    root.classList.add("hidden");root.classList.remove("admin-real-account");
    document.documentElement.classList.remove("admin-mirror-open");
    root.replaceChildren(); // Unmount iframe + cancel its pending UI operations.
@@ -333,6 +341,9 @@
   frame.className="admin-real-account-frame";
   frame.title="Cuenta real del usuario "+uid+" · herramientas de administrador";
   frame.referrerPolicy="no-referrer";
+  // The same-origin iOS WebView must permit native video controls in this iframe.
+  frame.allow="autoplay; fullscreen; picture-in-picture";
+  frame.allowFullscreen=true;
   const target=new URL("/web-galerias/admin/view",location.origin);
   target.searchParams.set("target",String(uid));
   // Signed ADMIN identity only in the fragment, not in server logs/queries.
@@ -342,6 +353,17 @@
    tgWebAppPlatform:String(tg.platform||"unknown")
   }).toString();
   frame.src=target.href;
+  accountMessageHandler=event=>{
+   // Explicit hand-off from precisely this same-origin user-account iframe.
+   // Never act on messages from unrelated windows, bots, or browser tabs.
+   if(event.origin!==location.origin||event.source!==frame.contentWindow||
+      !S.me?.admin||event.data?.type!=="wg-gallery-admin-open-original")return;
+   const media=Number(event.data?.media);
+   if(!Number.isSafeInteger(media)||media<=0)return;
+   quit();
+   void locateOriginal({id:media},{openViewer:true});
+  };
+  window.addEventListener("message",accountMessageHandler);
   root.append(header,frame);
   root.classList.remove("hidden");
   document.documentElement.classList.add("admin-mirror-open");
@@ -585,10 +607,19 @@
   }));
   root.append(choice("‹ Volver",()=>mediaActions({id:ids[0]})));
  }
- async function locateOriginal(item){
+ async function locateOriginal(item,options={}){
   closeActions();
+  const media=Number(item?.id);
+  if(!Number.isSafeInteger(media)||media<=0)return notice("Archivo no válido.");
+  if(ADMIN_ACCOUNT_VIEW){
+   if(!S.me?.admin||window.parent===window)return notice("Acceso de administrador no disponible.");
+   // The parent uses its own verified admin identity; the customer isn't
+   // impersonated and no customer download quota is affected.
+   window.parent.postMessage({type:"wg-gallery-admin-open-original",media},location.origin);
+   return;
+  }
   try{
-   const result=await api("locate-media",{media:item.id});
+   const result=await api("locate-media",{media});
    ++S.epoch;
    S.folder=result.folder;S.items=result.items;S.next=result.next;S.search="";
    S.filter="all";S.selection=false;S.selected.clear();
@@ -600,7 +631,10 @@
    renderDropTargets();updateSelection();show("album");renderItems();
    $("load-more").classList.toggle("hidden",!S.next);
    const mediaId=String(result.focus);
-   requestAnimationFrame(()=>{
+   const originalIndex=S.items.findIndex(m=>String(m.id)===mediaId);
+   if(options.openViewer&&originalIndex>=0){
+    openViewer(originalIndex);
+   }else requestAnimationFrame(()=>{
     const tile=$("album-grid").querySelector('[data-media-id="'+mediaId+'"]');
     if(tile){
      tile.scrollIntoView({block:"center",behavior:"smooth"});
