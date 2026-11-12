@@ -225,7 +225,7 @@ async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
     if not rows:
         if not source["complete"]:
             await g.db().execute(
-              "UPDATE wg_folders SET complete=TRUE,reply_scan_complete=TRUE WHERE id=$1 AND active",
+              "UPDATE wg_folders SET complete=TRUE WHERE id=$1 AND active",
                folder)
         return 0
     # Preserve only explicit replies, associating every album sibling even
