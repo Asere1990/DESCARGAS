@@ -130,7 +130,7 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('if(S.me.allowed){show("library");return;}',script)
         self.assertIn('const enter=$("enter");enter.disabled=true;',script)
         self.assertIn('finally{enter.disabled=false;}',script)
-        self.assertIn('app.js?v=favorites-tap-controls-20261112-v2',html)
+        self.assertIn('app.js?v=favorites-heart-lower-20261112-v3',html)
 
 
 if __name__=="__main__":
