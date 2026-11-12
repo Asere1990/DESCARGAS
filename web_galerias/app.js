@@ -1,4 +1,13 @@
 "use strict";
+function gallerySourceLabel(value){
+ const id=Number(value||0);
+ return id?(id<0?"DATOS:":"DESCARGAS:")+Math.abs(id):"No asignada";
+}
+function gallerySourceInput(value){
+ const match=/^(?:(DATOS|DESCARGAS)\s*:\s*)?([1-9][0-9]{4,18})$/i.exec(String(value||"").trim());
+ return match?{account_uid:match[2],account_system:(match[1]||"descargas").toLowerCase()}:null;
+}
+
 const $=id=>document.getElementById(id);
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
@@ -1036,10 +1045,10 @@ function previewAdmin(){
   addAdminDatum("Nombre interno",f.name||"Sin nombre");
   addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal de origen.");
   addAdminDatum("Cuenta Telegram para el historial",
-    f.preferred_uid?String(f.preferred_uid):"No asignada",
+    f.preferred_uid?gallerySourceLabel(f.preferred_uid):"No asignada",
     "Solo esta cuenta vinculada se utilizará cuando la establezcas. Debe poder ver todo el historial.");
   if(!f.preferred_uid&&f.source_uid)
-    addAdminDatum("Cuenta detectada hasta ahora",String(f.source_uid),
+    addAdminDatum("Cuenta detectada hasta ahora",gallerySourceLabel(f.source_uid),
       "Cuenta elegida automáticamente; puedes fijar otra con acceso al historial completo.");
   addAdminDatum("Fotos totales en Telegram",
     hasTelegramTotals?pretty(f.telegram_photos_total):"Pendiente de consulta",
@@ -1140,17 +1149,18 @@ function previewAdmin(){
   const sourceButton=document.createElement("button");sourceButton.type="button";
   sourceButton.className="small-btn";sourceButton.textContent="Cuenta del historial";
   sourceButton.onclick=async()=>{
-    const current=String(f.preferred_uid||f.source_uid||"");
-    const account_uid=prompt("Telegram ID de la cuenta vinculada que puede ver todo el historial:",current);
-    if(account_uid===null)return;
-    const cleaned=account_uid.trim();
-    if(!/^[1-9][0-9]{4,18}$/.test(cleaned))
-      return notice("Escribe un Telegram ID válido de una cuenta conectada.");
-    if(cleaned===current&&f.preferred_uid)return notice("Esa cuenta ya está asignada.");
+    const current=gallerySourceLabel(f.preferred_uid||f.source_uid);
+    const value=prompt("Cuenta del historial. Escribe DESCARGAS:telegram_id o DATOS:telegram_id:",current==="No asignada"?"":current);
+    if(value===null)return;
+    const parsed=gallerySourceInput(value);
+    if(!parsed)return notice("Indica un Telegram ID válido. Para DATOS escribe DATOS:123456789.");
+    if(gallerySourceLabel(f.preferred_uid)===gallerySourceLabel(
+        parsed.account_system==="datos"?-Number(parsed.account_uid):Number(parsed.account_uid)))
+      return notice("Esa cuenta ya está asignada.");
     if(!confirm("El historial se volverá a revisar desde esta cuenta. Los archivos guardados en Cloudflare permanecerán intactos. ¿Continuar?"))return;
     sourceButton.disabled=true;
     try{
-      await api("admin-folder-source",{folder:f.id,account_uid:cleaned});
+      await api("admin-folder-source",{folder:f.id,...parsed});
       await loadAdmin();
       notice("Cuenta asignada. El sistema buscará el historial que puede ver esa cuenta.");
     }catch(e){notice(e.message);}
@@ -1577,17 +1587,18 @@ $("new-cover").onchange=()=>{
 $("add-folder").onclick=async()=>{
  const peer=$("new-peer").value.trim(),name=$("new-name").value.trim(),
   public_name=$("new-public-name").value.trim(),cover=$("new-cover").files?.[0],
-  account_uid=$("new-source-uid").value.trim();
+  source_value=$("new-source-uid").value.trim(),
+  source_account=gallerySourceInput(source_value);
  if(!/^-[0-9]{3,19}$/.test(peer)||!name||!public_name)
    return notice("Escribe el ID, el nombre interno y el nombre público por separado.");
- if(!/^[1-9][0-9]{4,18}$/.test(account_uid))
-   return notice("Indica el Telegram ID de la cuenta vinculada que ve el historial completo.");
+ if(!source_account)
+   return notice("Indica un Telegram ID vinculado, o DATOS:123456789 para la segunda fuente.");
  if(cover&&(!["image/jpeg","image/png","image/webp"].includes(cover.type)||
              !cover.size||cover.size>5_000_000))
    return notice("La foto debe ser JPEG, PNG o WebP, hasta 5 MB.");
  const button=$("add-folder");button.disabled=true;
  try{
-   const created=await api("admin-folder",{peer,name,public_name,account_uid});
+   const created=await api("admin-folder",{peer,name,public_name,...source_account});
    if(cover&&!(await uploadAsset("folder-cover",cover,created.id))){
      notice("Galería creada, pero la portada no pudo guardarse. Puedes volver a intentarlo.");
      await loadAdmin();await refresh(true);return;
