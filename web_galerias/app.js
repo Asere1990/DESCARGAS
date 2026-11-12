@@ -116,7 +116,7 @@ function renderEntryButtonLabel(label,forceText=false){
   };
   // On network failure, retain the saved accessible text as fallback.
   image.onerror=()=>resolve();
-  image.src="/web-galerias/assets/button-label-image?t="+Date.now();
+  image.src="/web-galerias/assets/button-label-image"+(S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
  });
 }
 function updateEditorLabelChoices(){
@@ -186,7 +186,7 @@ function applyDesign(d){const r=document.documentElement.style;
    // On network failure, keep the saved title without revealing a
    // temporary default while an image is still pending.
    image.onerror=()=>resolve();
-   image.src="/web-galerias/assets/header?t="+Date.now();
+   image.src="/web-galerias/assets/header"+(S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
   });
  }
  const video=$("intro-video"),placeholder=$("intro-placeholder");
@@ -1217,7 +1217,7 @@ function introMime(file){
  if(ext==="webm")return "video/webm";
  return file?.type||"";
 }
-async function uploadIntroVideo(file){
+async function uploadIntroVideo(file,kind="intro"){
  if(!file)return false;
  const mime=introMime(file),limit=80*1024*1024;
  if(!["video/mp4","video/quicktime","video/webm"].includes(mime))
@@ -1231,6 +1231,7 @@ async function uploadIntroVideo(file){
   xhr.withCredentials=true;
   xhr.setRequestHeader("Content-Type",mime);
   xhr.setRequestHeader("X-Intro-Mime",mime);
+  xhr.setRequestHeader("X-Intro-Kind",kind);
   if(raw)xhr.setRequestHeader("X-Telegram-Init-Data",raw);
   else xhr.setRequestHeader("X-Gallery-Web","1");
   xhr.upload.onprogress=e=>{
@@ -1250,7 +1251,9 @@ async function uploadIntroVideo(file){
    try{
     const data=JSON.parse(xhr.responseText);
     if(!data.complete)throw Error("No se confirmó la subida del video.");
-    progress.textContent="✓ Video MP4 guardado y verificado en Cloudflare.";
+    progress.textContent=kind==="web-promo"?
+     "✓ Video promo Web publicado. Reemplaza la foto solo en Nuevas ofertas.":
+     "✓ Video MP4 guardado y verificado en Cloudflare.";
     resolve(true);
    }catch(e){reject(e);}
   };
@@ -1258,7 +1261,7 @@ async function uploadIntroVideo(file){
  });
 }
 function pendingEditorFiles(){
- return ["logo","header","button-label-image","intro-photo","intro"]
+ return ["logo","header","button-label-image","intro-photo","intro","web-promo"]
   .map(key=>({key,file:$("upload-"+key).files?.[0]}))
   .filter(entry=>!!entry.file);
 }
@@ -1277,8 +1280,8 @@ async function confirmEditorChanges(){
   const files=pendingEditorFiles();
   for(const {key,file} of files){
    status.textContent="Preparando "+file.name+"…";
-   if(key==="intro"){
-    await uploadIntroVideo(file);
+   if(key==="intro"||key==="web-promo"){
+    await uploadIntroVideo(file,key);
    }else{
     if(!await uploadAsset(key,file))throw Error("No se pudo guardar "+file.name+".");
    }
@@ -1294,8 +1297,10 @@ async function confirmEditorChanges(){
   status.textContent="Guardando identidad y marca de agua…";
   await api("admin-design",{design});
   await api("admin-watermark",{watermark:watermarkFromEditor()});
-  for(const key of ["logo","header","button-label-image","intro","intro-photo"])$("upload-"+key).value="";
+  for(const key of ["logo","header","button-label-image","intro","intro-photo","web-promo"])$("upload-"+key).value="";
   S.heroNeedsReload=files.some(({key})=>key==="intro"||key==="intro-photo");
+  if(files.some(({key})=>key==="header"||key==="button-label-image"))
+   S.identityRefreshVersion=Date.now();
   await refresh();
   populateEditor();
   status.textContent="✓ Cambios confirmados. La portada ya está publicada.";
@@ -1487,7 +1492,7 @@ for(const selector of ["header_mode","button_mode"])
  $("edit-"+selector).onchange=updateEditorLabelChoices;
 for(const key of ["title_image_height","button_image_height"])
  $("edit-"+key).oninput=updateEditorImageSizes;
-for(const key of ["logo","header","button-label-image","intro","intro-photo"])
+for(const key of ["logo","header","button-label-image","intro","intro-photo","web-promo"])
  $("upload-"+key).onchange=()=>{
   const file=$("upload-"+key).files?.[0];
   if(key==="header"&&file)$("edit-header_mode").value="image";
