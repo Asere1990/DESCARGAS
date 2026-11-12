@@ -30,6 +30,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden){lastPrese
 
 const esc=x=>String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const show=id=>{for(const node of document.querySelectorAll(".screen"))node.classList.add("hidden");$(id).classList.remove("hidden");window.scrollTo(0,0);
+ updateSupportVisibility(id);
  if(id==="album"||id==="library"){lastPresence=0;galleryPresence();}
  if(id==="library"&&S.me?.allowed){
   renderLibraryExtras();
@@ -65,8 +66,20 @@ function renderViewerWatermark(config=S.me?.design){
 function updateQuotaStatus(){
  if(!S.me)return;
  const unlimited=!!S.me.quota_unlimited;
- $("quota-count").textContent=unlimited?"Ilimitadas":pretty(S.me.remaining)+" de 100";
- $("quota-fill").style.width=unlimited?"100%":Math.max(0,Number(S.me.remaining)||0)+"%";
+ const limit=Number(S.me.quota_daily_limit)||50;
+ const remaining=Math.max(0,Number(S.me.remaining)||0);
+ $("quota-count").textContent=unlimited?"Ilimitadas":pretty(remaining)+" de "+pretty(limit);
+ $("quota-fill").style.width=unlimited?"100%":Math.max(0,Math.min(100,remaining/limit*100))+"%";
+ const linked=S.me.quota_tier==="linked";
+ const tierLabel=$("quota-tier");
+ if(!tierLabel)return; // A running session may still hold the previous HTML.
+ tierLabel.textContent=unlimited?
+   (S.me.quota_plus_active?"♾ Descargas ilimitadas · extra mensual activo":
+     "♾ Descargas ilimitadas · autorización existente"):
+   linked?"🔗 Cuenta vinculada a DESCARGAS · 200 archivos diarios":
+     "Plan básico · 50 archivos diarios";
+ $("quota-connect")?.classList.toggle("hidden",unlimited||linked);
+ $("quota-plus")?.classList.toggle("hidden",unlimited||!S.me.quota_plus_available);
 }
 function watermarkFromEditor(){
  return {
@@ -987,8 +1000,10 @@ async function downloadIds(ids){
   return notice("Espera a que los originales seleccionados estén disponibles.");
  try{
   const data=await api("reserve",{ids});
-  S.me.quota_unlimited=!!data.quota_unlimited||!!S.me.quota_unlimited;
-  S.me.remaining=data.remaining==null?100:data.remaining;
+  S.me.quota_unlimited=!!data.quota_unlimited;
+  S.me.quota_daily_limit=data.quota_daily_limit;
+  S.me.quota_tier=data.quota_tier;
+  S.me.remaining=data.remaining;
   updateQuotaStatus();
   S.selected.clear();S.selection=false;updateSelection();renderItems();
   S.saveData=data;S.prepared=null;
@@ -1349,7 +1364,7 @@ async function saveDesign(){
   design[k]=$("edit-"+k).value;
  for(const k of ["title_image_height","button_image_height"])
   design[k]=Number($("edit-"+k).value);
- design.daily_limit=100;
+ design.daily_limit=50;
  try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
 }
 async function loadPermissions(){
@@ -1492,7 +1507,7 @@ async function confirmEditorChanges(){
    design[key]=$("edit-"+key).value;
   for(const key of ["title_image_height","button_image_height"])
    design[key]=Number($("edit-"+key).value);
-  design.daily_limit=100;
+  design.daily_limit=50;
   status.textContent="Guardando identidad y marca de agua…";
   await api("admin-design",{design});
   await api("admin-watermark",{watermark:watermarkFromEditor()});
@@ -1551,6 +1566,109 @@ async function openMoreContent(){
  }finally{button.disabled=false;}
 }
 $("more-content").onclick=openMoreContent;
+// Customer support opens a separate, signed Telegram Mini App chat screen.
+let customerChatLink=null,customerChatRequest=null;
+async function getCustomerChatLink(){
+ if(customerChatLink)return customerChatLink;
+ if(customerChatRequest)return customerChatRequest;
+ customerChatRequest=api("chat-link").then(data=>{
+  const url=String(data.url||"");
+  if(!/^https:\/\/t\.me\/[A-Za-z][A-Za-z0-9_]{4,31}(?:\/[A-Za-z0-9_]{1,64})?\?startapp=chat$/.test(url))
+   throw Error("El chat de Atención al Cliente no está disponible.");
+  customerChatLink=url;return url;
+ }).finally(()=>{customerChatRequest=null;});
+ return customerChatRequest;
+}
+async function openSupportChat(){
+ const button=$("support-bubble");
+ if(button.disabled)return;
+ button.disabled=true;
+ try{
+  const url=await getCustomerChatLink();
+  if(tg?.openTelegramLink)tg.openTelegramLink(url);
+  else window.location.assign(url);
+ }catch(e){notice("No se pudo abrir el chat de Atención al Cliente.");}
+ finally{button.disabled=false;}
+}
+function updateSupportVisibility(screen){
+ const visible=!!S.me?.allowed&&!BROWSER_ADMIN&&screen!=="intro"&&screen!=="admin";
+ $("support-bubble").classList.toggle("hidden",!visible);
+}
+function mountSupportBubble(){
+ const button=$("support-bubble");
+ if(!button)return; // Compatible with older cached HTML and isolated tests.
+ const key="wg_customer_support_button_v1";
+ let pos={x:.85,y:.60},start=null,suppressClick=false;
+ try{
+  const saved=JSON.parse(localStorage.getItem(key)||"null");
+  if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))pos=saved;
+ }catch(_){}
+ const bounds=()=>{
+  const width=button.offsetWidth||56,height=button.offsetHeight||56;
+  return {width,height,minX:6,maxX:Math.max(6,innerWidth-width-6),
+          minY:120,maxY:Math.max(120,innerHeight-height-110)};
+ };
+ const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+ const draw=()=>{
+  const b=bounds(),x=clamp(pos.x*innerWidth,b.minX,b.maxX);
+  const y=clamp(pos.y*innerHeight,b.minY,b.maxY);
+  button.style.left=x+"px";button.style.top=y+"px";
+  button.style.right="auto";
+ };
+ draw();
+ window.addEventListener("resize",draw);
+ button.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="mouse"&&e.button!==0)return;
+  const rect=button.getBoundingClientRect();
+  start={id:e.pointerId,offsetX:e.clientX-rect.left,offsetY:e.clientY-rect.top,
+         originX:e.clientX,originY:e.clientY,moved:false};
+  try{button.setPointerCapture(e.pointerId);}catch(_){}
+ });
+ button.addEventListener("pointermove",e=>{
+  if(!start||e.pointerId!==start.id)return;
+  if(!start.moved&&Math.hypot(e.clientX-start.originX,e.clientY-start.originY)<8)return;
+  start.moved=true;
+  const b=bounds();
+  pos.x=clamp(e.clientX-start.offsetX,b.minX,b.maxX)/innerWidth;
+  pos.y=clamp(e.clientY-start.offsetY,b.minY,b.maxY)/innerHeight;
+  draw();
+ });
+ button.addEventListener("pointerup",e=>{
+  if(!start||e.pointerId!==start.id)return;
+  const moved=start.moved;start=null;
+  if(moved){
+   suppressClick=true;
+   try{localStorage.setItem(key,JSON.stringify(pos));}catch(_){}
+   setTimeout(()=>{suppressClick=false;},350);
+  }
+ });
+ button.addEventListener("pointercancel",()=>{start=null;});
+ button.addEventListener("click",e=>{
+  if(suppressClick){e.preventDefault();suppressClick=false;return;}
+  void openSupportChat();
+ });
+}
+mountSupportBubble();
+
+if($("quota-connect"))$("quota-connect").onclick=()=>{
+ const url=S.me?.quota_link_bot;
+ if(!url)return notice("Abre el bot DESCARGAS, vincula tu cuenta de Telegram y vuelve aquí.");
+ if(!/^https:\/\/t\.me\/[A-Za-z][A-Za-z0-9_]{4,31}$/.test(url))
+  return notice("Bot DESCARGAS no disponible.");
+ if(tg?.openTelegramLink)tg.openTelegramLink(url);
+ else window.location.assign(url);
+};
+if($("quota-plus"))$("quota-plus").onclick=async()=>{
+ const button=$("quota-plus");
+ if(button.disabled)return;
+ button.disabled=true;
+ try{
+  const data=await api("quota-plus-checkout");
+  if(data.allowed){await refresh(true);notice("Ya tienes descargas ilimitadas.");}
+  else if(data.url){if(tg?.openLink)tg.openLink(data.url);else window.location.assign(data.url);}
+ }catch(e){notice(e.message);}
+ finally{button.disabled=false;}
+};
 $("open-favorites").onclick=()=>openFolder({favorites:true,name:"Mis favoritos"});
 $("viewer-favorite").onclick=toggleViewerFavorite;
 $("personal-folders-toggle").onclick=()=>setPersonalMenuOpen(!S.personalMenuOpen);

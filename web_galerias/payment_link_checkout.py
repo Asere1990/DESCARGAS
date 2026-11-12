@@ -337,6 +337,11 @@ async def webhook(g,request):
                         SET status='past_due' WHERE subscription=$1
                         AND status NOT IN ('canceled','unpaid')""",affected)
             if affected:await reconcile_access(conn,affected)
+            # Plus $1.99 is a separate, nonce-bound subscription. Its ledger
+            # cannot modify the original $6.99 membership and shares this
+            # already verified event / idempotency transaction.
+            from .download_plus import apply_webhook as apply_plus_webhook
+            await apply_plus_webhook(conn,kind,obj,int(event.get("created") or time.time()))
             await conn.execute("""INSERT INTO wg_payment_events(id,created)
                 VALUES($1,$2) ON CONFLICT DO NOTHING""",eid,time.time())
     # Commercial analytics is a separate, best-effort read/write after the

@@ -40,8 +40,11 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
             "pending":550,"complete":False,"error":"RateLimit"}])
         pilot_user=await core.bootstrap(5662710947)
         paying_user=await core.bootstrap(1600000000)
-        common=lambda d:{k:v for k,v in d.items()
-                         if k not in ("free_access","quota_unlimited")}
+        # Quota tier metadata differs; the gallery data and permission maps do not.
+        tier_fields={"free_access","quota_unlimited","remaining","quota_daily_limit",
+                     "quota_tier","quota_linked","quota_plus_active",
+                     "quota_plus_available"}
+        common=lambda d:{k:v for k,v in d.items() if k not in tier_fields}
         self.assertEqual(common(pilot_user),common(paying_user))
         self.assertTrue(pilot_user["free_access"])
         self.assertTrue(pilot_user["quota_unlimited"])
@@ -50,7 +53,8 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tester",pilot_user)
         self.assertTrue(pilot_user["allowed"])
         self.assertFalse(pilot_user["admin"])
-        self.assertEqual(pilot_user["remaining"],100)
+        self.assertIsNone(pilot_user["remaining"])
+        self.assertEqual(paying_user["remaining"],50)
         self.assertEqual(len(pilot_user["folders"]),1)
 
     def test_public_ui_has_no_tester_label(self):

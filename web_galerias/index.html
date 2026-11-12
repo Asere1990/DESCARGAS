@@ -13,10 +13,10 @@
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/header">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/button-label-image">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=gallery-resume-offers-20261112-v4">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=quota-support-20261112-v1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=gallery-resume-offers-20261112-v4"></script>
-<script defer src="/web-galerias/static/admin_tools.js?v=gallery-resume-offers-20261112-v4"></script>
+<script defer src="/web-galerias/static/app.js?v=quota-support-20261112-v1"></script>
+<script defer src="/web-galerias/static/admin_tools.js?v=quota-support-20261112-v1"></script>
 </head><body>
 <div id="app" class="app">
  <section id="admin-login" class="screen admin-login hidden" aria-label="Acceso directo de administrador">
@@ -88,8 +88,15 @@
       class="hidden" aria-label="Seleccionar portada de carpeta personal">
     <button id="more-content" type="button" class="more-content-entry" aria-label="Mostrar más contenido y abrir Nuevas Ofertas en Mi Cuenta">✨ Mostrar más contenido</button>
    </div>
-   <div class="quota"><span>Descargas disponibles hoy</span><strong id="quota-count">100 de 100</strong>
+   <div class="quota"><span>Descargas disponibles hoy</span><strong id="quota-count">50 de 50</strong>
     <div class="quota-track"><div id="quota-fill"></div></div></div>
+   <section id="quota-upgrades" class="quota-upgrades" aria-label="Opciones de descarga">
+     <p id="quota-tier" class="quota-tier">Plan básico · 50 archivos diarios</p>
+     <div class="quota-upgrade-actions">
+       <button id="quota-connect" type="button" class="quota-upgrade-button hidden">🔗 Vincular DESCARGAS · 200 al día</button>
+       <button id="quota-plus" type="button" class="quota-upgrade-button quota-upgrade-paid hidden">♾ Ilimitadas · +$1.99/mes</button>
+     </div>
+   </section>
   </main>
   <nav class="mobile-actions" aria-label="Accesos de Web Galerías">
    <button id="go-intro" type="button" class="mobile-action" aria-label="Volver a la portada"><span aria-hidden="true">⌂</span> Portada</button>
@@ -416,6 +423,8 @@
    <button id="browser-logout" type="button" class="mobile-action hidden" aria-label="Cerrar sesión de este dispositivo"><span aria-hidden="true">⇥</span> Salir</button>
   </nav>
  </section>
+ <button id="support-bubble" class="support-bubble hidden" type="button"
+     aria-label="Abrir chat con Atención al Cliente" title="Hablar con Atención al Cliente">💬</button>
  <div id="media-context-sheet" class="save-sheet hidden" role="dialog" aria-modal="true" aria-label="Acciones de foto o video">
   <div class="sheet-card">
    <h2 id="media-context-title">Opciones del archivo</h2>
