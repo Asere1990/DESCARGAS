@@ -69,7 +69,7 @@ class NoticeTests(unittest.IsolatedAsyncioTestCase):
         g.log.assert_awaited_once_with(42,"admin-notice-published")
 
     async def test_registered_user_cannot_read_other_users_receipts(self):
-        db=N(fetchval=AsyncMock(side_effect=[1,4]),fetch=AsyncMock(
+        db=N(fetchval=AsyncMock(side_effect=[1,4,1,1]),fetch=AsyncMock(
             return_value=[{"id":7,"message":"Aviso","media_kind":None,
                            "mime":None,"filename":None,"created":200,
                            "read":False}]),execute=AsyncMock())
@@ -96,8 +96,8 @@ class NoticeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res["uid"],55)
         self.assertIn("SKIP LOCKED",db.fetchrow.await_args.args[0])
         await broadcasts._finish(db,1,55,"retry","429",10)
-        self.assertEqual(db.execute.await_args.args[3],"retry")
-        self.assertGreater(db.execute.await_args.args[4],0)
+        self.assertEqual(db.execute.await_args.args[2],"retry")
+        self.assertGreater(db.execute.await_args.args[3],0)
 
     def test_durable_separate_tables_and_private_r2_bucket(self):
         for table in ("wg_notices","wg_notice_uploads","wg_notice_reads",
