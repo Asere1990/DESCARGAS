@@ -92,10 +92,10 @@ async def save_file(g,request):
 async def reserve(g,uid,ids):
     if not await g.entitled(uid):raise web.HTTPForbidden(text="Acceso no vigente.")
     if not g.storage.ready:raise web.HTTPServiceUnavailable(text="El respaldo aún no está disponible.")
-    from .permissions import is_admin,free_access
+    from .permissions import is_admin
     # The per-request bound stays 10 for customers. Only the DAILY counter
-    # is unlimited for explicitly invited acceso.txt users.
-    unlimited=free_access(uid)
+    # is unlimited for verified free grants (file or admin-managed database).
+    unlimited=await g.free_granted(uid)
     limit=100 if is_admin(uid) else 10
     if not isinstance(ids,list) or not 1<=len(ids)<=limit:
         raise web.HTTPBadRequest(text=f"Selecciona de 1 a {limit} archivos.")
