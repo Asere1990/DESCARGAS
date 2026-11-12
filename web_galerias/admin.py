@@ -466,11 +466,21 @@ async def asset(g,request):
             if isinstance(metadata,str):metadata=json.loads(metadata)
             from .intro_video import stream
             return await stream(g,request,metadata)
-    row=await g.db().fetchrow("SELECT mime,body FROM wg_assets WHERE key=$1",key)
+    row=await g.db().fetchrow("SELECT mime,body,updated FROM wg_assets WHERE key=$1",key)
     if not row:raise web.HTTPNotFound()
-    body=bytes(row["body"])
-    headers={"Accept-Ranges":"bytes","Cache-Control":"public, max-age=300",
+    # Browser can reuse these two identities without a new multi-MB download.
+    # Validation remains instantaneous after an admin changes the graphic.
+    identity=key in ("header","button-label-image")
+    revision=str(int(float(row.get("updated") or 0)*1000))
+    etag='"wg-'+key+'-'+revision+'"' if identity else None
+    headers={"Accept-Ranges":"bytes","Cache-Control":"public, no-cache" if identity
+             else "public, max-age=300",
              "X-Content-Type-Options":"nosniff"}
+    if etag:
+        headers["ETag"]=etag
+        if request.headers.get("If-None-Match")==etag:
+            return web.Response(status=304,headers=headers)
+    body=bytes(row["body"])
     rng=request.headers.get("Range","")
     if rng:
         m=re.fullmatch(r"bytes=(\d*)-(\d*)",rng)
