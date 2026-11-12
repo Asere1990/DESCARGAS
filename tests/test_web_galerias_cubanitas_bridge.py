@@ -112,6 +112,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
             fetchval=AsyncMock(side_effect=[0,True]))
         g=SimpleNamespace(db=lambda:db,
                           entitled=AsyncMock(return_value=False),
+                          free_granted=AsyncMock(return_value=False),
                           design=AsyncMock(return_value={}),
                           storage=SimpleNamespace(ready=True))
         with patch.dict(os.environ,{"GALERIAS_PUBLIC":"1"}):
