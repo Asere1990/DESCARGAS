@@ -46,10 +46,13 @@ test("signed administrator keeps their own identity and customer quota is not de
  assert.ok(js.includes('if(ADMIN_ACCOUNT_VIEW||!S.me?.allowed||!m?.id)return;'));
  assert.ok(!account.includes("user.session"));
 });
-test("the chat button replaces Portada and no floating bubble exists",()=>{
+test("admins see Portada, regular users see fixed Chat with no bubble",()=>{
  assert.ok(html.includes('id="open-support-chat"'));
  assert.ok(html.includes("Chat con soporte</button>"));
- assert.ok(!html.includes('id="go-intro"'));
+ assert.ok(html.includes('id="go-intro"'));
+ assert.ok(js.includes('$("go-intro").onclick=()=>show("intro")'));
+ assert.ok(js.includes('if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin||ADMIN_ACCOUNT_VIEW)'));
+ assert.ok(js.includes('if(portada)portada.classList.toggle("hidden",!admin)'));
  assert.ok(!html.includes('id="support-bubble"'));
  assert.ok(js.includes('$("open-support-chat").onclick=()=>openSupportChat()'));
  assert.ok(!js.includes("mountSupportBubble"));
