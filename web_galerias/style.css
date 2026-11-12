@@ -1065,3 +1065,73 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 }
 #library .quota-upgrade-button:active{filter:brightness(1.15)}
 
+/* Support unread replies: exact per-user count from CUSTOMER-SERVICE. */
+#open-support-chat{position:relative}
+#open-support-chat .support-unread{
+ position:absolute;right:5px;top:3px;z-index:2;
+ min-width:23px;height:23px;border-radius:18px;
+ padding:2px 6px;display:flex;align-items:center;justify-content:center;
+ color:#fff;background:#ea344b;border:2px solid #fff;
+ font-size:11px;font-weight:900;line-height:1;pointer-events:none;
+ box-shadow:0 2px 7px #0007;
+}
+#open-support-chat .support-unread.hidden{display:none!important}
+/* Notice inbox uses the same user-card / gallery visual system. */
+#library .notices-entry{margin-top:10px}
+#library .notices-entry span:first-child{color:#83cbff;font-size:18px}
+#library .notices-entry span:first-child strong{font-size:14px;color:var(--text)}
+#library .notices-entry span:last-child{font-size:12px;color:var(--muted)}
+#library .notices-entry.has-unread{border-color:#318ff4}
+#library .notices-entry.has-unread span:last-child{color:#7bccff;font-weight:800}
+#notices-screen .notices-container{padding-top:22px;padding-bottom:95px}
+#notices-screen .notices-list{display:grid;gap:14px;margin:18px 0}
+#notices-screen .notice-card{
+ display:grid;gap:12px;min-width:0;border:1px solid var(--line);
+ border-radius:17px;padding:15px;background:#ffffff0e;
+}
+#notices-screen .notice-card.unread{border-color:#2d90d6}
+#notices-screen .notice-head{
+ display:flex;gap:12px;align-items:center;justify-content:space-between;
+}
+#notices-screen .notice-head strong{font-size:14px}
+#notices-screen .notice-head small{font-size:11px;color:var(--muted)}
+#notices-screen .notice-body{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.6}
+#notices-screen .notice-body a,#tab-avisos .admin-notice-preview a{
+ color:#76c9ff;text-decoration:underline;text-underline-offset:3px
+}
+#notices-screen .notice-media{width:100%;max-height:65dvh;object-fit:contain;border-radius:11px;background:#000}
+#notices-screen .notice-read-btn{
+ align-self:flex-end;border:1px solid #2a89ca;border-radius:12px;
+ background:#154d75;color:#fff;padding:9px 12px;min-height:43px;
+}
+#notices-screen .notice-read-btn:disabled{opacity:.5}
+/* Admin authoring: preview native clickable links and multimedia before broadcast. */
+#tab-avisos .admin-notice-editor{display:grid;gap:10px}
+#tab-avisos .admin-notice-editor label{font-size:13px;font-weight:700}
+#tab-avisos #admin-notice-message{
+ width:100%;min-height:120px;border:1px solid var(--line);
+ border-radius:12px;background:#1c2632;color:var(--text);
+ padding:12px;resize:vertical;font-size:15px;
+}
+#tab-avisos #admin-notice-file{display:block;width:100%;margin:10px 0}
+#tab-avisos .admin-notice-preview{
+ border:1px solid #255887;border-radius:14px;background:#101b28;padding:13px;
+}
+#tab-avisos .admin-notice-preview h3{margin:0 0 10px;font-size:14px}
+#tab-avisos #admin-notice-preview-media img,
+#tab-avisos #admin-notice-preview-media video{
+ width:100%;max-height:44dvh;object-fit:contain;border-radius:10px;
+ background:#000;
+}
+#tab-avisos #admin-notice-preview-text{
+ min-height:42px;font-size:13px;line-height:1.55;white-space:pre-wrap;
+ overflow-wrap:anywhere;
+}
+#tab-avisos .admin-notices-history{display:grid;gap:8px;margin-top:12px}
+#tab-avisos .admin-notice-history-card{
+ background:#ffffff09;border:1px solid var(--line);
+ border-radius:12px;padding:12px;display:grid;gap:7px;min-width:0;
+}
+#tab-avisos .admin-notice-history-card strong{font-size:13px}
+#tab-avisos .admin-notice-history-card small{color:var(--muted);font-size:12px}
+#tab-avisos #admin-notice-send:disabled{opacity:.5}
