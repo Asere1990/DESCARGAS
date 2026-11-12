@@ -1549,7 +1549,7 @@ let customerOffersLink=null,customerOffersWebUrl=null,customerOffersRequest=null
 // document in history when supported; this recovers it if Swiftgram reloads.
 const CROSS_APP_RETURN_KEY="wg_cross_app_return_v1";
 function saveGalleryReturnPosition(){
- if(!S.me?.allowed)return;
+ if(!S.me?.allowed||typeof document==="undefined")return;
  const inViewer=!$("viewer").classList.contains("hidden");
  const inAlbum=!$("album").classList.contains("hidden");
  const screen=inViewer?"viewer":inAlbum?"album":
@@ -1617,7 +1617,7 @@ async function restoreGalleryReturnPosition(){
  }catch(_){/* Gallery remains available even when a previous media is gone. */}
  return false;
 }
-window.addEventListener("pageshow",event=>{
+if(window.addEventListener)window.addEventListener("pageshow",event=>{
  if(event.persisted){try{sessionStorage.removeItem(CROSS_APP_RETURN_KEY);}catch(_){}}
 });
 function navigateCustomerScreen(telegramUrl,webUrl,destination){
