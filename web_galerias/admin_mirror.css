@@ -189,3 +189,17 @@ html.admin-mirror-open #toast{z-index:3000}
  #admin-mirror .admin-mirror-folder-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
  #admin-mirror .admin-mirror-media-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
 }
+
+/* This replaces the former imitation: host the actual index.html user app. */
+#admin-mirror.admin-real-account{
+ display:flex;flex-direction:column;
+ padding:0;overflow:hidden;overscroll-behavior:contain;
+ background:var(--bg);height:100dvh;
+}
+#admin-mirror.admin-real-account .admin-mirror-head{
+ flex-shrink:0;z-index:2;
+}
+#admin-mirror .admin-real-account-frame{
+ display:block;flex:1;min-height:0;width:100%;
+ border:0;background:var(--bg);
+}
