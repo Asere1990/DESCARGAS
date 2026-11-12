@@ -749,6 +749,7 @@ async function openFolder(folder){
  $("query").value="";$("album-title").textContent=folder.name;
  $("album-subtitle").textContent=folder.favorites?
    "Tus fotos y videos guardados":
+   folder.downloads?pretty(folder.count)+" archivos contabilizados":
    folder.personal?pretty(folder.count)+" archivos":
    pretty(folder.photos)+" fotos · "+pretty(folder.videos)+" videos";
  $("favorites-notice").classList.toggle("hidden",!folder.favorites);
