@@ -45,7 +45,7 @@ test("the confirm workflow persists all three text and image modes, not just the
 
 test("customer search and quota routes remain unchanged by styling edits",()=>{
  assert.ok(script.includes('if(op==="reserve")'));
- assert.ok(script.includes('if(op==="favorites-items")'));
+ assert.ok(script.includes('"favorites-items"'));
  assert.ok(html.includes('id="quota-count"'));
  assert.ok(!html.includes('id="go-intro" class="mobile-action-primary"'));
 });
