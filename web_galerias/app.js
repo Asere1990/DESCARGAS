@@ -88,8 +88,8 @@ function updateQuotaStatus(){
      "♾ Descargas ilimitadas · autorización existente"):
    linked?"🔗 Cuenta vinculada a DESCARGAS · 200 archivos diarios":
      "Plan básico · 50 archivos diarios";
- $("quota-connect")?.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW||unlimited||linked);
- $("quota-plus")?.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW||unlimited||!S.me.quota_plus_available);
+ $("quota-connect")?.classList.toggle("hidden",unlimited||linked);
+ $("quota-plus")?.classList.toggle("hidden",unlimited||!S.me.quota_plus_available);
 }
 function watermarkFromEditor(){
  return {
@@ -413,7 +413,8 @@ async function api(op,data={}){
    items:"admin-view-items",
    "locate-media":"admin-view-locate",
    "favorite-set":"admin-view-favorite-set",
-   "media-status":"admin-view-media-status"
+   "media-status":"admin-view-media-status",
+   "quota-plus-checkout":"admin-view-quota-plus-checkout"
   };
   const adminOps=new Set([
    "admin-media-remove","admin-mirror-download-dates",
@@ -1878,6 +1879,8 @@ async function getCustomerOffersLink(){
  return customerOffersRequest;
 }
 async function openMoreContent(){
+ if(ADMIN_ACCOUNT_VIEW)
+  return notice("Las ofertas privadas se abren desde la sesión Telegram del propio usuario.");
  const button=$("more-content");
  if(button.disabled)return;
  button.disabled=true;
@@ -1904,6 +1907,8 @@ async function getCustomerChatLink(){
  return customerChatRequest;
 }
 async function openSupportChat(){
+ if(ADMIN_ACCOUNT_VIEW)
+  return notice("El chat privado requiere la sesión del propio usuario de Telegram.");
  const button=$("open-support-chat");
  if(button?.disabled)return;
  if(button)button.disabled=true;
@@ -1919,11 +1924,13 @@ function updateSupportVisibility(screen){
  const admin=!!S.me?.admin;
  const chat=$("open-support-chat");
  const portada=$("go-intro");
- if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin||ADMIN_ACCOUNT_VIEW);
+ if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin);
  if(portada)portada.classList.toggle("hidden",!admin);
 }
 
 if($("quota-connect"))$("quota-connect").onclick=()=>{
+ if(ADMIN_ACCOUNT_VIEW)
+  return notice("La vinculación a DESCARGAS debe completarla este usuario con su propia cuenta de Telegram.");
  // Same bot: open the original DESCARGAS account Mini App in this WebView.
  // Signed Telegram identity stays in the URL fragment, never the HTTP query.
  const miniapp=String(S.me?.quota_link_miniapp||"");
