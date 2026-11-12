@@ -1132,6 +1132,9 @@ async function refreshAdminViewerMedia(index,expected){
   // Don't interrupt an already-playing video merely to renew its URL.
   if(!wasFull||!item.available||video.error){
    showViewerMedia();
+   if(item.available&&item.kind==="video"&&item.mime!=="image/gif"){
+    try{$("view-video").load();}catch(_){}
+   }
   }
   if(!item.available)notice("La miniatura está disponible; el original aún se está preparando.");
  }catch(e){
@@ -1173,7 +1176,11 @@ function backToViewedMedia(){
   }));
  });
 }
-function moveViewer(delta){const i=S.viewer+delta;if(i<0||i>=S.items.length)return;S.viewer=i;showViewerMedia();}
+function moveViewer(delta){
+ const i=S.viewer+delta;if(i<0||i>=S.items.length)return;
+ S.viewer=i;showViewerMedia();
+ if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i]);
+}
 function nativeDownload(data){
  const url=location.origin+data.url;
  if(tg?.downloadFile&&tg?.isVersionAtLeast?.("8.0")){
