@@ -38,6 +38,16 @@ CREATE INDEX IF NOT EXISTS wg_media_pending_ocr ON wg_media(id DESC)
  WHERE state IN ('preview','ready') AND thumb_key IS NOT NULL AND NOT ocr_checked;
 CREATE INDEX IF NOT EXISTS wg_media_grouped_text
  ON wg_media(folder,grouped) WHERE grouped IS NOT NULL;
+CREATE TABLE IF NOT EXISTS wg_media_text_dirty(
+ folder BIGINT NOT NULL,
+ message BIGINT NOT NULL,
+ attempts INT NOT NULL DEFAULT 0,
+ next_attempt DOUBLE PRECISION NOT NULL DEFAULT 0,
+ PRIMARY KEY(folder,message));
+CREATE INDEX IF NOT EXISTS wg_media_text_dirty_due
+ ON wg_media_text_dirty(next_attempt,folder,message);
+ALTER TABLE wg_media_text_dirty ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON wg_media_text_dirty FROM PUBLIC;
 CREATE TABLE IF NOT EXISTS wg_media_text_outbox(
  media BIGINT PRIMARY KEY REFERENCES wg_media(id) ON DELETE CASCADE,
  revision BIGINT NOT NULL, attempts INT NOT NULL DEFAULT 0,
@@ -201,6 +211,61 @@ async def rebuild(g, folder, changed_ids):
     return updated
 
 
+async def enqueue(g,folder,changed_ids):
+    """Single small DB statement; thumbnails and users do not wait for rebuild."""
+    ids=sorted({int(x) for x in changed_ids if x and int(x)>0})
+    if not ids:
+        return 0
+    await g.db().execute("""
+      INSERT INTO wg_media_text_dirty(folder,message,next_attempt)
+      SELECT $1,ids.value,0
+      FROM unnest($2::bigint[]) AS ids(value)
+      ON CONFLICT(folder,message) DO UPDATE
+      SET next_attempt=0,attempts=0
+    """,int(folder),ids)
+    return len(ids)
+
+
+async def process_dirty(g,limit=35):
+    """One bounded set of album/reply anchors, outside active sync loops."""
+    db=g.db()
+    now=time.time()
+    rows=await db.fetch("""
+      WITH chosen AS (
+        SELECT folder,message FROM wg_media_text_dirty
+        WHERE next_attempt<=$1
+        ORDER BY next_attempt,folder,message LIMIT $2
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE wg_media_text_dirty d
+      SET next_attempt=$1+90,attempts=d.attempts+1
+      FROM chosen c WHERE c.folder=d.folder AND c.message=d.message
+      RETURNING d.folder,d.message,d.attempts
+    """,now,max(1,min(50,int(limit))))
+    if not rows:
+        return 0
+    groups=defaultdict(list)
+    for row in rows:
+        groups[int(row["folder"])].append(int(row["message"]))
+    for folder,ids in groups.items():
+        try:
+            await rebuild(g,folder,ids)
+            await db.execute("""
+              DELETE FROM wg_media_text_dirty
+              WHERE folder=$1 AND message=ANY($2::bigint[])
+            """,folder,ids)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            LOG.warning("Album text enrichment retry (%s)",type(exc).__name__)
+            await db.execute("""
+              UPDATE wg_media_text_dirty
+              SET next_attempt=$3
+              WHERE folder=$1 AND message=ANY($2::bigint[])
+            """,folder,ids,time.time()+60)
+    return len(rows)
+
+
 async def backfill_unindexed(g,limit=30):
     """One bounded page; never blocks first paint or reparses all media at once."""
     db=g.db()
@@ -359,6 +424,7 @@ async def run(g):
             # A slow initial migration is bounded and never part of startup.
             if cycle%12==0:
                 await backfill_unindexed(g,limit=20)
+            await process_dirty(g,limit=35)
             await archive_one(g)
             cycle+=1
             await asyncio.sleep(2.5)
