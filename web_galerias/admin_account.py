@@ -47,6 +47,27 @@ async def operation(g, actor, op, data):
     if not await g.entitled(target):
         raise web.HTTPForbidden(text="La membresía de este usuario no está vigente.")
 
+    if op in ("admin-view-notices-count", "admin-view-notices-list",
+              "admin-view-notices-mark-read"):
+        # Same announcements, unread state and read actions as the user's
+        # actual Web Galerías account. The admin remains verified above.
+        from . import broadcasts
+        return await broadcasts.user_operation(
+            g, target, op.removeprefix("admin-view-"), data)
+
+    if op == "admin-view-chat-unread":
+        # Read only the selected user's support-chat unread counter; no
+        # external chat is opened with a spoofed Telegram user identity.
+        from .customer_bridge import ready as bridge_ready, post_signed
+        if not bridge_ready():
+            return {"count": 0}
+        try:
+            reply = await post_signed("chat-unread",
+                                      {"telegram_id": target}, timeout=4)
+            return {"count": max(0, min(9999, int(reply.get("count") or 0)))}
+        except Exception:
+            return {"count": 0}
+
     if op == "admin-view-quota-plus-checkout":
         # Exactly the same Stripe session flow and entitlement as the
         # selected user's Plus button; an admin click is an explicit purchase
