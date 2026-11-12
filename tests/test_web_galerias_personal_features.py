@@ -119,7 +119,7 @@ class PersonalFeaturesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('api("locate-media",{media})',js)
         self.assertIn('S.folder.favorites?"favorites-items":"items"',js)
         self.assertIn('if(id==="library"&&S.me?.allowed)',js)
-        self.assertIn('S.me?.admin?100:10',js)
+        self.assertIn('(S.me?.admin||S.me?.admin_controls)?100:10',js)
         self.assertIn('.favorite-mark',style)
         self.assertNotIn('id="resume-feature"',markup)
         self.assertIn('className="folder-continue"',js)
