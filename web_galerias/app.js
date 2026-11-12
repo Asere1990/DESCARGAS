@@ -1581,7 +1581,7 @@ $("enter").onclick=async()=>{
  catch(e){notice(e.message);}
  finally{enter.disabled=false;}
 };
-$("go-intro").onclick=()=>show("intro");
+$("open-support-chat").onclick=()=>openSupportChat();
 // Swiftgram can ignore a t.me?startapp link inside an existing Mini App,
 // even after Customer Service returns HTTP 200. Use the signed in-webview
 // navigation already established by Mi Cuenta -> Web Galerías, in reverse.
@@ -1725,74 +1725,20 @@ async function getCustomerChatLink(){
  return customerChatRequest;
 }
 async function openSupportChat(){
- const button=$("support-bubble");
- if(button.disabled)return;
- button.disabled=true;
+ const button=$("open-support-chat");
+ if(button?.disabled)return;
+ if(button)button.disabled=true;
  try{
   const url=await getCustomerChatLink();
   navigateCustomerScreen(url,customerChatWebUrl,"chat");
  }catch(e){notice("No se pudo abrir el chat de Atención al Cliente.");}
- finally{button.disabled=false;}
+ finally{if(button)button.disabled=false;}
 }
 function updateSupportVisibility(screen){
- const visible=!!S.me?.allowed&&!BROWSER_ADMIN&&screen!=="intro"&&screen!=="admin";
- $("support-bubble").classList.toggle("hidden",!visible);
+ // The blue Chat button is fixed in the library nav; no floating control.
+ const button=$("open-support-chat");
+ if(button)button.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW);
 }
-function mountSupportBubble(){
- const button=$("support-bubble");
- if(!button)return; // Compatible with older cached HTML and isolated tests.
- const key="wg_customer_support_button_v1";
- let pos={x:.85,y:.60},start=null,suppressClick=false;
- try{
-  const saved=JSON.parse(localStorage.getItem(key)||"null");
-  if(saved&&Number.isFinite(saved.x)&&Number.isFinite(saved.y))pos=saved;
- }catch(_){}
- const bounds=()=>{
-  const width=button.offsetWidth||56,height=button.offsetHeight||56;
-  return {width,height,minX:6,maxX:Math.max(6,innerWidth-width-6),
-          minY:120,maxY:Math.max(120,innerHeight-height-110)};
- };
- const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
- const draw=()=>{
-  const b=bounds(),x=clamp(pos.x*innerWidth,b.minX,b.maxX);
-  const y=clamp(pos.y*innerHeight,b.minY,b.maxY);
-  button.style.left=x+"px";button.style.top=y+"px";
-  button.style.right="auto";
- };
- draw();
- window.addEventListener("resize",draw);
- button.addEventListener("pointerdown",e=>{
-  if(e.pointerType==="mouse"&&e.button!==0)return;
-  const rect=button.getBoundingClientRect();
-  start={id:e.pointerId,offsetX:e.clientX-rect.left,offsetY:e.clientY-rect.top,
-         originX:e.clientX,originY:e.clientY,moved:false};
-  try{button.setPointerCapture(e.pointerId);}catch(_){}
- });
- button.addEventListener("pointermove",e=>{
-  if(!start||e.pointerId!==start.id)return;
-  if(!start.moved&&Math.hypot(e.clientX-start.originX,e.clientY-start.originY)<8)return;
-  start.moved=true;
-  const b=bounds();
-  pos.x=clamp(e.clientX-start.offsetX,b.minX,b.maxX)/innerWidth;
-  pos.y=clamp(e.clientY-start.offsetY,b.minY,b.maxY)/innerHeight;
-  draw();
- });
- button.addEventListener("pointerup",e=>{
-  if(!start||e.pointerId!==start.id)return;
-  const moved=start.moved;start=null;
-  if(moved){
-   suppressClick=true;
-   try{localStorage.setItem(key,JSON.stringify(pos));}catch(_){}
-   setTimeout(()=>{suppressClick=false;},350);
-  }
- });
- button.addEventListener("pointercancel",()=>{start=null;});
- button.addEventListener("click",e=>{
-  if(suppressClick){e.preventDefault();suppressClick=false;return;}
-  void openSupportChat();
- });
-}
-mountSupportBubble();
 
 if($("quota-connect"))$("quota-connect").onclick=()=>{
  // Same bot: open the original DESCARGAS account Mini App in this WebView.
