@@ -756,6 +756,10 @@ async function openFolder(folder){
  $("filter-toggle").textContent="Mostrar todo ▾";$("filter-menu").classList.add("hidden");
  $("filter-toggle").setAttribute("aria-expanded","false");
  renderDropTargets();
+ const downloads=ADMIN_ACCOUNT_VIEW&&!!folder.downloads;
+ $("query").parentElement.classList.toggle("hidden",downloads);
+ $("filter-toggle").closest(".album-filter-bar").classList.toggle("hidden",downloads);
+ $("folder-drop-tray").classList.toggle("hidden",downloads);
  $("select-mode").textContent="Seleccionar";updateSelection();show("album");await loadItems(false);
 }
 async function loadItems(older=false){
@@ -764,7 +768,10 @@ async function loadItems(older=false){
  $("empty-gallery").classList.add("hidden");
  if(!older){S.items=[];$("album-grid").replaceChildren();}
  try{
-  const data=await api(S.folder.favorites?"favorites-items":"items",{
+  const data=ADMIN_ACCOUNT_VIEW&&S.folder.downloads?
+   await api("admin-mirror-download-items",{
+    date:S.folder.date,offset:older?(S.next||0):0}):
+   await api(S.folder.favorites?"favorites-items":"items",{
     ...(S.folder.favorites?{}:S.folder.personal?
       {collection:S.folder.id}:{folder:S.folder.id}),
     kind:S.filter,query:S.search,cursor:older?(S.next||0):0});
@@ -1873,8 +1880,13 @@ document.querySelectorAll("#filter-menu [data-kind]").forEach(b=>b.onclick=()=>{
  S.selected.clear();S.selection=false;updateSelection();loadItems(false);
 });
 $("back-library").onclick=()=>{
+ const fromDownloads=ADMIN_ACCOUNT_VIEW&&!!S.folder?.downloads;
  S.folder=null;S.selected.clear();$("filter-menu").classList.add("hidden");
- if(S.returnFromAdmin){S.returnFromAdmin=false;show("admin");switchAdminTab("carpetas");}
+ $("query").parentElement.classList.remove("hidden");
+ $("filter-toggle").closest(".album-filter-bar").classList.remove("hidden");
+ if(fromDownloads&&window.GalleryAccountAdmin?.showDownloadDays)
+  window.GalleryAccountAdmin.showDownloadDays();
+ else if(S.returnFromAdmin){S.returnFromAdmin=false;show("admin");switchAdminTab("carpetas");}
  else show("library");
 };
 $("load-more").onclick=()=>loadItems(true);
@@ -2061,6 +2073,17 @@ $("browser-logout").onclick=async()=>{
  }catch(e){notice(e.message);}
 };
 (async()=>{
+ if(ADMIN_ACCOUNT_VIEW){
+  try{
+   if(!Number.isSafeInteger(ADMIN_ACCOUNT_UID)||ADMIN_ACCOUNT_UID<=0)
+    throw Error("Cuenta de usuario inválida.");
+   await refresh();
+   if(!S.me?.admin_view)throw Error("Acceso de administrador no autorizado.");
+   $("enter").disabled=true; // Never offer a checkout in an admin look-through.
+   show("library");
+  }catch(e){notice(e.message);$("intro-notice").textContent=e.message;show("intro");}
+  return;
+ }
  if(BROWSER_ADMIN){
   try{
    await refresh();
@@ -2082,7 +2105,7 @@ $("browser-logout").onclick=async()=>{
 /* Actualizar las vistas mientras llegan los originales. No interrumpir el visor,
    la selección de fotos ni las páginas antiguas. */
 setInterval(()=>{
-  if(!S.me||document.hidden||BROWSER_ADMIN)return;
+  if(!S.me||document.hidden||BROWSER_ADMIN||ADMIN_ACCOUNT_VIEW)return;
   if(!$("album").classList.contains("hidden")){
     if(S.folder&&!S.selection&&!S.search&&S.items.length<=60
        &&$("viewer").classList.contains("hidden"))
