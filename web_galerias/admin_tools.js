@@ -79,7 +79,7 @@
   finally{$("admin-media-load").disabled=false;}
  }
  async function deleteMediaIds(ids,cloud=false){
-  if(!S.me?.admin||state.mediaBusy)return false;
+  if(!(S.me?.admin||S.me?.admin_controls)||state.mediaBusy)return false;
   ids=[...new Set(ids)].filter(x=>Number.isSafeInteger(x)&&x>0);
   if(!ids.length||ids.length>100){notice("Selecciona de 1 a 100 archivos.");return false;}
   const description=cloud?
@@ -117,7 +117,7 @@
   finally{state.mediaBusy=false;state.busy=false;selectionStatus();}
  }
  function adminDeleteSelection(ids){
-  if(!S.me?.admin||!ids?.length)return;
+  if(!(S.me?.admin||S.me?.admin_controls)||!ids?.length)return;
   const root=$("media-context-actions");root.replaceChildren();
   $("media-context-title").textContent="Eliminar "+ids.length+" archivo"+(ids.length===1?"":"s");
   root.append(choice("Eliminar de la web · conservar Cloudflare",()=>deleteMediaIds(ids,false)));
@@ -612,7 +612,7 @@
   const media=Number(item?.id);
   if(!Number.isSafeInteger(media)||media<=0)return notice("Archivo no válido.");
   if(ADMIN_ACCOUNT_VIEW){
-   if(!S.me?.admin||window.parent===window)return notice("Acceso de administrador no disponible.");
+   if(!S.me?.admin_controls||window.parent===window)return notice("Acceso de administrador no disponible.");
    // The parent uses its own verified admin identity; the customer isn't
    // impersonated and no customer download quota is affected.
    window.parent.postMessage({type:"wg-gallery-admin-open-original",media},location.origin);
