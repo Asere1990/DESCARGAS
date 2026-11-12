@@ -1511,20 +1511,29 @@ function switchAdminTab(tab){
 function populateEditor(){
  const d=S.me.design;
  for(const k of ["title","intro_label","intro_caption","button_label","header_mode","button_mode","tile_shape",
+                 "library_brand","library_brand_mode","library_eyebrow","library_eyebrow_mode",
+                 "library_heading","library_heading_mode",
                  "intro_fit","intro_media","button_color","accent","background","text_color",
-                 "title_image_height","button_image_height"])
+                 "title_image_height","button_image_height",
+                 "library_brand_image_height","library_eyebrow_image_height",
+                 "library_heading_image_height"])
   $("edit-"+k).value=d[k]??(k==="button_mode"?"text":"");
  updateEditorLabelChoices();
  loadEditorImagePreview("title");
  loadEditorImagePreview("button");
+ for(const slot of LIBRARY_SLOTS)loadLibraryEditorPreview(slot);
  populateWatermarkEditor(d);
 }
 async function saveDesign(){
  const design={};
  for(const k of ["title","intro_label","intro_caption","button_label","header_mode","button_mode","tile_shape",
+                 "library_brand","library_brand_mode","library_eyebrow","library_eyebrow_mode",
+                 "library_heading","library_heading_mode",
                  "intro_fit","intro_media","button_color","accent","background","text_color"])
   design[k]=$("edit-"+k).value;
- for(const k of ["title_image_height","button_image_height"])
+ for(const k of ["title_image_height","button_image_height",
+                 "library_brand_image_height","library_eyebrow_image_height",
+                 "library_heading_image_height"])
   design[k]=Number($("edit-"+k).value);
  design.daily_limit=50;
  try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
@@ -1637,7 +1646,9 @@ async function uploadIntroVideo(file,kind="intro"){
  });
 }
 function pendingEditorFiles(){
- return ["logo","header","button-label-image","intro-photo","intro","web-promo"]
+ return ["logo","header","button-label-image",
+          "library-brand","library-eyebrow","library-heading",
+          "intro-photo","intro","web-promo"]
   .map(key=>({key,file:$("upload-"+key).files?.[0]}))
   .filter(entry=>!!entry.file);
 }
@@ -1667,15 +1678,19 @@ async function confirmEditorChanges(){
                     "header_mode","button_mode","tile_shape","intro_fit","intro_media","button_color",
                     "accent","background","text_color"])
    design[key]=$("edit-"+key).value;
-  for(const key of ["title_image_height","button_image_height"])
+  for(const key of ["title_image_height","button_image_height",
+                 "library_brand_image_height","library_eyebrow_image_height",
+                 "library_heading_image_height"])
    design[key]=Number($("edit-"+key).value);
   design.daily_limit=50;
   status.textContent="Guardando identidad y marca de agua…";
   await api("admin-design",{design});
   await api("admin-watermark",{watermark:watermarkFromEditor()});
-  for(const key of ["logo","header","button-label-image","intro","intro-photo","web-promo"])$("upload-"+key).value="";
+  for(const key of ["logo","header","button-label-image",
+                     "library-brand","library-eyebrow","library-heading",
+                     "intro","intro-photo","web-promo"])$("upload-"+key).value="";
   S.heroNeedsReload=files.some(({key})=>key==="intro"||key==="intro-photo");
-  if(files.some(({key})=>key==="header"||key==="button-label-image"))
+  if(files.some(({key})=>key==="header"||key==="button-label-image"||key.startsWith("library-")))
    S.identityRefreshVersion=Date.now();
   await refresh();
   populateEditor();
@@ -2094,15 +2109,25 @@ for(const key of ["enabled","line1","line2","position","opacity","size","color"]
  input.addEventListener("input",previewWatermark);
  input.addEventListener("change",previewWatermark);
 }
-for(const selector of ["header_mode","button_mode"])
+for(const selector of ["header_mode","button_mode",
+                      "library_brand_mode","library_eyebrow_mode","library_heading_mode"])
  $("edit-"+selector).onchange=updateEditorLabelChoices;
-for(const key of ["title_image_height","button_image_height"])
+for(const key of ["title_image_height","button_image_height",
+                 "library_brand_image_height","library_eyebrow_image_height",
+                 "library_heading_image_height"])
  $("edit-"+key).oninput=updateEditorImageSizes;
-for(const key of ["logo","header","button-label-image","intro","intro-photo","web-promo"])
+for(const key of ["logo","header","button-label-image",
+                   "library-brand","library-eyebrow","library-heading",
+                   "intro","intro-photo","web-promo"])
  $("upload-"+key).onchange=()=>{
   const file=$("upload-"+key).files?.[0];
   if(key==="header"&&file)$("edit-header_mode").value="image";
   if(key==="button-label-image"&&file)$("edit-button_mode").value="image";
+   if(key.startsWith("library-")&&file){
+    const slot=key.replaceAll("-","_");
+    $("edit-"+slot+"_mode").value="image";
+    loadLibraryEditorPreview(slot);
+   }
   if(key==="header"||key==="button-label-image")
    loadEditorImagePreview(key==="header"?"title":"button");
   if(key==="intro"&&file){
