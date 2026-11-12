@@ -1625,6 +1625,7 @@ $("enter").onclick=async()=>{
  catch(e){notice(e.message);}
  finally{enter.disabled=false;}
 };
+$("go-intro").onclick=()=>show("intro");
 $("open-support-chat").onclick=()=>openSupportChat();
 // Swiftgram can ignore a t.me?startapp link inside an existing Mini App,
 // even after Customer Service returns HTTP 200. Use the signed in-webview
@@ -1779,9 +1780,13 @@ async function openSupportChat(){
  finally{if(button)button.disabled=false;}
 }
 function updateSupportVisibility(screen){
- // The blue Chat button is fixed in the library nav; no floating control.
- const button=$("open-support-chat");
- if(button)button.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW);
+ // Administrator: Portada to inspect the landing page. Members: fixed blue support chat.
+ // Keep both hidden until signed bootstrap establishes the real account role.
+ const admin=!!S.me?.admin;
+ const chat=$("open-support-chat");
+ const portada=$("go-intro");
+ if(chat)chat.classList.toggle("hidden",!S.me?.allowed||admin||ADMIN_ACCOUNT_VIEW);
+ if(portada)portada.classList.toggle("hidden",!admin);
 }
 
 if($("quota-connect"))$("quota-connect").onclick=()=>{
