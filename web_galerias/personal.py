@@ -266,8 +266,9 @@ async def items(g,uid,folder,query,cursor,kind,token):
     query=normal(query.strip())[:100]
     allowed=await g.db().fetchval("SELECT 1 FROM wg_personal_folders WHERE id=$1 AND uid=$2",folder,uid)
     if not allowed:raise web.HTTPForbidden(text="Carpeta no autorizada.")
-    rows=await g.db().fetch("""SELECT m.id,m.kind,m.mime,m.filename,m.date,
-       m.width,m.height,m.size,m.state,m.thumb_key
+    rows=await g.db().fetch("""SELECT m.id,m.folder,m.kind,m.mime,m.filename,m.date,
+       m.width,m.height,m.size,m.state,m.thumb_key,
+       EXISTS(SELECT 1 FROM wg_favorites fav WHERE fav.uid=$7 AND fav.media=m.id) AS favorite
        FROM wg_personal_items i
        JOIN wg_media m ON m.id=i.media
        JOIN wg_folders f ON f.id=m.folder
@@ -281,7 +282,7 @@ async def items(g,uid,folder,query,cursor,kind,token):
         AND ($6 OR COALESCE(p.mode,'all')='all' OR EXISTS(
           SELECT 1 FROM wg_user_folders u WHERE u.uid=$1 AND u.folder=m.folder))
        ORDER BY m.id DESC LIMIT 61
-       """,uid,folder,kind,query,cursor or 2**63-1,is_admin(uid))
+       """,uid,folder,kind,query,cursor or 2**63-1,is_admin(uid),uid)
     result=[]
     for x in rows[:60]:
         item=dict(x)
