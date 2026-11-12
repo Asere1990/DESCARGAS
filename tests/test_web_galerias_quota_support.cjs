@@ -86,7 +86,7 @@ test("draggable customer chat does not activate on a drag",()=>{
   openSupportChat:()=>hits.push("open")
  };
  vm.createContext(ctx);
- vm.runInContext(part("function mountSupportBubble(){","$('open-favorites')"),ctx);
+ vm.runInContext(part("function mountSupportBubble(){",'$("open-favorites")'),ctx);
  // The trailing mountSupportBubble() call is included by the block.
  assert.ok(events.pointerdown);
  const oldX=button.style.left,oldY=button.style.top;
