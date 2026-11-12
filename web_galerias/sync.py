@@ -94,9 +94,9 @@ async def source_free(g,uid,folder,*,now=None):
 
 class PauseGuard:
     """Comprueba frecuentemente el estado, sin consultar Postgres en cada chunk."""
-    def __init__(self,g,uid,folder):
+    def __init__(self,g,uid,folder,priority=False):
         self.g=g;self.uid=uid;self.folder=folder;self.last=0.0
-        self.last_heartbeat=0.0
+        self.last_heartbeat=0.0;self.priority=priority
 
     async def __call__(self):
         now=time.monotonic()
@@ -105,6 +105,11 @@ class PauseGuard:
         self.last=now
         if not await source_free(self.g,self.uid,self.folder):
             raise PauseRequested("Backup pausado sin modificar sesión Telegram")
+        if not self.priority and getattr(self.g,"priority_task",None):
+            # Give the clicked video this account's exclusive lock.
+            from . import on_demand
+            if await on_demand.has_urgent(self.g,self.uid):
+                raise PauseRequested("Backup cedió la cuenta al video seleccionado")
         # Un video grande puede tardar minutos; mantener el estado visible real.
         if now-self.last_heartbeat>=30:
             await checkpoint(self.g,self.folder,"respaldando")
