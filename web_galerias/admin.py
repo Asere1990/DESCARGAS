@@ -61,6 +61,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op=="admin-commercial-report":
+        from .commercial import report
+        return await report(g,uid,data)
     if op in ("admin-media-list","admin-media-remove","admin-media-r2-status",
               "admin-active-users","admin-user-profile","admin-users-page","admin-user-stats",
               "admin-free-access-status","admin-free-access-set","admin-free-access-list",
