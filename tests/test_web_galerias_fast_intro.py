@@ -91,7 +91,8 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('data-fast-title',result)
         self.assertIn('WHERE key=ANY($1::text[])',db.fetch.await_args.args[0])
         self.assertEqual(db.fetch.await_args.args[1],
-                         ["header","button-label-image"])
+                         ["header","button-label-image",
+                          "library-brand","library-eyebrow","library-heading"])
         g.design.assert_awaited_once_with()
         db.fetch.assert_awaited_once()
         not_ready=N(ready=False,design=AsyncMock())

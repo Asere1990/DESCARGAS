@@ -1135,3 +1135,44 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #tab-avisos .admin-notice-history-card strong{font-size:13px}
 #tab-avisos .admin-notice-history-card small{color:var(--muted);font-size:12px}
 #tab-avisos #admin-notice-send:disabled{opacity:.5}
+
+
+/* Separately editable image substitutes for the three headings on the
+   actual customer gallery. Never change the logo or the intro headline. */
+#library .library-slot-image{
+ min-width:0;max-width:100%;
+ overflow:hidden;letter-spacing:normal;
+}
+#library #brand-name.library-slot-image{
+ display:flex;align-items:center;line-height:normal;
+}
+#library #collection-eyebrow.library-slot-image,
+#library #collection-heading.library-slot-image{
+ display:flex;align-items:center;
+}
+#library .library-slot-image img{
+ display:block;width:auto;max-width:100%;
+ object-fit:contain;object-position:left center;
+}
+#admin #editor-library-identity .library-editor-group{
+ border:1px solid var(--line);border-radius:14px;
+ margin:16px 0;padding:12px 15px 16px;
+ background:rgba(255,255,255,.025);
+}
+#admin #editor-library-identity .library-editor-group h3{
+ margin:0 0 11px;font-size:15px;font-weight:750;
+}
+#admin #editor-library-identity .editor-image-setting input[type="range"]{
+ width:100%;accent-color:var(--accent);
+}
+#admin #editor-library-identity .editor-image-size-preview{
+ display:flex;justify-content:flex-start;align-items:center;
+ min-height:80px;overflow:hidden;
+}
+#admin #editor-library-identity .editor-image-size-preview img{
+ display:block;width:auto;max-width:100%;max-height:200px;
+ object-fit:contain;object-position:left center;
+}
+#admin #editor-library-identity .editor-image-size-preview img[hidden]{
+ display:none!important;
+}

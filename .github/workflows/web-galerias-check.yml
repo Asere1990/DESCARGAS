@@ -31,6 +31,8 @@ on:
       - 'tests/test_web_galerias_no_default_flash.cjs'
       - 'tests/test_web_galerias_fast_intro.cjs'
       - 'tests/test_web_galerias_fast_intro.py'
+      - 'tests/test_web_galerias_library_identity.py'
+      - 'tests/test_web_galerias_library_identity.cjs'
       - 'tests/test_web_galerias_public_launch.py'
       - 'tests/test_web_galerias_personal_features.py'
       - 'tests/test_web_galerias_resume_offers.py'
@@ -75,6 +77,7 @@ jobs:
           node --test tests/test_web_galerias_label_sizes.cjs
           node --test tests/test_web_galerias_no_default_flash.cjs
           node --test tests/test_web_galerias_fast_intro.cjs
+          node --test tests/test_web_galerias_library_identity.cjs
           node --test tests/test_web_galerias_user_features.cjs
           node --test tests/test_web_galerias_favorite_gestures.cjs
           node --test tests/test_web_galerias_resume_offers.cjs
@@ -88,6 +91,7 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_personal_menus.py -v
           python -m unittest discover -s tests -p test_web_galerias_intro_video.py -v
           python -m unittest discover -s tests -p test_web_galerias_fast_intro.py -v
+          python -m unittest discover -s tests -p test_web_galerias_library_identity.py -v
           python -m unittest discover -s tests -p test_web_galerias_standalone.py -v
           python -m unittest discover -s tests -p test_web_galerias_sync.py -v
           python -m unittest discover -s tests -p test_web_galerias_datos_source.py -v
