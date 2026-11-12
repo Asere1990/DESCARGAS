@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 import asyncpg
 from descargas_app.service import Service
 from descargas_app.pg_store import Repository
+from web_galerias.datos_source import DatosReader
 
 
 class GalleryRepository(Repository):
@@ -44,6 +45,7 @@ class IsolatedGalleryService:
         self.api_id=os.getenv("ID","")
         self.api_hash=os.getenv("HASH","")
         self.ready=False
+        self.datos=DatosReader()  # Optional, independent, read-only source
 
     async def start(self,app):
         app["r2_verify_task"]=asyncio.create_task(verify_r2())
@@ -77,6 +79,7 @@ class IsolatedGalleryService:
                 "Gallery private setup pending: GALERIAS_AUTH_BOT_TOKEN or encrypted runtime_config")
             return
         self.ready=True
+        await self.datos.start()  # Failure must not affect the original DESCARGAS source.
         logging.getLogger("web-galerias").warning(
            "Gallery private database and Telegram signature verification ready")
 
@@ -86,6 +89,7 @@ class IsolatedGalleryService:
             task.cancel()
             await asyncio.gather(task,return_exceptions=True)
         self.ready=False
+        await self.datos.close()
         if self.repo:await self.repo.close()
 
     async def get_session(self,uid):
