@@ -15,6 +15,7 @@ from telethon import errors, types
 from PIL import Image, ImageOps
 from .core import normal
 from .media_types import classify
+from . import media_text
 
 log=logging.getLogger("web-galerias-sync")
 EXTRA="""
@@ -224,11 +225,21 @@ async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
     if not rows:
         if not source["complete"]:
             await g.db().execute(
-              "UPDATE wg_folders SET complete=TRUE WHERE id=$1 AND active",
+              "UPDATE wg_folders SET complete=TRUE,reply_scan_complete=TRUE WHERE id=$1 AND active",
                folder)
         return 0
+    # Preserve only explicit replies, associating every album sibling even
+    # when Telegram serves comments before their media parents.
+    changed=set()
     for m in rows:
         await catalog(g,folder,m)
+        parent=await media_text.capture_reply(g,folder,m)
+        if parent:
+            changed.update((int(m.id),int(parent)))
+        if classify(m)[0]:
+            changed.add(int(m.id))
+    if changed:
+        await media_text.rebuild(g,folder,changed)
     if not await folder_active(g,folder,uid):raise PauseRequested()
     if not source["complete"]:
         await g.db().execute("""UPDATE wg_folders SET scan_cursor=$2,
@@ -240,6 +251,44 @@ async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
           high_water=GREATEST(high_water,$2),
           scan_count=scan_count+$3 WHERE id=$1 AND active""",
           folder,max(x.id for x in rows),len(rows))
+    return len(rows)
+
+
+async def reply_backfill_batch(g,folder,client,entity,guard,limit=70):
+    """Read historical comments in short turns, without re-downloading media.
+
+    Old galleries have reply_scan_complete=FALSE and a separate cursor.
+    Newly indexed galleries collect replies during their regular media pass.
+    """
+    db=g.db()
+    state=await db.fetchrow("""
+      SELECT reply_scan_cursor,reply_scan_complete,complete FROM wg_folders
+      WHERE id=$1 AND active
+    """,folder)
+    if not state or state["reply_scan_complete"] or not state["complete"]:
+        return 0
+    await guard()
+    rows=[]
+    async for m in client.iter_messages(entity,
+           offset_id=state["reply_scan_cursor"] or 0,
+           limit=max(10,min(120,int(limit)))):
+        rows.append(m)
+    await guard()
+    if not rows:
+        await db.execute("""UPDATE wg_folders SET reply_scan_complete=TRUE
+          WHERE id=$1 AND active""",folder)
+        return 0
+    touched=set()
+    for m in rows:
+        parent=await media_text.capture_reply(g,folder,m)
+        if parent:
+            touched.update((int(m.id),int(parent)))
+    if touched:
+        await media_text.rebuild(g,folder,touched)
+    await guard()
+    await db.execute("""
+      UPDATE wg_folders SET reply_scan_cursor=$2 WHERE id=$1 AND active
+    """,folder,min(int(x.id) for x in rows))
     return len(rows)
 
 
@@ -448,6 +497,9 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
             if phase=="counts":
                 await refresh_telegram_counts(g,folder,client,entity,guard)
                 return
+            if phase=="metadata":
+                await reply_backfill_batch(g,folder,client,entity,guard)
+                return
 
             if phase in ("combined","index","prime"):
                 await checkpoint(g,folder,"catalogando")
@@ -572,6 +624,8 @@ async def catalog(g,folder,m):
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
       ON CONFLICT(folder,message) DO UPDATE SET
         source_type=excluded.source_type,
+        reply_to=COALESCE(wg_media.reply_to,excluded.reply_to),
+        grouped=COALESCE(wg_media.grouped,excluded.grouped),
         kind=CASE WHEN wg_media.state='ready' THEN wg_media.kind
              ELSE excluded.kind END,
         mime=CASE WHEN wg_media.state='ready' THEN wg_media.mime
@@ -813,6 +867,16 @@ async def run(g):
                         selected=(eligible[offset:]+eligible[:offset])[:max(1,min(3,len(eligible)))]
                         g.archive_offset=(offset+len(selected))%len(eligible)
                         await fair_round(g,selected,phase="archive")
+                    # Third priority: bounded legacy reply recovery. The
+                    # visible previews and R2 originals above always run first.
+                    if round_no%3==0:
+                        historical=await db.fetch("""
+                          SELECT * FROM wg_folders
+                          WHERE active AND complete AND NOT reply_scan_complete
+                          ORDER BY last_check ASC,id ASC LIMIT 1
+                        """)
+                        if historical:
+                            await fair_round(g,historical,phase="metadata")
                     await asyncio.sleep(3)
                 except asyncio.CancelledError:
                     raise
