@@ -207,6 +207,23 @@
         </select>
        </label>
      </div>
+     <section id="admin-free-access-manager" class="panel-card hidden" aria-label="Gestionar accesos gratuitos">
+       <h2>⭐ Usuario · acceso gratuito</h2>
+       <p class="muted">Autoriza o revoca por Telegram ID. No cambia Stripe ni los archivos de Telegram. Los autorizados pueden descargar sin límite diario y sin marca de agua.</p>
+       <label for="admin-free-uid">Telegram ID
+         <input id="admin-free-uid" inputmode="numeric" pattern="[1-9][0-9]{4,18}"
+                maxlength="19" placeholder="Telegram ID">
+       </label>
+       <div class="row-actions">
+         <button id="admin-free-check" type="button" class="small-btn">Consultar</button>
+         <button id="admin-free-grant" type="button" class="small-btn strong">Conceder acceso gratis</button>
+         <button id="admin-free-revoke" type="button" class="small-btn">Quitar acceso gratis</button>
+       </div>
+       <p id="admin-free-status" class="muted" role="status"></p>
+       <h3>Accesos gratuitos guardados</h3>
+       <div id="admin-free-list" class="admin-free-list" role="list"></div>
+       <button id="admin-free-more" type="button" class="small-btn hidden">Ver más</button>
+     </section>
      <section id="admin-users-details" class="panel-card admin-users-details hidden" aria-label="Listado de usuarios">
       <h2 id="admin-users-heading">Usuarios de Web Galerías</h2>
       <p id="admin-users-explainer" class="muted">Lista paginada; selecciona un nombre para abrir la ficha.</p>
