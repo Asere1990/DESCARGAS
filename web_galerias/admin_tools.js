@@ -574,6 +574,64 @@
   $("media-context-sheet").classList.remove("hidden");
  }
 
+ async function loadCommercial(){
+  if(!S.me?.admin)return;
+  const button=$("commercial-refresh"),root=$("commercial-metrics"),
+        graph=$("commercial-trend"),range=Number($("commercial-range").value);
+  if(button.disabled)return;
+  button.disabled=true;
+  $("commercial-period").textContent="Consultando datos de Web Galerías…";
+  try{
+   const d=await api("admin-commercial-report",{days:range});
+   $("commercial-period").textContent=d.from+" — "+d.through+" · horario UTC";
+   const fields=[
+    ["Visitantes únicos",d.visitors,"personas que abrieron la web"],
+    ["Usuarios que iniciaron pago",d.checkout_users,"distintos Telegram ID"],
+    ["Intentos de pago",d.checkout_attempts,"enlaces de Stripe generados"],
+    ["Compras confirmadas",d.purchases,"pagos de alta verificados"],
+    ["Renovaciones",d.renewals,"ciclos pagados verificados"],
+    ["Cancelaciones efectivas",d.cancellations,"suscripciones finalizadas"],
+    ["Conversión estimada",Number(d.conversion).toLocaleString("es-ES")+" %","compras / intentos de pago"],
+    ["Membresías pagadas activas",d.active_paid,"estado actual, no acumulado"],
+    ["Accesos gratuitos activos",d.active_free,"separados de las compras"],
+    ["Ingresos brutos registrados",(Number(d.gross_cents)/100).toLocaleString("es-US",
+      {style:"currency",currency:"USD"}),"sin descontar reembolsos"]
+   ];
+   root.replaceChildren();
+   for(const [label,value,note] of fields){
+    const card=document.createElement("div");card.className="commercial-metric";
+    const title=document.createElement("small");title.textContent=label;
+    const amount=document.createElement("strong");
+    amount.textContent=typeof value==="number"?fmt(value):String(value);
+    const detail=document.createElement("span");detail.textContent=note;
+    card.append(title,amount,detail);root.append(card);
+   }
+   graph.replaceChildren();
+   const daily=Array.isArray(d.trend)?d.trend:[];
+   const max=Math.max(1,...daily.map(x=>Number(x.visitors)||0));
+   for(const day of daily){
+    const line=document.createElement("div");line.className="commercial-trend-row";
+    const label=document.createElement("small");
+    label.textContent=new Date(day.day+"T12:00:00Z").toLocaleDateString(
+      "es-ES",{day:"2-digit",month:"short",timeZone:"UTC"});
+    const lane=document.createElement("div");lane.className="commercial-trend-lane";
+    const visits=document.createElement("div");visits.className="commercial-trend-visits";
+    visits.style.width=Math.max(0,100*(Number(day.visitors)||0)/max)+"%";
+    const purchased=document.createElement("div");purchased.className="commercial-trend-purchases";
+    purchased.style.width=Math.max(0,100*(Number(day.purchases)||0)/max)+"%";
+    const totals=document.createElement("small");
+    totals.textContent=fmt(day.visitors)+" / "+fmt(day.purchases);
+    totals.title="Visitas / compras";
+    lane.append(visits,purchased);line.append(label,lane,totals);graph.append(line);
+   }
+   if(!daily.length)graph.textContent="No hay visitas registradas en este período.";
+   $("commercial-note").textContent=d.note||"";
+  }catch(e){
+   $("commercial-period").textContent="No se pudieron consultar las estadísticas.";
+   root.replaceChildren();graph.replaceChildren();
+   notice(e.message);
+  }finally{button.disabled=false;}
+ }
  function initialize(){
   $("admin-media-load").onclick=()=>loadAdminMedia(false);
   $("admin-media-more").onclick=()=>loadAdminMedia(true);
@@ -594,6 +652,8 @@
   $("admin-free-grant").onclick=()=>freeUpdate(true);
   $("admin-free-revoke").onclick=()=>freeUpdate(false);
   $("admin-free-more").onclick=()=>loadFreeList(true);
+  $("commercial-range").onchange=loadCommercial;
+  $("commercial-refresh").onclick=loadCommercial;
   $("admin-users-since").onchange=()=>loadUserPage(true);
   $("admin-users-query").oninput=()=>{
    clearTimeout(userTimer);
@@ -617,6 +677,6 @@
   $("media-context-sheet").onclick=e=>{if(e.target===$("media-context-sheet"))closeActions();};
  }
  window.CubanitasTools={adminRefreshed,mediaActions,adminDeleteSelection,
-    showUserSectionMenu,refreshUserStats,usersLoaded};
+    showUserSectionMenu,refreshUserStats,usersLoaded,loadCommercial};
  initialize();
 })();
