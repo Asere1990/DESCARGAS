@@ -289,6 +289,34 @@
   }catch(e){if(token===state.userLoadGeneration)notice(e.message);}
   finally{if(token===state.userLoadGeneration)state.usersBusy=false;}
  }
+ let mirrorAssets=null;
+ async function openUserMirror(uid,mode){
+  // The normal customer's first paint never fetches these admin-only assets.
+  if(!window.GalleryUserMirror){
+   if(!mirrorAssets){
+    const version="admin-user-mirror-20261112-v1";
+    const asset=(tag,path)=>new Promise((resolve,reject)=>{
+     const node=document.createElement(tag);
+     if(tag==="link"){
+      node.rel="stylesheet";node.href="/web-galerias/static/"+path+"?v="+version;
+     }else{
+      node.src="/web-galerias/static/"+path+"?v="+version;
+      node.async=true;
+     }
+     node.onload=resolve;
+     node.onerror=()=>reject(Error("No se pudo cargar la vista del usuario."));
+     document.head.append(node);
+    });
+    mirrorAssets=Promise.all([
+     asset("link","admin_mirror.css"),asset("script","admin_mirror.js")
+    ]).catch(error=>{mirrorAssets=null;throw error;});
+   }
+   try{await mirrorAssets;}
+   catch(error){notice(error.message);return;}
+  }
+  if(!window.GalleryUserMirror)return notice("Vista administrativa no disponible.");
+  window.GalleryUserMirror.open(uid,mode);
+ }
  function rowDatum(root,label,value){
   const row=document.createElement("div");row.className="admin-data-row";
   const key=document.createElement("span");key.className="admin-data-label";key.textContent=label;
@@ -353,9 +381,17 @@
    rowDatum(root,"Último acceso",local.last_seen?
      new Date(local.last_seen*1000).toLocaleString("es-US"):"—");
    const actions=document.createElement("div");actions.className="admin-profile-actions";
+   actions.style.gridTemplateColumns="1fr";
+   const mirror=mode=>openUserMirror(uid,mode);
    const folders=document.createElement("button");folders.className="small-btn strong";
    folders.textContent="📁 Ver carpetas personalizadas";
-   folders.onclick=()=>loadUserFolders(uid);
+   folders.onclick=()=>mirror("folders");
+   const downloads=document.createElement("button");downloads.className="small-btn strong";
+   downloads.textContent="⇩ Ver descargas";
+   downloads.onclick=()=>mirror("downloads");
+   const favorites=document.createElement("button");favorites.className="small-btn";
+   favorites.textContent="♥ Ver favoritos";
+   favorites.onclick=()=>mirror("favorites");
    const perms=document.createElement("button");perms.className="small-btn";
    perms.textContent="Asignar carpetas de acceso";
    perms.onclick=()=>{
@@ -384,9 +420,8 @@
     }catch(e){notice(e.message);}
     finally{toggle.disabled=false;}
    };
-   actions.append(folders,perms,toggle);root.append(actions);
-   const personal=document.createElement("section");personal.id="admin-user-personal";
-   personal.className="admin-user-personal";root.append(personal);
+   actions.append(folders,downloads,favorites,perms,toggle);root.append(actions);
+   // User collections open as full-screen views; avoid inline long scroll.
    const central=document.createElement("section");central.id="admin-user-central";
    central.className="admin-user-central";
    central.append(document.createTextNode("Consultando ficha de CUSTOMER-SERVICE…"));

@@ -19,6 +19,8 @@ on:
       - 'tests/test_web_galerias_paid_recovery.py'
       - 'tests/test_web_galerias_browser_admin.py'
       - 'tests/test_web_galerias_admin_user_controls.py'
+      - 'tests/test_web_galerias_admin_mirror.py'
+      - 'tests/test_web_galerias_admin_mirror.cjs'
       - 'tests/test_web_galerias_free_and_promo.py'
       - 'tests/test_web_galerias_button_label_image.py'
       - 'tests/test_web_galerias_label_sizes.cjs'
@@ -59,6 +61,8 @@ jobs:
           python -m compileall -q web_galerias descargas_app galerias_standalone.py
           node --check web_galerias/app.js
           node --check web_galerias/admin_tools.js
+          node --check web_galerias/admin_mirror.js
+          node --test tests/test_web_galerias_admin_mirror.cjs
           node --test tests/test_web_galerias_drag.cjs
           node --test tests/test_web_galerias_label_sizes.cjs
           node --test tests/test_web_galerias_no_default_flash.cjs
@@ -90,6 +94,7 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_admin_tools.py -v
           python -m unittest discover -s tests -p test_web_galerias_browser_admin.py -v
           python -m unittest discover -s tests -p test_web_galerias_admin_user_controls.py -v
+          python -m unittest discover -s tests -p test_web_galerias_admin_mirror.py -v
           python -m unittest discover -s tests -p test_web_galerias_free_and_promo.py -v
           python -m unittest discover -s tests -p test_web_galerias_button_label_image.py -v
           python -m unittest discover -s tests -p test_web_galerias_public_launch.py -v

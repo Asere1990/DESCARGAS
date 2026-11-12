@@ -152,7 +152,7 @@ def mount(app,service):
         return web.Response(text=content,content_type="text/html",headers=intro_page_headers(content))
     async def static(request):
         name=request.match_info["name"]
-        if name not in ("app.js","style.css","admin_tools.js"):raise web.HTTPNotFound()
+        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css"):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/name,headers={
             "Cache-Control":"no-cache","X-Content-Type-Options":"nosniff"})
     async def api(request):
@@ -212,6 +212,9 @@ def mount(app,service):
         return await covers.serve(g,request)
     async def personal_cover(request):
         return await personal.serve_cover(g,request)
+    async def admin_personal_cover(request):
+        from .admin_mirror import personal_cover as serve_admin_personal_cover
+        return await serve_admin_personal_cover(g,request)
     async def download(request):
         return await downloads.download(g,request)
     async def save_file(request):
@@ -234,6 +237,7 @@ def mount(app,service):
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
     app.router.add_get("/web-galerias/cover/{folder}",cover)
     app.router.add_get("/web-galerias/personal-cover/{folder}",personal_cover)
+    app.router.add_get("/web-galerias/admin/personal-cover/{folder}",admin_personal_cover)
     app.router.add_get("/web-galerias/download/{ticket}",download)
     app.router.add_get("/web-galerias/file/{item}",save_file)
     app.router.add_post("/web-galerias/stripe",stripe)
