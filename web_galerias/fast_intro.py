@@ -42,8 +42,7 @@ def fast_intro_html(source, design, asset_keys):
         f'data-fast-title-label="{title_safe}" data-fast-title-height="{size}">'
         f'<img src="/web-galerias/assets/header-fast" data-fast-title '
         f'loading="eager" decoding="async" fetchpriority="high" '
-        f'alt="{title_safe}" style="height:{size}px;max-height:{size}px;'
-        f'max-width:min(92vw,600px);width:auto;object-fit:contain"></div>'
+        f'alt="{title_safe}" height="{size}"></div>'
         if title_image else
         f'<div id="intro-headline" class="intro-headline">{title_safe}</div>'
     )
@@ -51,27 +50,21 @@ def fast_intro_html(source, design, asset_keys):
         button_html = (
             f'<button id="enter" class="primary enter-image-label" disabled '
             f'aria-label="{button_safe}" data-fast-button-label="{button_safe}" '
-            f'style="--entry-label-image-height:{button_size}px">'
+            f'data-fast-button-height="{button_size}">'
             f'<img class="enter-label-image" data-fast-button '
             f'loading="eager" decoding="async" fetchpriority="high" '
-            f'alt="" src="/web-galerias/assets/button-label-fast"></button>'
+            f'alt="" height="{button_size}" '
+            f'src="/web-galerias/assets/button-label-fast"></button>'
         )
     else:
         button_html = (
             f'<button id="enter" class="primary" disabled '
             f'aria-label="{button_safe}">{button_safe}</button>'
         )
-    styles = ";".join(f"{key}:{safe_color(d.get(field), fallback)}"
-                      for key, field, fallback in (
-                          ("--accent", "accent", DEFAULTS["accent"]),
-                          ("--bg", "background", DEFAULTS["background"]),
-                          ("--text", "text_color", DEFAULTS["text_color"]),
-                          ("--button", "button_color", DEFAULTS["button_color"]),
-                      ))
     exact = [
         ('<section id="intro" class="intro screen has-intro-video intro-loading" aria-busy="true">',
          '<section id="intro" class="intro screen has-intro-video intro-loading fast-identity" '
-         f'aria-busy="true" style="{styles}">'),
+         'aria-busy="true">'),
         ('<div id="intro-headline" class="intro-headline">Web Galerías</div>',
          title_html),
         ('<p id="intro-subtitle">Explora nuestras galerías privadas</p>',
