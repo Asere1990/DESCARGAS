@@ -412,7 +412,8 @@ async function api(op,data={}){
    "favorites-items":"admin-view-favorites",
    items:"admin-view-items",
    "locate-media":"admin-view-locate",
-   "favorite-set":"admin-view-favorite-set"
+   "favorite-set":"admin-view-favorite-set",
+   "media-status":"admin-view-media-status"
   };
   const adminOps=new Set([
    "admin-media-remove","admin-mirror-download-dates",
@@ -1073,7 +1074,8 @@ function updateSelection(){
  $("selection-organize").disabled=!S.selected.size;
  const inFavorites=!!S.folder?.favorites;
  $("selection-organize").classList.toggle("hidden",inFavorites);
- $("selection-original").classList.toggle("hidden",!inFavorites);
+ $("selection-original").classList.toggle("hidden",
+   !(inFavorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin)));
  $("selection-original").disabled=S.selected.size!==1;
 }
 function toggleSelection(id){
@@ -1105,14 +1107,46 @@ function showViewerMedia(){
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
   $("viewer-admin-delete").classList.toggle("hidden",!S.me?.admin);
+  $("viewer-admin-original")?.classList.toggle("hidden",
+    !(ADMIN_ACCOUNT_VIEW&&S.me?.admin));
   updateViewerFavorite();
   scheduleViewProgress(m);
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
 }
+async function refreshAdminViewerMedia(index,expected){
+ // Admin's embedded user view intentionally does not refresh every list while
+ // scrolling. A preview may already have become a playable original.
+ if(!ADMIN_ACCOUNT_VIEW||!expected?.id)return;
+ try{
+  const result=await api("media-status",{media:expected.id});
+  if($("viewer").classList.contains("hidden")||
+     S.items[S.viewer]?.id!==expected.id)return;
+  const item=S.items[S.viewer];
+  const wasFull=!!item.available&&!!item.view;
+  item.available=!!result.available;
+  item.kind=result.kind||item.kind;
+  item.mime=result.mime||item.mime;
+  item.view=result.view||null;
+  if(result.thumb)item.thumb=result.thumb;
+  const video=$("view-video");
+  // Don't interrupt an already-playing video merely to renew its URL.
+  if(!wasFull||!item.available||video.error){
+   showViewerMedia();
+  }
+  if(!item.available)notice("La miniatura está disponible; el original aún se está preparando.");
+ }catch(e){
+  // A temporary status error must not erase a previously available video.
+  if(!expected.available)notice("No se pudo comprobar el original. Inténtalo nuevamente.");
+ }
+}
 function openViewer(index){
-  S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
-  document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
-  if(!S.items[index].available)notice("El original se está preparando; la miniatura se muestra si está disponible.");
+ S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
+ document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
+ if(ADMIN_ACCOUNT_VIEW){
+  void refreshAdminViewerMedia(index,S.items[index]);
+ }else if(!S.items[index].available){
+  notice("El original se está preparando; la miniatura se muestra si está disponible.");
+ }
 }
 function closeViewer(){
  $("viewer").classList.add("hidden");
@@ -1996,7 +2030,8 @@ $("select-mode").onclick=()=>{S.selection=!S.selection;S.selected.clear();update
 $("selection-cancel").onclick=()=>{S.selection=false;S.selected.clear();updateSelection();renderItems();};
 $("selection-download").onclick=()=>downloadIds([...S.selected]);
 $("selection-original").onclick=()=>{
- if(!S.folder?.favorites||S.selected.size!==1)return;
+ if(!(S.folder?.favorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin))||
+    S.selected.size!==1)return;
  const id=[...S.selected][0],item=S.items.find(m=>m.id===id);
  if(item)window.CubanitasTools?.locateOriginal?.(item);
 };
@@ -2006,6 +2041,11 @@ $("viewer-next").onclick=()=>moveViewer(1);
 $("close-viewer").onclick=backToViewedMedia;
 $("viewer-download").onclick=()=>downloadIds([S.items[S.viewer]?.id].filter(Boolean));
 $("viewer-admin-delete").onclick=()=>window.CubanitasTools?.adminDeleteSelection?.([S.items[S.viewer]?.id].filter(Boolean));
+$("viewer-admin-original").onclick=()=>{
+ const item=S.items[S.viewer];
+ if(ADMIN_ACCOUNT_VIEW&&S.me?.admin&&item?.id)
+  window.CubanitasTools?.locateOriginal?.(item);
+};
 $("viewer-set-cover").onclick=async()=>{
  const media=S.items[S.viewer];
  if(!S.folder?.personal||media?.kind!=="photo"||!media.thumb)return;
