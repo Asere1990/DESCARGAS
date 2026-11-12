@@ -101,6 +101,7 @@ SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
+ "title_image_height":120,"button_image_height":30,
  "intro_caption":"Explora nuestras galerías privadas","button_color":"#198ee8",
  "accent":"#2196f3","background":"#0b0d12","text_color":"#ffffff",
  "tile_shape":"square","daily_limit":100,"intro_label":"Descubre nuestras galerías",
