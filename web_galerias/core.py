@@ -173,6 +173,7 @@ class GalleryCore:
         self.closed=False
         self.task=None
         self.sync_task=None
+        self.priority_task=None
         self.intro_poster_task=None
         self.customer_bridge_task=None
         self.moderation_task=None
@@ -234,7 +235,16 @@ class GalleryCore:
                         from .intro_video import backfill_poster
                         self.intro_poster_task=asyncio.create_task(backfill_poster(self))
                     if os.getenv("GALERIAS_SYNC_ENABLED","0")=="1" and self.storage.ready:
-                        from .sync import run
+                        from .sync import run,EXTRA
+                        # All priority writes are isolated to wg_* tables.
+                        try:
+                            from . import on_demand
+                            await self.s.repo.pool.execute(EXTRA)
+                            await self.s.repo.pool.execute(on_demand.SCHEMA)
+                            self.priority_task=asyncio.create_task(on_demand.run(self))
+                        except Exception as exc:
+                            log.warning("On-demand video priority inactive (%s)",
+                                        type(exc).__name__)
                         self.sync_task=asyncio.create_task(run(self))
                     return
                 except asyncio.CancelledError:raise
