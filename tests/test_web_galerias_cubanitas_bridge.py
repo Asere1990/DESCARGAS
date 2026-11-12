@@ -179,7 +179,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
         uid=7536216348
         db=SimpleNamespace(fetchrow=AsyncMock(return_value={
             "state":"active","paid_until":time.time()+900,"blocked":False}))
-        g=SimpleNamespace(db=lambda:db)
+        g=SimpleNamespace(db=lambda:db,free_granted=AsyncMock(return_value=False))
         with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":str(uid)}):
             token=_CUSTOMER_BOT_UID.set(0)
             try:
@@ -212,7 +212,7 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(web.HTTPForbidden):
                     await payments.checkout(g,uid)
                 self.assertFalse(await core.GalleryCore.entitled(
-                    SimpleNamespace(db=lambda:db),uid))
+                    SimpleNamespace(db=lambda:db,free_granted=AsyncMock(return_value=False)),uid))
                 db.fetchrow.assert_not_awaited()
             finally:
                 _CUSTOMER_BOT_UID.reset(token)
