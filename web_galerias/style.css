@@ -745,7 +745,7 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  overflow-wrap:anywhere;
 }
 .admin-user-profile h3{font-size:16px;margin:14px 0 10px}
-.admin-profile-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:15px 0}
+.admin-profile-actions{display:grid;grid-template-columns:1fr;gap:8px;margin:15px 0}
 .admin-profile-actions button{min-height:46px}
 .admin-user-access-action{color:#ffb9bb!important;border-color:#99434a!important}
 .admin-user-personal{margin:12px 0 22px}
