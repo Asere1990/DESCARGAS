@@ -59,6 +59,7 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_bootstrap_shows_buy_button_only_for_target_without_revealing_media(self):
         db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=0))
         g=SimpleNamespace(db=lambda:db,entitled=AsyncMock(return_value=False),
+                          free_granted=AsyncMock(return_value=False),
                           design=AsyncMock(return_value={"button_label":"ENTRAR A LA GALERÍA"}),
                           folder_list=AsyncMock(),storage=SimpleNamespace(ready=True))
         with patch.dict(os.environ,ENV):
