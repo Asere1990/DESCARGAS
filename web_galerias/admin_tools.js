@@ -110,7 +110,8 @@
       (cloud?queued+" objetos programados para borrarse de R2.":"Respaldo R2 conservado.");
    closeActions();
    notice(removed+" archivos eliminados de la web.");
-   await loadAdmin();await refresh(true);
+   if(!ADMIN_ACCOUNT_VIEW)await loadAdmin();
+   await refresh(true);
    return true;
   }catch(e){notice(e.message);return false;}
   finally{state.mediaBusy=false;state.busy=false;selectionStatus();}
@@ -257,7 +258,7 @@
     last.textContent=new Date(u.last_seen*1000).toLocaleString("es-US");
     b.append(last);
    }
-   b.onclick=()=>showUserProfile(u.telegram_id);
+   b.onclick=()=>{void showUserProfile(u.telegram_id);void openUserAccount(u.telegram_id);};
    root.append(b);
   }
   if(!state.userItems.length){
@@ -289,33 +290,61 @@
   }catch(e){if(token===state.userLoadGeneration)notice(e.message);}
   finally{if(token===state.userLoadGeneration)state.usersBusy=false;}
  }
- let mirrorAssets=null;
- async function openUserMirror(uid,mode){
-  // The normal customer's first paint never fetches these admin-only assets.
-  if(!window.GalleryUserMirror){
-   if(!mirrorAssets){
-    const version="admin-user-mirror-20261112-v1";
-    const asset=(tag,path)=>new Promise((resolve,reject)=>{
-     const node=document.createElement(tag);
-     if(tag==="link"){
-      node.rel="stylesheet";node.href="/web-galerias/static/"+path+"?v="+version;
-     }else{
-      node.src="/web-galerias/static/"+path+"?v="+version;
-      node.async=true;
-     }
-     node.onload=resolve;
-     node.onerror=()=>reject(Error("No se pudo cargar la vista del usuario."));
-     document.head.append(node);
-    });
-    mirrorAssets=Promise.all([
-     asset("link","admin_mirror.css"),asset("script","admin_mirror.js")
-    ]).catch(error=>{mirrorAssets=null;throw error;});
-   }
-   try{await mirrorAssets;}
-   catch(error){notice(error.message);return;}
+ let accountHostStyle=null;
+ async function openUserAccount(uid){
+  // Never switch the signed Telegram identity. All user-specific reads run
+  // through admin-view-* APIs checked against the actual admin actor.
+  if(!S.me?.admin)return notice("Solo administradores.");
+  uid=Number(uid);
+  if(!Number.isSafeInteger(uid)||uid<=0)return notice("Usuario no válido.");
+  if(!accountHostStyle){
+   accountHostStyle=new Promise((resolve,reject)=>{
+    const link=document.createElement("link");
+    link.rel="stylesheet";
+    link.href="/web-galerias/static/admin_mirror.css?v=real-account-20261112-v1";
+    link.onload=resolve;
+    link.onerror=()=>reject(Error("No se pudo abrir la vista del usuario."));
+    document.head.append(link);
+   }).catch(e=>{accountHostStyle=null;throw e;});
   }
-  if(!window.GalleryUserMirror)return notice("Vista administrativa no disponible.");
-  window.GalleryUserMirror.open(uid,mode);
+  try{await accountHostStyle;}catch(e){return notice(e.message);}
+  const root=$("admin-mirror");
+  root.replaceChildren();
+  root.classList.add("admin-real-account");
+  const header=document.createElement("header");header.className="admin-mirror-head";
+  const back=document.createElement("button");back.type="button";
+  back.className="admin-mirror-navbtn";
+  back.textContent="‹";back.title="Volver al panel de usuarios";
+  const title=document.createElement("div");title.className="admin-mirror-heading";
+  const name=document.createElement("strong");name.textContent="Cuenta del usuario";
+  const sub=document.createElement("small");sub.textContent="Vista real · Telegram ID "+uid;
+  title.append(name,sub);
+  const close=document.createElement("button");close.type="button";
+  close.className="admin-mirror-navbtn";close.textContent="✕";
+  close.title="Salir de esta cuenta";
+  const quit=()=>{
+   root.classList.add("hidden");root.classList.remove("admin-real-account");
+   document.documentElement.classList.remove("admin-mirror-open");
+   root.replaceChildren(); // Unmount iframe + cancel its pending UI operations.
+  };
+  back.onclick=quit;close.onclick=quit;
+  header.append(back,title,close);
+  const frame=document.createElement("iframe");
+  frame.className="admin-real-account-frame";
+  frame.title="Cuenta real del usuario "+uid+" · herramientas de administrador";
+  frame.referrerPolicy="no-referrer";
+  const target=new URL("/web-galerias/admin/view",location.origin);
+  target.searchParams.set("target",String(uid));
+  // Signed ADMIN identity only in the fragment, not in server logs/queries.
+  if(tg?.initData)target.hash=new URLSearchParams({
+   tgWebAppData:tg.initData,
+   tgWebAppVersion:String(tg.version||"8.0"),
+   tgWebAppPlatform:String(tg.platform||"unknown")
+  }).toString();
+  frame.src=target.href;
+  root.append(header,frame);
+  root.classList.remove("hidden");
+  document.documentElement.classList.add("admin-mirror-open");
  }
  function rowDatum(root,label,value){
   const row=document.createElement("div");row.className="admin-data-row";
@@ -382,16 +411,10 @@
      new Date(local.last_seen*1000).toLocaleString("es-US"):"—");
    const actions=document.createElement("div");actions.className="admin-profile-actions";
    actions.style.gridTemplateColumns="1fr";
-   const mirror=mode=>openUserMirror(uid,mode);
-   const folders=document.createElement("button");folders.className="small-btn strong";
-   folders.textContent="📁 Ver carpetas personalizadas";
-   folders.onclick=()=>mirror("folders");
-   const downloads=document.createElement("button");downloads.className="small-btn strong";
-   downloads.textContent="⇩ Ver descargas";
-   downloads.onclick=()=>mirror("downloads");
-   const favorites=document.createElement("button");favorites.className="small-btn";
-   favorites.textContent="♥ Ver favoritos";
-   favorites.onclick=()=>mirror("favorites");
+   const enterAccount=document.createElement("button");
+   enterAccount.type="button";enterAccount.className="small-btn strong";
+   enterAccount.textContent="👁 Entrar a la cuenta del usuario";
+   enterAccount.onclick=()=>openUserAccount(uid);
    const perms=document.createElement("button");perms.className="small-btn";
    perms.textContent="Asignar carpetas de acceso";
    perms.onclick=()=>{
@@ -420,7 +443,7 @@
     }catch(e){notice(e.message);}
     finally{toggle.disabled=false;}
    };
-   actions.append(folders,downloads,favorites,perms,toggle);root.append(actions);
+   actions.append(enterAccount,perms,toggle);root.append(actions);
    // User collections open as full-screen views; avoid inline long scroll.
    const central=document.createElement("section");central.id="admin-user-central";
    central.className="admin-user-central";
