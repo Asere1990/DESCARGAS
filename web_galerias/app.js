@@ -802,11 +802,33 @@ async function downloadIds(ids){
     nativeDownload(data);S.saveData=null;return;
   }
   try{
-   const files=[];
+   const files=[];let preparedBytes=0;
+   const maxShareBytes=64*1024*1024;
    for(const entry of data.files){
     const r=await fetch(entry.url,{cache:"no-store"});
     if(!r.ok)throw Error("No se pudo preparar el archivo.");
-    const blob=await r.blob();
+    const hinted=Number(r.headers.get("Content-Length")||0);
+    if(hinted&&preparedBytes+hinted>maxShareBytes)
+      throw Error("Archivo demasiado grande para compartir desde memoria.");
+    let blob;
+    if(r.body?.getReader){
+     const reader=r.body.getReader(),parts=[];
+     let length=0;
+     while(true){
+      const {value,done}=await reader.read();if(done)break;
+      length+=value.byteLength;
+      if(preparedBytes+length>maxShareBytes){
+       await reader.cancel();throw Error("Descarga grande: usar Archivos de Telegram.");
+      }
+      parts.push(value);
+     }
+     blob=new Blob(parts,{type:entry.mime||"application/octet-stream"});
+    }else{
+     blob=await r.blob();
+     if(preparedBytes+blob.size>maxShareBytes)
+       throw Error("Descarga grande: usar Archivos de Telegram.");
+    }
+    preparedBytes+=blob.size;
     files.push(new File([blob],entry.name,{type:entry.mime||blob.type||
      "application/octet-stream"}));
    }
