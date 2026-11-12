@@ -314,7 +314,7 @@ class GalleryCore:
            RETURNING uid
           )
           INSERT INTO wg_visit_days(uid,visit_day)
-          SELECT uid,$4 FROM registered
+          SELECT uid,$4 FROM registered WHERE TRUE
           ON CONFLICT(uid,visit_day) DO NOTHING
         """,uid,now,str(name)[:100],utc_day())
         allowed=await self.entitled(uid)
