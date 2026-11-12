@@ -78,6 +78,25 @@ class Gallery(GalleryCore):
         if not await self.entitled(uid):raise web.HTTPForbidden(text="Acceso no autorizado.")
         if isinstance(op,str) and op.startswith("personal-"):
             return await personal.operation(self,uid,op,data)
+        if op=="offers-link":
+            # Link resolution is read-only and separately HMAC-signed to the
+            # real CUSTOMER-SERVICE bot; no Telegram username guessed by JS.
+            import re
+            from .customer_bridge import ready as bridge_ready,post_signed
+            if not bridge_ready():
+                raise web.HTTPServiceUnavailable(text="Nuevas Ofertas no disponible.")
+            try:
+                result=await post_signed("offers-link",{"telegram_id":uid},timeout=5)
+                url=str(result.get("url") or "")
+                if not re.fullmatch(
+                    r"https://t[.]me/[A-Za-z][A-Za-z0-9_]{4,31}"
+                    r"(?:/[A-Za-z0-9_]{1,64})?[?]startapp=offers",url
+                ):
+                    raise ValueError("Invalid offers link")
+            except Exception as exc:
+                log.warning("Offers Mini App link unavailable (%s)",type(exc).__name__)
+                raise web.HTTPServiceUnavailable(text="No se pudo abrir Nuevas Ofertas.") from None
+            return {"url":url}
         if op=="user-collections":return await user_features.collections(self,uid)
         if op=="progress-save":return await user_features.save_progress(self,uid,data)
         if op=="favorite-set":return await user_features.set_favorite(self,uid,data)
