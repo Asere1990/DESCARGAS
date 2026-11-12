@@ -96,8 +96,8 @@ class NoticeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res["uid"],55)
         self.assertIn("SKIP LOCKED",db.fetchrow.await_args.args[0])
         await broadcasts._finish(db,1,55,"retry","429",10)
-        self.assertEqual(db.execute.await_args.args[2],"retry")
-        self.assertGreater(db.execute.await_args.args[3],0)
+        self.assertEqual(db.execute.await_args.args[3],"retry")
+        self.assertGreater(db.execute.await_args.args[4],0)
 
     def test_durable_separate_tables_and_private_r2_bucket(self):
         for table in ("wg_notices","wg_notice_uploads","wg_notice_reads",
