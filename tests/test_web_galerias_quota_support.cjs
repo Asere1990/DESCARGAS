@@ -109,12 +109,21 @@ test("fixed blue support button opens verified Customer chat in the same WebView
  assert.equal($("open-support-chat").disabled,false);
  ctx.updateSupportVisibility("library");
  assert.equal($("open-support-chat").classList.contains("hidden"),false);
+ assert.equal($("go-intro").classList.contains("hidden"),true);
+ S.me.admin=true;
+ ctx.updateSupportVisibility("library");
+ assert.equal($("open-support-chat").classList.contains("hidden"),true);
+ assert.equal($("go-intro").classList.contains("hidden"),false);
+ S.me.admin=false;
+ ctx.updateSupportVisibility("library");
+ assert.equal($("open-support-chat").classList.contains("hidden"),false);
+ assert.equal($("go-intro").classList.contains("hidden"),true);
 });
 test("support is fixed and there is no draggable bubble",()=>{
  assert.ok(html.includes('id="open-support-chat"'));
  assert.ok(html.includes('Chat con soporte</button>'));
  assert.ok(!html.includes('id="support-bubble"'));
- assert.ok(!html.includes('id="go-intro"'));
+ assert.ok(html.includes('id="go-intro"'));
  assert.ok(!js.includes("mountSupportBubble()"));
  assert.ok(!js.includes("wg_customer_support_button_v1"));
  assert.ok(js.includes('$("open-support-chat").onclick=()=>openSupportChat()'));
