@@ -96,6 +96,11 @@ CREATE TABLE IF NOT EXISTS wg_bridge_snapshots(
 CREATE TABLE IF NOT EXISTS wg_access_blocks(
  uid BIGINT PRIMARY KEY,blocked BOOLEAN NOT NULL DEFAULT FALSE,
  updated DOUBLE PRECISION NOT NULL DEFAULT 0);
+-- Reversible independent Web-only free grants; NULL means fall back to acceso.txt.
+CREATE TABLE IF NOT EXISTS wg_free_access(
+ uid BIGINT PRIMARY KEY,enabled BOOLEAN NOT NULL,
+ updated DOUBLE PRECISION NOT NULL DEFAULT 0,
+ changed_by BIGINT NOT NULL);
 """
 SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
@@ -121,13 +126,12 @@ MAX_ASSET={"logo":3_000_000,"header":5_000_000,
 _CUSTOMER_BOT_UID=ContextVar("wg_customer_bot_verified_uid",default=0)
 
 def customer_bot_signed(uid):
-    # CUSTOMER-SERVICE stays in private pilot even when its miniapp signature
-    # is valid. The new buyer 8129084202 is allowed only by the signed
-    # CUSTOMER-SERVICE request, never through the free tester entitlement.
-    return (_CUSTOMER_BOT_UID.get()==int(uid) and (
-        is_admin(uid) or is_tester(uid) or payment_test_user(uid)
-        or int(uid)==8129084202
-    ))
+    # Only an actual verified CUSTOMER-SERVICE Mini App signature, never a
+    # supplied Telegram ID, can satisfy this request-local identity.
+    return _CUSTOMER_BOT_UID.get()==int(uid) and (
+        os.getenv("GALERIAS_PUBLIC","0")=="1"
+        or is_admin(uid) or is_tester(uid) or payment_test_user(uid)
+    )
 
 
 def identifier(value,minimum=1):
@@ -232,23 +236,25 @@ class GalleryCore:
                 pass
         raise web.HTTPUnauthorized(text="Identidad Telegram no verificada.")
 
+    async def free_granted(self,uid):
+        # A dashboard grant/revocation overrides legacy acceso.txt without
+        # editing the file or restarting Telegram connections.
+        override=await self.db().fetchval(
+            "SELECT enabled FROM wg_free_access WHERE uid=$1",uid)
+        if override is not None:return bool(override)
+        return free_access(uid)
+
     async def entitled(self,uid):
-        # Administrators cannot be retired through the user-management UI.
         if is_admin(uid):return True
-        # Free testers can also be explicitly retired. Paid entitlement
-        # retains its existing single-query fast path below.
-        if pilot_allowed(uid):
+        if await self.free_granted(uid):
             return not bool(await self.db().fetchval(
                 "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
-        from .permissions import payment_test_user
-        # Payment-test users retain access only through a verified active
-        # gallery subscription, even while the public launch is disabled.
         if (os.getenv("GALERIAS_PUBLIC","0")!="1"
             and not payment_test_user(uid)
             and not customer_bot_signed(uid)):
             return False
-        # One DB lookup: preserve the original fast Stripe-paid access check
-        # while denying disputed Web memberships.
+        # A public launch never grants free files: only a verified paid Stripe
+        # subscription or explicit free authorization passes this check.
         row=await self.db().fetchrow("""SELECT s.state,s.paid_until,
                    COALESCE(b.blocked,FALSE) AS blocked
                    FROM wg_subscriptions s
@@ -316,7 +322,7 @@ class GalleryCore:
                   ORDER BY date DESC LIMIT 1""",folder["id"])
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
                   temporary_link(self,uid,cover,"thumb")) if cover else None
-        unlimited=bool(allowed and free_access(uid))
+        unlimited=bool(allowed and await self.free_granted(uid))
         used=0 if unlimited else (await self.db().fetchval(
             "SELECT used FROM wg_quota WHERE uid=$1 AND day=$2",uid,utc_day()) or 0)
         from .permissions import payment_test_user
