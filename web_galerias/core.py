@@ -69,15 +69,6 @@ CREATE TABLE IF NOT EXISTS wg_download_tickets(
  consumed BOOLEAN NOT NULL DEFAULT FALSE);
 CREATE INDEX IF NOT EXISTS wg_download_tickets_user_day
  ON wg_download_tickets(uid,day DESC,expires DESC);
-CREATE TABLE IF NOT EXISTS wg_playback_requests(
-  media BIGINT PRIMARY KEY REFERENCES wg_media(id) ON DELETE CASCADE,
-  requested_by BIGINT NOT NULL,
-  requested_at DOUBLE PRECISION NOT NULL,
-  state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','working')),
-  retry_after DOUBLE PRECISION NOT NULL DEFAULT 0,
-  attempts INTEGER NOT NULL DEFAULT 0);
-CREATE INDEX IF NOT EXISTS wg_playback_priority
-  ON wg_playback_requests(state,retry_after,requested_at);
 CREATE TABLE IF NOT EXISTS wg_config(key TEXT PRIMARY KEY,value JSONB NOT NULL);
 CREATE TABLE IF NOT EXISTS wg_assets(
  key TEXT PRIMARY KEY,mime TEXT NOT NULL,body BYTEA NOT NULL,updated DOUBLE PRECISION NOT NULL);
