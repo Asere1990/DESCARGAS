@@ -449,6 +449,15 @@ async def asset(g,request):
     if key=="intro-poster":
         from .intro_video import poster_asset
         return await poster_asset(g,request)
+    if key=="web-promo":
+        # Public sales creative; its key lives in wg_config and must be
+        # owned by Web Galerías, never private gallery media.
+        metadata=await g.db().fetchval(
+            "SELECT value FROM wg_config WHERE key='web_promo'")
+        if not metadata:raise web.HTTPNotFound()
+        if isinstance(metadata,str):metadata=json.loads(metadata)
+        from .intro_video import stream
+        return await stream(g,request,metadata,scope="web-promo")
     if key not in ASSET_MIME:raise web.HTTPNotFound()
     if key=="intro":
         metadata=await g.db().fetchval(
