@@ -59,7 +59,7 @@ def fast_intro_html(source, design, asset_keys):
         if d.get(field+"_mode") == "image" and asset_key in asset_keys:
             height = safe_height(d.get(field+"_image_height"), lo, hi, fallback)
             presentation = (
-                f'<{tag}{additional} id="{element_id}" class="library-slot-image" '
+                f'<{tag} id="{element_id}" class="{("eyebrow " if additional else "")}library-slot-image" '
                 f'aria-label="{escaped}">'
                 f'<img data-library-image="{field}" '
                 f'src="/web-galerias/assets/{asset_key}" '
