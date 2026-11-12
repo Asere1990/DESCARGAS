@@ -28,6 +28,7 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('src="/web-galerias/assets/header-fast"',result)
         self.assertIn('loading="eager" decoding="async"',result)
         self.assertIn("ENTRAR A GALERIAS CUBANAS</button>",result)
+        self.assertIn('<html lang="es" style="--button:#123ABC"><head>',result)
         self.assertIn('id="enter" class="primary" disabled',result)
         self.assertIn('data-fast-title-height="160"',result)
         self.assertIn('height="160"',result)
@@ -61,6 +62,7 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;",source)
         self.assertIn("&#x27;" if False else '&quot;quoted&quot;',source)
         self.assertNotIn("--button:red;url(bad)",source)
+        self.assertIn('style="--button:#198ee8"',source)
 
     def test_unavailable_metadata_falls_back_to_original_atomic_login(self):
         page=fast_intro.fast_intro_html(PAGE,{"title":"TEST"},[])
