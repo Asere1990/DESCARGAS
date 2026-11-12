@@ -111,5 +111,5 @@ test("resume and favorites use authenticated user endpoints only",()=>{
  assert.ok(source.includes('api("progress-save",{media})'));
  assert.ok(source.includes('api("favorite-set",{media:item.id,favorite:next})'));
  assert.ok(source.includes('S.folder.favorites?"favorites-items":"items"'));
- assert.ok(source.includes('if(!S.me?.allowed||!m?.id)return;'));
+ assert.ok(source.includes('if(ADMIN_ACCOUNT_VIEW||!S.me?.allowed||!m?.id)return;'));
 });
