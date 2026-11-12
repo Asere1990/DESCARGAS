@@ -55,6 +55,7 @@
   }catch(_){/* The regular support link must never become unavailable. */}
  }
  let unreadNotices=0;
+ let noticesCountLoaded=false;
  let feedNext=null;
  let feedBusy=false;
  function updateNoticeCount(n){
@@ -70,7 +71,12 @@
   if(!S.me?.allowed||ADMIN_ACCOUNT_VIEW||document.hidden)return;
   try{
    const reply=await api("notices-count");
+   const last=unreadNotices;
    updateNoticeCount(reply.unread);
+   if(noticesCountLoaded&&unreadNotices>last&&
+       $("notices-screen").classList.contains("hidden"))
+    notice("📣 Tienes un aviso nuevo de Web Galerías.");
+   noticesCountLoaded=true;
   }catch(_){/* Optional notifications do not break galleries. */}
  }
  function noticeCard(msg){
@@ -132,6 +138,15 @@
  const refreshAll=()=>{void refreshSupportUnread();void refreshNoticeCount();};
  setTimeout(refreshAll,1200);
  setInterval(refreshAll,45000);
+ // Refresh as soon as the signed user enters/returns to the gallery, not
+ // only on the periodic cadence; this does not delay gallery first paint.
+ if(typeof MutationObserver!=="undefined"){
+  const library=$("library");
+  const observer=new MutationObserver(()=>{
+   if(library&&!library.classList.contains("hidden")&&S.me?.allowed)refreshAll();
+  });
+  if(library)observer.observe(library,{attributes:true,attributeFilter:["class"]});
+ }
  document.addEventListener("visibilitychange",()=>{
   if(!document.hidden)setTimeout(refreshAll,350);
  });
