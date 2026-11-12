@@ -175,11 +175,11 @@
     <div class="admin-folder-first"><h2>Galerías</h2><div id="admin-folders"></div></div>
     <details class="panel-card admin-tools-fold"><summary>＋ Agregar carpeta ▾</summary>
      <label>Group ID o Channel ID<input id="new-peer" placeholder="-1001234567890" inputmode="numeric"></label>
-     <label>Telegram ID de la cuenta que ve el historial completo
-      <input id="new-source-uid" inputmode="numeric" pattern="[1-9][0-9]{4,18}" maxlength="19"
-       placeholder="ID de una cuenta vinculada al sistema">
+     <label>Cuenta que ve el historial completo (DESCARGAS o DATOS)
+      <input id="new-source-uid" inputmode="text" maxlength="30"
+       placeholder="123456789 o DATOS:123456789">
      </label>
-     <p class="muted">Utiliza el Telegram ID de la cuenta conectada que realmente puede ver el contenido del grupo. No necesitas dar contraseñas ni sesiones. Podrás cambiarla después.</p>
+     <p class="muted">Para DESCARGAS escribe el Telegram ID. Para la segunda fuente usa DATOS:telegram_id. Se verificará la cuenta vinculada sin solicitar contraseñas ni sesiones.</p>
      <label>Nombre interno (solo administrador)<input id="new-name" placeholder="Ej.: Viva Cuba"></label>
      <label>Nombre visible para los clientes<input id="new-public-name" placeholder="Ej.: Fotos de Cuba"></label>
      <label>Foto de presentación (opcional)

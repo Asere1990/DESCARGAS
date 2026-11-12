@@ -169,10 +169,12 @@ class GalleryMobileNavigation(unittest.TestCase):
 
     def test_admin_can_assign_telegram_account_when_adding_or_editing_group(self):
         self.assertIn('id="new-source-uid"',self.html)
-        self.assertIn('id="new-source-uid" inputmode="numeric"',self.html)
+        self.assertIn('id="new-source-uid" inputmode="text"',self.html)
+        self.assertIn('DATOS:123456789',self.html)
         self.assertIn("Cuenta del historial",self.js)
         self.assertIn('api("admin-folder-source"',self.js)
-        self.assertIn('api("admin-folder",{peer,name,public_name,account_uid})',self.js)
+        self.assertIn('api("admin-folder",{peer,name,public_name,...source_account})',self.js)
+        self.assertIn('account_system',self.js)
         self.assertIn('f.preferred_uid',self.js)
         self.assertIn('f.source_uid',self.js)
         self.assertIn("Los archivos guardados en Cloudflare permanecerán intactos.",self.js)
