@@ -355,7 +355,16 @@
    const actions=document.createElement("div");actions.className="admin-profile-actions";
    const folders=document.createElement("button");folders.className="small-btn strong";
    folders.textContent="📁 Ver carpetas personalizadas";
-   folders.onclick=()=>loadUserFolders(uid);
+   folders.onclick=()=>window.GalleryUserMirror?.open(uid,"folders")||
+     (!window.GalleryUserMirror&&notice("Vista administrativa no disponible."));
+   const downloads=document.createElement("button");downloads.className="small-btn strong";
+   downloads.textContent="⇩ Ver descargas";
+   downloads.onclick=()=>window.GalleryUserMirror?.open(uid,"downloads")||
+     (!window.GalleryUserMirror&&notice("Vista administrativa no disponible."));
+   const favorites=document.createElement("button");favorites.className="small-btn";
+   favorites.textContent="♥ Ver favoritos";
+   favorites.onclick=()=>window.GalleryUserMirror?.open(uid,"favorites")||
+     (!window.GalleryUserMirror&&notice("Vista administrativa no disponible."));
    const perms=document.createElement("button");perms.className="small-btn";
    perms.textContent="Asignar carpetas de acceso";
    perms.onclick=()=>{
@@ -384,9 +393,8 @@
     }catch(e){notice(e.message);}
     finally{toggle.disabled=false;}
    };
-   actions.append(folders,perms,toggle);root.append(actions);
-   const personal=document.createElement("section");personal.id="admin-user-personal";
-   personal.className="admin-user-personal";root.append(personal);
+   actions.append(folders,downloads,favorites,perms,toggle);root.append(actions);
+   // User collections open as full-screen views; avoid inline long scroll.
    const central=document.createElement("section");central.id="admin-user-central";
    central.className="admin-user-central";
    central.append(document.createTextNode("Consultando ficha de CUSTOMER-SERVICE…"));
