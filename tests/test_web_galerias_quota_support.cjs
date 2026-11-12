@@ -46,21 +46,33 @@ test("50 and 200 daily limits show accurately without changing the 10-file batch
  assert.equal($("quota-plus").classList.contains("hidden"),true);
  assert.ok(js.includes("S.me?.admin?100:10"));
 });
-test("chat link is authenticated, destination pinned, and never guessed",async()=>{
- const $=fakeNodes(),links=[],requests=[];
+test("Support bubble opens the signed Mi Cuenta chat in the same WebView",async()=>{
+ const $=fakeNodes(),links=[],native=[],requests=[];
  const S={me:{allowed:true}};
- const ctx={$,S,BROWSER_ADMIN:false,
-  api:async(op,payload)=>{requests.push(op);return{url:"https://t.me/CustomerSupportRobot?startapp=chat"}},
-  tg:{openTelegramLink:url=>links.push(url)},
+ const signed="user=%7B%22id%22%3A7%7D&auth_date=1794500000&hash=verified";
+ const ctx={
+  $,S,BROWSER_ADMIN:false,URL,URLSearchParams,
+  api:async(op)=>{requests.push(op);return{
+   url:"https://t.me/CustomerSupportRobot?startapp=chat",
+   web_url:"https://customer-service-uimy.onrender.com/cubanas"}},
+  tg:{initData:signed,version:"8.0",platform:"ios",
+      openTelegramLink:url=>native.push(url)},
   window:{location:{assign:url=>links.push(url)}},
   String,Error,RegExp,
   notice:()=>{throw Error("Unexpected error")}
  };
  vm.createContext(ctx);
- vm.runInContext(part("let customerChatLink=null","function mountSupportBubble(){"),ctx);
+ vm.runInContext(part("// Swiftgram can ignore","function mountSupportBubble(){"),ctx);
  await ctx.openSupportChat();
  assert.deepEqual(requests,["chat-link"]);
- assert.deepEqual(links,["https://t.me/CustomerSupportRobot?startapp=chat"]);
+ assert.equal(native.length,0);
+ assert.equal(links.length,1);
+ const opened=new URL(links[0]);
+ assert.equal(opened.origin,"https://customer-service-uimy.onrender.com");
+ assert.equal(opened.pathname,"/cubanas");
+ assert.equal(opened.searchParams.get("tgWebAppStartParam"),"chat");
+ assert.equal(new URLSearchParams(opened.hash.slice(1)).get("tgWebAppData"),signed);
+ assert.equal(opened.searchParams.get("tgWebAppData"),null);
  assert.equal($("support-bubble").disabled,false);
  ctx.updateSupportVisibility("album");
  assert.equal($("support-bubble").classList.contains("hidden"),false);

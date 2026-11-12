@@ -97,7 +97,18 @@ class Gallery(GalleryCore):
             except Exception as exc:
                 log.warning("Customer Mini App link unavailable (%s)",type(exc).__name__)
                 raise web.HTTPServiceUnavailable(text="No se pudo abrir Atención al Cliente.") from None
-            return {"url":url}
+            response={"url":url}
+            # In Swiftgram, opening a bot's t.me?startapp link from inside
+            # another Mini App may do nothing, even after HTTP 200.
+            # CUSTOMER-SERVICE already navigates to Gallery using a signed
+            # initData fragment; offer the symmetrical same-webview path ONLY
+            # when this very request was verified with CUSTOMER-SERVICE's bot.
+            from .core import _CUSTOMER_BOT_UID
+            if _CUSTOMER_BOT_UID.get()==uid:
+                from .customer_bridge import endpoint
+                base=endpoint().removesuffix("/cubanitas/bridge")
+                response["web_url"]=base+"/cubanas"
+            return response
         if op=="user-collections":return await user_features.collections(self,uid)
         if op=="progress-save":return await user_features.save_progress(self,uid,data)
         if op=="favorite-set":return await user_features.set_favorite(self,uid,data)
