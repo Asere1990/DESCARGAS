@@ -60,7 +60,7 @@ test("200/day upgrade goes to the original DESCARGAS Mini App with same-bot sign
  const S={me:{quota_link_miniapp:"https://descargas-eu1x.onrender.com/",
               quota_link_bot:"https://t.me/Descargas_Robot"}};
  const tg={initData:signature,version:"8.0",platform:"ios",openTelegramLink:url=>bots.push(url)};
- const ctx={$,S,tg,BROWSER_ADMIN:false,URL,URLSearchParams,String,
+ const ctx={$,S,tg,BROWSER_ADMIN:false,ADMIN_ACCOUNT_VIEW:false,URL,URLSearchParams,String,
    window:{location:{assign:url=>links.push(url)}},
    notice:msg=>{throw Error(msg)},saveGalleryReturnPosition:()=>saved.push(true)};
  vm.createContext(ctx);
