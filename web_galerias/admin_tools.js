@@ -562,11 +562,15 @@
   root.append(choice("↓ Descargar al teléfono",async()=>{
    closeActions();await downloadIds(ids);
   }));
-  root.append(choice("📁 Mover a una carpeta",()=>movePicker(ids)));
-  // Original search is only meaningful for one file. Multi-selection has
-  // exactly two choices, regardless of source collection or search term.
-  if(ids.length===1)root.append(choice("⌕ Buscar en galería original",
-                                      ()=>locateOriginal(item)));
+  if(S.folder?.favorites){
+   // Favorite actions are deliberately limited to the user's two shortcuts.
+   // In a multi-selection the original action points to the held item only.
+   root.append(choice("⌕ Mostrar en galería",()=>locateOriginal(item)));
+  }else{
+   root.append(choice("📁 Mover a una carpeta",()=>movePicker(ids)));
+   if(ids.length===1)root.append(choice("⌕ Buscar en galería original",
+                                        ()=>locateOriginal(item)));
+  }
   if(S.me?.admin){
    root.append(choice("Eliminar de la web (conservar respaldo)",()=>deleteMediaIds(ids,false)));
    root.append(choice("Eliminar también de Cloudflare R2",()=>deleteMediaIds(ids,true)));
@@ -676,7 +680,7 @@
   $("media-context-close").onclick=closeActions;
   $("media-context-sheet").onclick=e=>{if(e.target===$("media-context-sheet"))closeActions();};
  }
- window.CubanitasTools={adminRefreshed,mediaActions,adminDeleteSelection,
+ window.CubanitasTools={adminRefreshed,mediaActions,locateOriginal,adminDeleteSelection,
     showUserSectionMenu,refreshUserStats,usersLoaded,loadCommercial};
  initialize();
 })();
