@@ -15,14 +15,20 @@ if(Number.isFinite(fastButtonHeight)&&fastButtonHeight>=12&&fastButtonHeight<=48
  $("enter").style.setProperty("--entry-label-image-height",fastButtonHeight+"px");
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
-const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
+// Customer document reused for a verified admin's look-through.
+const ADMIN_ACCOUNT_VIEW=/^\/web-galerias\/admin\/view\/?$/.test(location.pathname);
+const ADMIN_ACCOUNT_UID=ADMIN_ACCOUNT_VIEW?Number(new URLSearchParams(location.search).get("target")):0;
+const ADMIN_ACCOUNT_INITDATA=ADMIN_ACCOUNT_VIEW?
+ (new URLSearchParams(location.hash.slice(1)).get("tgWebAppData")||""):"";
+const BROWSER_ADMIN=/^\/web-galerias\/admin(?:\/view)?\/?$/.test(location.pathname)&&
+ !tg?.initData&&!ADMIN_ACCOUNT_INITDATA;
 const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null,
  resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const selectionLimit=()=>S.me?.admin?100:10;
 let lastPresence=0;
 function galleryPresence(){
- if(BROWSER_ADMIN||!S.me?.allowed||document.hidden)return;
+ if(BROWSER_ADMIN||ADMIN_ACCOUNT_VIEW||!S.me?.allowed||document.hidden)return;
  const view=$("viewer").classList.contains("hidden")?
    (["album","library"].find(id=>!$(id).classList.contains("hidden"))||""):"viewer";
  if(!view||Date.now()-lastPresence<18000)return;
@@ -82,8 +88,8 @@ function updateQuotaStatus(){
      "♾ Descargas ilimitadas · autorización existente"):
    linked?"🔗 Cuenta vinculada a DESCARGAS · 200 archivos diarios":
      "Plan básico · 50 archivos diarios";
- $("quota-connect")?.classList.toggle("hidden",unlimited||linked);
- $("quota-plus")?.classList.toggle("hidden",unlimited||!S.me.quota_plus_available);
+ $("quota-connect")?.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW||unlimited||linked);
+ $("quota-plus")?.classList.toggle("hidden",ADMIN_ACCOUNT_VIEW||unlimited||!S.me.quota_plus_available);
 }
 function watermarkFromEditor(){
  return {
@@ -313,14 +319,43 @@ function applyDesign(d){const r=document.documentElement.style;
  return titleReady;
 }
 async function api(op,data={}){
- const raw=tg?.initData||"";
+ const raw=ADMIN_ACCOUNT_VIEW?
+   (ADMIN_ACCOUNT_INITDATA||tg?.initData||""):(tg?.initData||"");
  if(!raw&&!BROWSER_ADMIN)
-   throw Error("Debes abrir Web Galerías desde el botón del bot en Telegram.");
+  throw Error("Debes abrir Web Galerías desde el botón del bot en Telegram.");
  const headers={"Content-Type":"application/json"};
  if(raw)headers["X-Telegram-Init-Data"]=raw;
  else headers["X-Gallery-Web"]="1";
+ let payload={op,...data};
+ if(ADMIN_ACCOUNT_VIEW){
+  if(!Number.isSafeInteger(ADMIN_ACCOUNT_UID)||ADMIN_ACCOUNT_UID<=0)
+   throw Error("Cuenta de usuario no válida.");
+  const reads={
+   bootstrap:"admin-view-bootstrap",
+   "user-collections":"admin-view-collections",
+   "favorites-items":"admin-view-favorites",
+   items:"admin-view-items",
+   "locate-media":"admin-view-locate",
+   "favorite-set":"admin-view-favorite-set"
+  };
+  const adminOps=new Set([
+   "admin-media-remove","admin-mirror-download-dates",
+   "admin-mirror-download-items","admin-user-personal-delete",
+   "admin-user-personal-remove","admin-view-remove-favorites"
+  ]);
+  if(reads[op])payload={...data,op:reads[op],telegram_id:ADMIN_ACCOUNT_UID};
+  else if(op.startsWith("personal-"))
+   payload={...data,op:"admin-view-"+op,telegram_id:ADMIN_ACCOUNT_UID};
+  else if(adminOps.has(op))
+   payload={...data,op,telegram_id:ADMIN_ACCOUNT_UID};
+  else if(op==="reserve"){
+   // Downloads here belong to the administrator; never debit the customer.
+   payload={...data,op};
+  }else if(op==="progress-save"||op==="presence")return {ok:true};
+  else throw Error("Esta acción no está disponible en la vista administrativa.");
+ }
  const r=await fetch(ENDPOINT,{method:"POST",cache:"no-store",credentials:"same-origin",
-  headers,body:JSON.stringify({op,...data})});
+  headers,body:JSON.stringify(payload)});
  if(!r.ok){let text=await r.text();text=text.replace(/<[^>]*>/g," ").trim();
   throw Error(text.slice(0,240)||"Servicio no disponible.");}
  return r.json();
@@ -342,7 +377,7 @@ async function refresh(lite=false){
  const titleReady=!lite?applyDesign(S.me.design):Promise.resolve();
  S.folders=S.me.folders;
  S.personal=S.me.personal_folders||[];renderFolders();
- $("admin-open").classList.toggle("hidden",!S.me.admin);
+ $("admin-open").classList.toggle("hidden",!S.me.admin||ADMIN_ACCOUNT_VIEW);
  $("stat-folders").textContent=pretty(S.folders.length);
  $("stat-photos").textContent=pretty(S.me.photos);
  $("stat-videos").textContent=pretty(S.me.videos);
@@ -392,7 +427,7 @@ async function refreshCollections(force=false){
   S.collectionsAt=Date.now();
   renderLibraryExtras();
   renderFolders();
-  getCustomerOffersLink().catch(()=>{}); // Optional warmup, no impact on gallery load.
+  if(!ADMIN_ACCOUNT_VIEW)getCustomerOffersLink().catch(()=>{}); // Optional warmup.
  }catch(_){/* A gallery must remain usable if optional shortcuts fail. */}
  finally{S.collectionsPending=false;}
 }
@@ -419,7 +454,8 @@ async function resumeMedia(media){
  }finally{S.resuming=false;}
 }
 function scheduleViewProgress(m){
- if(!S.me?.allowed||!m?.id)return;
+ // Never overwrite customer's watch position while admin inspects their account.
+ if(ADMIN_ACCOUNT_VIEW||!S.me?.allowed||!m?.id)return;
  clearTimeout(S.progressTimer);
  const media=m.id;
  S.progressTimer=setTimeout(async()=>{
