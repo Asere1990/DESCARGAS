@@ -23,6 +23,9 @@ on:
       - 'tests/test_web_galerias_label_sizes.cjs'
       - 'tests/test_web_galerias_no_default_flash.cjs'
       - 'tests/test_web_galerias_public_launch.py'
+      - 'tests/test_web_galerias_personal_features.py'
+      - 'tests/test_web_galerias_commercial.py'
+      - 'tests/test_web_galerias_user_features.cjs'
       - 'galerias_standalone.py'
       - 'descargas_app/subscription_actions.py'
       - 'tests/test_subscription_actions.py'
@@ -50,6 +53,7 @@ jobs:
           node --test tests/test_web_galerias_drag.cjs
           node --test tests/test_web_galerias_label_sizes.cjs
           node --test tests/test_web_galerias_no_default_flash.cjs
+          node --test tests/test_web_galerias_user_features.cjs
       - name: Dependencias
         run: pip install -e .
       - name: Tests de Web Galerías
@@ -73,3 +77,5 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_free_and_promo.py -v
           python -m unittest discover -s tests -p test_web_galerias_button_label_image.py -v
           python -m unittest discover -s tests -p test_web_galerias_public_launch.py -v
+          python -m unittest discover -s tests -p test_web_galerias_personal_features.py -v
+          python -m unittest discover -s tests -p test_web_galerias_commercial.py -v

@@ -339,4 +339,15 @@ async def webhook(g,request):
             if affected:await reconcile_access(conn,affected)
             await conn.execute("""INSERT INTO wg_payment_events(id,created)
                 VALUES($1,$2) ON CONFLICT DO NOTHING""",eid,time.time())
+    # Commercial analytics is a separate, best-effort read/write after the
+    # original payment transaction commits. An analytics fault can never
+    # roll back paid access, duplicate an invoice, or make Stripe retry.
+    try:
+        from .commercial import record_verified_stripe_event
+        await record_verified_stripe_event(
+            g,kind,obj,eid,affected,event.get("created"))
+    except Exception as exc:
+        import logging
+        logging.getLogger("web-galerias-commercial").warning(
+            "Verified Stripe analytics pending (%s)",type(exc).__name__)
     return web.json_response({"ok":True})

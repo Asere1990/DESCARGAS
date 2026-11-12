@@ -20,13 +20,15 @@ async def locate(g,uid,data):
         raise web.HTTPForbidden(text="Este archivo no está disponible en tus galerías.")
     folder=record["folder"]
     newer=await db.fetch("""
-        SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key,file_key
+        SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key,file_key,
+          EXISTS(SELECT 1 FROM wg_favorites f WHERE f.uid=$3 AND f.media=wg_media.id) AS favorite
         FROM wg_media WHERE folder=$1 AND id>$2 AND state IN ('preview','ready')
-        ORDER BY id ASC LIMIT 25""",folder,target)
+        ORDER BY id ASC LIMIT 25""",folder,target,uid)
     older=await db.fetch("""
-        SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key,file_key
+        SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key,file_key,
+          EXISTS(SELECT 1 FROM wg_favorites f WHERE f.uid=$3 AND f.media=wg_media.id) AS favorite
         FROM wg_media WHERE folder=$1 AND id<=$2 AND state IN ('preview','ready')
-        ORDER BY id DESC LIMIT 36""",folder,target)
+        ORDER BY id DESC LIMIT 36""",folder,target,uid)
     rows=list(reversed(newer))+older[:35]
     if not any(x["id"]==target for x in rows):
         raise web.HTTPNotFound(text="Este archivo ya no está disponible.")
@@ -35,6 +37,8 @@ async def locate(g,uid,data):
         item={key:x[key] for key in
               ("id","kind","mime","filename","date","width","height","size")}
         item["available"]=x["state"]=="ready"
+        item["folder"]=folder
+        item["favorite"]=bool(x.get("favorite",False))
         item["thumb"]=("/web-galerias/media/"+str(x["id"])+"/thumb?t="+
                        temporary_link(g,uid,x["id"],"thumb")) if x["thumb_key"] else None
         item["view"]=("/web-galerias/media/"+str(x["id"])+"/view?t="+
