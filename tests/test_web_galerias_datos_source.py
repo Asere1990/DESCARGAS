@@ -71,7 +71,7 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
             patch("web_galerias.sync.folder_active",new=AsyncMock(return_value=True)),
             patch("web_galerias.sync.choose_account",new=AsyncMock(return_value=-222)),
             patch("web_galerias.sync.source_free",new=AsyncMock(return_value=True)),
-            patch("web_galerias.sync.connected",new=fake_connected),
+            patch("descargas_app.account_chat.connected",new=fake_connected),
             patch("web_galerias.sync.find_dialog",new=AsyncMock(return_value="peer")),
             patch("web_galerias.sync.mark_discovery",new=AsyncMock()),
             patch("web_galerias.sync.refresh_telegram_counts",new=AsyncMock())
