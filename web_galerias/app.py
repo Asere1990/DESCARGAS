@@ -11,7 +11,7 @@ from aiohttp import web
 from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
-from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location
+from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location,user_features
 
 log=logging.getLogger("web-galerias")
 ROOT=Path(__file__).resolve().parent
@@ -78,6 +78,10 @@ class Gallery(GalleryCore):
         if not await self.entitled(uid):raise web.HTTPForbidden(text="Acceso no autorizado.")
         if isinstance(op,str) and op.startswith("personal-"):
             return await personal.operation(self,uid,op,data)
+        if op=="user-collections":return await user_features.collections(self,uid)
+        if op=="progress-save":return await user_features.save_progress(self,uid,data)
+        if op=="favorite-set":return await user_features.set_favorite(self,uid,data)
+        if op=="favorites-items":return await user_features.items(self,uid,data)
         if op=="items":
             cursor=identifier(data.get("cursor",0),0)
             if not isinstance(data.get("query",""),str):raise web.HTTPBadRequest(text="Consulta incorrecta.")
