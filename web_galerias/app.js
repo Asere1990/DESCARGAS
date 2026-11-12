@@ -1063,7 +1063,7 @@ function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
  $("selection-count").textContent=S.selected.size+" de "+selectionLimit();
- $("selection-admin-delete").classList.toggle("hidden",!S.me?.admin);
+ $("selection-admin-delete").classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls));
  $("selection-admin-delete").disabled=!S.selected.size;
  const trayText=$("folder-drag-help");
  if(trayText)trayText.textContent=S.selected.size>1?
@@ -1076,7 +1076,7 @@ function updateSelection(){
  const inFavorites=!!S.folder?.favorites;
  $("selection-organize").classList.toggle("hidden",inFavorites);
  $("selection-original").classList.toggle("hidden",
-   !(inFavorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin)));
+   !(inFavorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls)));
  $("selection-original").disabled=S.selected.size!==1;
 }
 function toggleSelection(id){
@@ -1107,9 +1107,9 @@ function showViewerMedia(){
   document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
   $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
-  $("viewer-admin-delete").classList.toggle("hidden",!S.me?.admin);
+  $("viewer-admin-delete").classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls));
   $("viewer-admin-original")?.classList.toggle("hidden",
-    !(ADMIN_ACCOUNT_VIEW&&S.me?.admin));
+    !(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls));
   updateViewerFavorite();
   scheduleViewProgress(m);
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
@@ -2044,7 +2044,7 @@ $("select-mode").onclick=()=>{S.selection=!S.selection;S.selected.clear();update
 $("selection-cancel").onclick=()=>{S.selection=false;S.selected.clear();updateSelection();renderItems();};
 $("selection-download").onclick=()=>downloadIds([...S.selected]);
 $("selection-original").onclick=()=>{
- if(!(S.folder?.favorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin))||
+ if(!(S.folder?.favorites||(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls))||
     S.selected.size!==1)return;
  const id=[...S.selected][0],item=S.items.find(m=>m.id===id);
  if(item)window.CubanitasTools?.locateOriginal?.(item);
@@ -2057,7 +2057,7 @@ $("viewer-download").onclick=()=>downloadIds([S.items[S.viewer]?.id].filter(Bool
 $("viewer-admin-delete").onclick=()=>window.CubanitasTools?.adminDeleteSelection?.([S.items[S.viewer]?.id].filter(Boolean));
 $("viewer-admin-original").onclick=()=>{
  const item=S.items[S.viewer];
- if(ADMIN_ACCOUNT_VIEW&&S.me?.admin&&item?.id)
+ if(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls&&item?.id)
   window.CubanitasTools?.locateOriginal?.(item);
 };
 $("viewer-set-cover").onclick=async()=>{
