@@ -872,3 +872,13 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  background:var(--button);
 }
 #tab-diseno .editor-button-image-preview img{max-height:48px;pointer-events:none}
+
+
+/* On a cold Telegram start, keep the real promo photo/video visible but
+   never paint the HTML's default title/button before personalized artwork
+   and permission-dependent CTA have finished loading. Visibility preserves
+   the layout position so there is no jump on iPhone. */
+#intro.intro-loading .intro-bottom{
+ visibility:hidden;
+ pointer-events:none;
+}

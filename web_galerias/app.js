@@ -98,20 +98,26 @@ function renderEntryButtonLabel(label,forceText=false){
  button.classList.remove("enter-image-label");
  button.textContent=text;
  button.setAttribute("aria-label",text);
- if(forceText||S.me?.design?.button_mode!=="image")return;
+ if(forceText||S.me?.design?.button_mode!=="image")return Promise.resolve();
  const requested=Number(S.me.design.button_image_height??30);
  const height=Number.isFinite(requested)?Math.min(48,Math.max(12,requested)):30;
  button.style.setProperty("--entry-label-image-height",height+"px");
- const image=new Image();
- image.className="enter-label-image";image.alt="";
- image.onload=()=>{
-  if(S.buttonLabelGeneration!==generation||S.me?.design?.button_mode!=="image")return;
-  button.replaceChildren(image);
-  button.classList.add("enter-image-label");
- };
- // The accessible text stays in the real button if an image fails to load.
- image.onerror=()=>{};
- image.src="/web-galerias/assets/button-label-image?t="+Date.now();
+ // Commit the image atomically: the button is still hidden on the first
+ // screen until the selected artwork has loaded (or failed safely).
+ return new Promise(resolve=>{
+  const image=new Image();
+  image.className="enter-label-image";image.alt="";
+  image.onload=()=>{
+   if(S.buttonLabelGeneration===generation&&S.me?.design?.button_mode==="image"){
+    button.replaceChildren(image);
+    button.classList.add("enter-image-label");
+   }
+   resolve();
+  };
+  // On network failure, retain the saved accessible text as fallback.
+  image.onerror=()=>resolve();
+  image.src="/web-galerias/assets/button-label-image?t="+Date.now();
+ });
 }
 function updateEditorLabelChoices(){
  const titleImage=$("edit-header_mode").value==="image";
@@ -161,7 +167,9 @@ function applyDesign(d){const r=document.documentElement.style;
  for(const [id,key] of [["brand-logo","logo"]]){
    const image=$(id),icon=$("brand-icon");image.onload=()=>{image.hidden=false;icon.hidden=true;};
    image.onerror=()=>{image.hidden=true;icon.hidden=false;};image.src="/web-galerias/assets/"+key+"?t="+Date.now();}
+ let titleReady=Promise.resolve();
  if(d.header_mode==="image"){
+  titleReady=new Promise(resolve=>{
    const image=new Image();
    image.alt=d.title;
    const requested=Number(d.title_image_height??120);
@@ -172,12 +180,14 @@ function applyDesign(d){const r=document.documentElement.style;
    image.style.width="auto";
    image.style.objectFit="contain";
    image.onload=()=>{
-     if(S.titleImageGeneration!==titleGeneration)return;
-     headline.replaceChildren(image);
+    if(S.titleImageGeneration===titleGeneration)headline.replaceChildren(image);
+    resolve();
    };
-   // Inaccessible image = use the saved text, never a blank headline.
-   image.onerror=()=>{};
+   // On network failure, keep the saved title without revealing a
+   // temporary default while an image is still pending.
+   image.onerror=()=>resolve();
    image.src="/web-galerias/assets/header?t="+Date.now();
+  });
  }
  const video=$("intro-video"),placeholder=$("intro-placeholder");
  const intro=$("intro"),sound=$("intro-sound"),poster=$("intro-hero-poster");
@@ -209,7 +219,7 @@ function applyDesign(d){const r=document.documentElement.style;
   video.hidden=true;
   video.removeAttribute("src");video.load();
   sound.classList.add("hidden");
-  return;
+  return titleReady;
  }
  video.muted=true;video.autoplay=true;video.loop=true;video.playsInline=true;
  video.preload="auto";
@@ -233,6 +243,7 @@ function applyDesign(d){const r=document.documentElement.style;
   }
  };
  video.src="/web-galerias/assets/intro"+revision;
+ return titleReady;
 }
 async function api(op,data={}){
  const raw=tg?.initData||"";
@@ -248,30 +259,48 @@ async function api(op,data={}){
  return r.json();
 }
 async function refresh(lite=false){
+ // The promo background is available immediately. Never show an out-of-date
+ // title or CTA while bootstrap or custom images are still loading.
+ const intro=$("intro");
+ const generation=!lite?((S.introRenderGeneration||0)+1):0;
+ if(!lite){
+  S.introRenderGeneration=generation;
+  intro.classList.add("intro-loading");
+  intro.setAttribute("aria-busy","true");
+ }
  S.me=await api("bootstrap",{name:tg?.initDataUnsafe?.user?.first_name||""});
- if(!lite)applyDesign(S.me.design);S.folders=S.me.folders;
+ const titleReady=!lite?applyDesign(S.me.design):Promise.resolve();
+ S.folders=S.me.folders;
  S.personal=S.me.personal_folders||[];renderFolders();
  $("admin-open").classList.toggle("hidden",!S.me.admin);
  $("stat-folders").textContent=pretty(S.folders.length);
  $("stat-photos").textContent=pretty(S.me.photos);
  $("stat-videos").textContent=pretty(S.me.videos);
  updateQuotaStatus();
+ let buttonReady=Promise.resolve();
  if(!S.me.allowed){
   if(S.me.checkout_enabled){
-   renderEntryButtonLabel("COMPRAR MEMBRESÍA",true);
+   buttonReady=renderEntryButtonLabel("COMPRAR MEMBRESÍA",true);
    $("enter").textContent="COMPRAR MEMBRESÍA";
    // Provider branding only appears when the user opens hosted checkout.
    $("intro-notice").textContent="";
   }else{
-   renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
+   buttonReady=renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
    $("intro-notice").textContent=S.me.pilot?
     "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
   }
  }else{
-  renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
+  buttonReady=renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
   $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
  }
  $("intro-notice").classList.add("hidden");
+ if(!lite){
+  await Promise.all([titleReady,buttonReady]);
+  if(generation===S.introRenderGeneration){
+   intro.classList.remove("intro-loading");
+   intro.setAttribute("aria-busy","false");
+  }
+ }
 }
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
