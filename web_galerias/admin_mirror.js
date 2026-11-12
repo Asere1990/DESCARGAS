@@ -16,7 +16,9 @@
   return e;
  };
  function btn(text,fn,cls="admin-mirror-btn"){
-  const e=mk("button",cls,text);e.type="button";e.onclick=fn;return e;
+  const e=mk("button",cls,text);e.type="button";
+  if(typeof fn==="function")e.onclick=fn;
+  return e;
  }
  function textMessage(text){
   const p=mk("p","admin-mirror-message",text);area.append(p);return p;
@@ -43,11 +45,11 @@
   area.replaceChildren();state.uid=0;state.info=null;
  }
  function back(){
-  if(state.view==="viewer"){state.view="grid";paintGrid();return;}
+  if(state.view==="viewer"){closeViewer();return;}
   if(state.view==="grid"||state.view==="day"){
    if(state.section==="folders"){state.folder=null;listFolders();}
    else if(state.section==="downloads"){state.day=null;listDates();}
-   else switchSection("favorites");
+   else close();
    return;
   }
   close();
@@ -159,7 +161,8 @@
   loadGrid(false);
  }
  async function loadGrid(more){
-  if(!state.uid||state.busy)return;
+  if(!state.uid||(state.busy&&more))return;
+  if(!more)state.session++; // Ignore stale results from earlier search/filter.
   state.busy=true;
   const cursor=more?state.next:0;
   if(!more){state.items=[];state.next=null;$("admin-mirror-media-grid")?.replaceChildren();}
@@ -205,7 +208,7 @@
   const more=$("admin-mirror-more");
   grid.replaceChildren();
   state.items.forEach((item,i)=>grid.append(tile(item,i)));
-  if(!state.items.length&&!state.busy)
+  if(!state.items.length)
    grid.append(mk("p","admin-mirror-message","No hay archivos en esta vista."));
   if(more)more.hidden=!state.next;
  }
@@ -219,7 +222,7 @@
  function closeViewer(){
   $("admin-mirror-viewer").classList.add("hidden");
   $("admin-mirror-viewer-stage").replaceChildren();
-  state.view="grid";
+  state.view=state.section==="downloads"?"day":"grid";
  }
  function moveViewer(step){
   const next=state.viewer+step;
