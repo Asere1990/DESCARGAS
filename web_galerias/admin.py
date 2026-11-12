@@ -63,6 +63,7 @@ async def admin_op(g,uid,op,data):
     db=g.db()
     if op in ("admin-media-list","admin-media-remove","admin-media-r2-status",
               "admin-active-users","admin-user-profile","admin-users-page","admin-user-stats",
+              "admin-free-access-status","admin-free-access-set","admin-free-access-list",
               "admin-user-access-status","admin-user-access-change",
               "admin-user-personal-folders","admin-user-personal-items",
               "admin-user-personal-remove","admin-user-personal-delete"):
