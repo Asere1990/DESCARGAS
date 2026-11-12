@@ -1151,7 +1151,7 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  display:flex;align-items:center;
 }
 #library .library-slot-image img{
- display:block;width:auto;height:auto;max-width:100%;
+ display:block;width:auto;max-width:100%;
  object-fit:contain;object-position:left center;
 }
 #admin #editor-library-identity .library-editor-group{
