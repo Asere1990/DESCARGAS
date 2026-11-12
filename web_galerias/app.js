@@ -1593,7 +1593,9 @@ function updateSupportVisibility(screen){
  $("support-bubble").classList.toggle("hidden",!visible);
 }
 function mountSupportBubble(){
- const button=$("support-bubble"),key="wg_customer_support_button_v1";
+ const button=$("support-bubble");
+ if(!button)return; // Compatible with older cached HTML and isolated tests.
+ const key="wg_customer_support_button_v1";
  let pos={x:.85,y:.60},start=null,suppressClick=false;
  try{
   const saved=JSON.parse(localStorage.getItem(key)||"null");
