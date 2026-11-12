@@ -111,6 +111,39 @@ async def operation(g, actor, op, data):
     if not await g.entitled(target):
         raise web.HTTPForbidden(text="La membresía de este usuario no está vigente.")
 
+    if op == "admin-view-media-status":
+        # Re-check the authoritative R2-backed media row each time the admin
+        # opens a user folder/favorite/download. The iframe doesn't auto-refresh
+        # its full lists to protect client scrolling, so cached preview status
+        # might be stale after the original finishes uploading.
+        media_id = identifier(data.get("media"))
+        row = await db.fetchrow("""
+          SELECT m.id,m.folder,m.kind,m.mime,m.state,m.file_key,m.thumb_key,
+                 f.active
+          FROM wg_media m JOIN wg_folders f ON f.id=m.folder
+          WHERE m.id=$1
+        """, media_id)
+        if not row or not row["active"] or row["state"] not in ("preview","ready"):
+            raise web.HTTPNotFound(text="Archivo no disponible.")
+        # The user view never gets an administrative media key. Links are signed
+        # for the actual verified administrator and remain bound to the item.
+        if not await g.permitted(actor, row["folder"]):
+            raise web.HTTPForbidden(text="No autorizado.")
+        ready = row["state"]=="ready" and bool(row["file_key"])
+        visible = bool(row["thumb_key"])
+        return {
+            "media": media_id, "kind": row["kind"], "mime": row["mime"],
+            "available": ready,
+            "view": (
+                f"/web-galerias/media/{media_id}/view?t="
+                + temporary_link(g, actor, media_id, "view")
+            ) if ready else None,
+            "thumb": (
+                f"/web-galerias/media/{media_id}/thumb?t="
+                + temporary_link(g, actor, media_id, "thumb")
+            ) if visible else None,
+        }
+
     if op == "admin-view-collections":
         return await user_features.collections(g, target)
 
