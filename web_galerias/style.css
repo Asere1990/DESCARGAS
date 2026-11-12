@@ -940,16 +940,22 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  background:rgba(0,0,0,.64);color:#ff78a6;font-size:19px;
  text-shadow:0 1px 5px #000b;
 }
-#viewer .viewer-top .viewer-favorite{
- pointer-events:auto;position:absolute;left:15px;top:calc(14px + max(
- env(safe-area-inset-top,0px),var(--tg-safe-area-inset-top,0px)));
- display:grid;place-items:center;width:44px;height:44px;padding:0;
- border:1px solid rgba(255,255,255,.35);border-radius:13px;
- color:#fff;background:rgba(10,14,24,.62);
+/* Favorite control floats at the lower right, clear of Telegram's
+   close/header controls and clear of the bottom viewer action bar. */
+#viewer > .viewer-favorite{
+ position:absolute;right:15px;
+ bottom:calc(98px + max(env(safe-area-inset-bottom,0px),
+   var(--tg-safe-area-inset-bottom,0px),
+   var(--tg-content-safe-area-inset-bottom,0px)));
+ z-index:32;pointer-events:auto;touch-action:manipulation;
+ display:grid;place-items:center;width:48px;height:48px;padding:0;
+ border:1px solid rgba(255,255,255,.45);border-radius:14px;
+ color:#fff;background:rgba(10,14,24,.8);
+ box-shadow:0 5px 20px rgba(0,0,0,.35);
  font-size:29px;line-height:1;
 }
-#viewer .viewer-top .viewer-favorite[aria-pressed=true]{
- color:#ff7ca7;border-color:rgba(255,125,161,.6);
+#viewer > .viewer-favorite[aria-pressed=true]{
+ color:#ff7ca7;border-color:rgba(255,125,161,.7);
 }
 
 /* Commercial indicators are lazy-loaded only inside the administrator tab. */
