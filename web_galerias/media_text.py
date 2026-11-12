@@ -254,10 +254,13 @@ async def process_dirty(g,limit=35):
     for folder,ids in groups.items():
         try:
             await rebuild(g,folder,ids)
+            # An updated reply may re-enqueue an anchor during this rebuild.
+            # Never delete or postpone a newer pending event.
             await db.execute("""
               DELETE FROM wg_media_text_dirty
               WHERE folder=$1 AND message=ANY($2::bigint[])
-            """,folder,ids)
+                AND next_attempt=$3
+            """,folder,ids,now+90)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -266,7 +269,8 @@ async def process_dirty(g,limit=35):
               UPDATE wg_media_text_dirty
               SET next_attempt=$3
               WHERE folder=$1 AND message=ANY($2::bigint[])
-            """,folder,ids,time.time()+60)
+                AND next_attempt=$4
+            """,folder,ids,time.time()+60,now+90)
     return len(rows)
 
 
