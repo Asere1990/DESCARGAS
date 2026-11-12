@@ -9,6 +9,10 @@ function gallerySourceInput(value){
 }
 
 const $=id=>document.getElementById(id);
+// This is only a visual size; the entry remains disabled until signed auth.
+const fastButtonHeight=Number($("enter")?.dataset.fastButtonHeight);
+if(Number.isFinite(fastButtonHeight)&&fastButtonHeight>=12&&fastButtonHeight<=48)
+ $("enter").style.setProperty("--entry-label-image-height",fastButtonHeight+"px");
 const tg=window.Telegram?.WebApp;
 const ENDPOINT="/web-galerias/api";
 const BROWSER_ADMIN=/^\/web-galerias\/admin\/?$/.test(location.pathname)&&!tg?.initData;
@@ -123,6 +127,23 @@ function renderEntryButtonLabel(label,forceText=false){
  // A stale image load must never overwrite a newer label or the checkout CTA.
  const generation=(S.buttonLabelGeneration||0)+1;
  S.buttonLabelGeneration=generation;
+ // Current operator-selected artwork was already embedded in the page.
+ // Reuse the same image instead of blanking it and downloading it again
+ // after the slower per-user bootstrap response.
+ const fast=button.querySelector?.("img[data-fast-button]");
+ if(!forceText&&fast&&S.me?.design?.button_mode==="image"&&
+    button.dataset.fastButtonLabel===text){
+  button.classList.add("enter-image-label");
+  button.setAttribute("aria-label",text);
+  const initialHeight=Number(button.dataset.fastButtonHeight);
+  if(Number.isFinite(initialHeight)&&initialHeight>=12&&initialHeight<=48)
+   button.style.setProperty("--entry-label-image-height",initialHeight+"px");
+  return new Promise(resolve=>{
+   if(fast.complete){if(!fast.naturalWidth)button.textContent=text;resolve();return;}
+   fast.addEventListener("load",resolve,{once:true});
+   fast.addEventListener("error",()=>{button.textContent=text;resolve();},{once:true});
+  });
+ }
  button.classList.remove("enter-image-label");
  button.textContent=text;
  button.setAttribute("aria-label",text);
@@ -144,7 +165,7 @@ function renderEntryButtonLabel(label,forceText=false){
   };
   // On network failure, retain the saved accessible text as fallback.
   image.onerror=()=>resolve();
-  image.src="/web-galerias/assets/button-label-image"+(S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
+  image.src="/web-galerias/assets/button-label-fast"+(S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
  });
 }
 function updateEditorLabelChoices(){
@@ -187,7 +208,14 @@ function applyDesign(d){const r=document.documentElement.style;
  const headline=$("intro-headline");
  const titleGeneration=(S.titleImageGeneration||0)+1;
  S.titleImageGeneration=titleGeneration;
- headline.textContent=d.title;headline.setAttribute("aria-label",d.title);
+ // Keep the exact server-rendered image until it finishes decoding; replacing
+ // its DOM would cause a second request and the visible title to disappear.
+ const fastTitle=headline.querySelector?.("img[data-fast-title]");
+ const reusable=!!(fastTitle&&d.header_mode==="image"&&
+   headline.dataset.fastTitleLabel===d.title&&
+   Number(headline.dataset.fastTitleHeight)===Number(d.title_image_height??120));
+ if(!reusable)headline.textContent=d.title;
+ headline.setAttribute("aria-label",d.title);
  $("brand-name").textContent=d.title;
  $("intro-subtitle").textContent=d.intro_caption;
  $("intro-placeholder").lastElementChild.textContent=d.intro_label;
@@ -198,6 +226,17 @@ function applyDesign(d){const r=document.documentElement.style;
  let titleReady=Promise.resolve();
  if(d.header_mode==="image"){
   titleReady=new Promise(resolve=>{
+   if(reusable){
+    if(fastTitle.complete){
+     if(!fastTitle.naturalWidth)headline.textContent=d.title;
+     resolve();return;
+    }
+    fastTitle.addEventListener("load",resolve,{once:true});
+    fastTitle.addEventListener("error",()=>{
+     headline.textContent=d.title;resolve();
+    },{once:true});
+    return;
+   }
    const image=new Image();
    image.alt=d.title;
    const requested=Number(d.title_image_height??120);
@@ -214,7 +253,7 @@ function applyDesign(d){const r=document.documentElement.style;
    // On network failure, keep the saved title without revealing a
    // temporary default while an image is still pending.
    image.onerror=()=>resolve();
-   image.src="/web-galerias/assets/header"+(S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
+   image.src="/web-galerias/assets/header-fast"+(S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
   });
  }
  const video=$("intro-video"),placeholder=$("intro-placeholder");
@@ -297,6 +336,9 @@ async function refresh(lite=false){
   intro.setAttribute("aria-busy","true");
  }
  S.me=await api("bootstrap",{name:tg?.initDataUnsafe?.user?.first_name||""});
+ // The first-paint entry button was disabled in HTML; only signed,
+ // authenticated bootstrap may make it interactive.
+ $("enter").disabled=false;
  const titleReady=!lite?applyDesign(S.me.design):Promise.resolve();
  S.folders=S.me.folders;
  S.personal=S.me.personal_folders||[];renderFolders();

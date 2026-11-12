@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw
 from .core import GalleryCore,identifier
 from .permissions import is_admin
 from . import admin,admin_browser,downloads,payments,personal,covers,intro_video,location,user_features,download_plus
+from .fast_intro import render_fast_intro
 
 log=logging.getLogger("web-galerias")
 ROOT=Path(__file__).resolve().parent
@@ -132,6 +133,8 @@ def mount(app,service):
     g=Gallery(service)
     async def page(request):
         content=(ROOT/"index.html").read_text(encoding="utf-8")
+        if not request.path.rstrip("/").endswith("/admin"):
+            content=await render_fast_intro(g,content)
         return web.Response(text=content,content_type="text/html",headers=HEADERS)
     async def static(request):
         name=request.match_info["name"]
