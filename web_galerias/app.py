@@ -283,7 +283,7 @@ def mount(app,service):
     async def cleanup(_):
         g.closed=True
         tasks=(g.sync_task,g.intro_poster_task,g.customer_bridge_task,g.moderation_task,
-               g.broadcast_task,g.media_text_task,g.task)
+               g.broadcast_task,g.media_text_task,g.ocr_task,g.task)
         for task in tasks:
             if task:task.cancel()
         await asyncio.gather(*(t for t in tasks if t),return_exceptions=True)
