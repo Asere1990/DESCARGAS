@@ -552,6 +552,23 @@
    });
   }catch(e){notice(e.message);}
  }
+ // "Mostrar en galería" resolves a single original. For checked favorites
+ // from multiple albums, offer each source without losing the other choices.
+ function showFavoriteOriginals(){
+  if(!S.folder?.favorites||!S.selected.size)return;
+  const items=[...S.selected].slice(0,selectionLimit())
+   .map(id=>S.items.find(item=>item.id===id)).filter(Boolean);
+  if(!items.length)return;
+  if(items.length===1){void locateOriginal(items[0]);return;}
+  const root=$("media-context-actions");root.replaceChildren();
+  $("media-context-title").textContent="Mostrar original de cuál archivo";
+  for(const item of items){
+   const title=(item.filename||((item.kind==="video"?"Video":"Foto")+" "+item.id))
+    .slice(0,52);
+   root.append(choice("⌕ "+title+" · #"+item.id,()=>locateOriginal(item)));
+  }
+  $("media-context-sheet").classList.remove("hidden");
+ }
  function mediaActions(item){
   if(!item?.id)return;
   const selected=S.selected.has(item.id)?[...S.selected]:[item.id];
@@ -562,11 +579,16 @@
   root.append(choice("↓ Descargar al teléfono",async()=>{
    closeActions();await downloadIds(ids);
   }));
-  root.append(choice("📁 Mover a una carpeta",()=>movePicker(ids)));
-  // Original search is only meaningful for one file. Multi-selection has
-  // exactly two choices, regardless of source collection or search term.
-  if(ids.length===1)root.append(choice("⌕ Buscar en galería original",
-                                      ()=>locateOriginal(item)));
+  if(S.folder?.favorites){
+   root.append(choice("⌕ Mostrar en galería",()=>{
+    if(ids.length>1)showFavoriteOriginals();
+    else void locateOriginal(item);
+   }));
+  }else{
+   root.append(choice("📁 Mover a una carpeta",()=>movePicker(ids)));
+   if(ids.length===1)root.append(choice("⌕ Buscar en galería original",
+                                        ()=>locateOriginal(item)));
+  }
   if(S.me?.admin){
    root.append(choice("Eliminar de la web (conservar respaldo)",()=>deleteMediaIds(ids,false)));
    root.append(choice("Eliminar también de Cloudflare R2",()=>deleteMediaIds(ids,true)));
@@ -676,7 +698,7 @@
   $("media-context-close").onclick=closeActions;
   $("media-context-sheet").onclick=e=>{if(e.target===$("media-context-sheet"))closeActions();};
  }
- window.CubanitasTools={adminRefreshed,mediaActions,adminDeleteSelection,
-    showUserSectionMenu,refreshUserStats,usersLoaded,loadCommercial};
+ window.CubanitasTools={adminRefreshed,mediaActions,showFavoriteOriginals,
+    adminDeleteSelection,showUserSectionMenu,refreshUserStats,usersLoaded,loadCommercial};
  initialize();
 })();
