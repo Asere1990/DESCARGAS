@@ -48,7 +48,7 @@ class GalleryMobileNavigation(unittest.TestCase):
     def test_no_duplicate_controls(self):
         for control in ("go-intro","admin-open","admin-back","admin-refresh",
                         "back-library","select-mode","selection-cancel",
-                        "selection-download","close-viewer","viewer-download",
+                        "selection-download","selection-original","close-viewer","viewer-download",
                         "viewer-prev","viewer-next"):
             self.assertEqual(len(self.doc.buttons.get(control,[])),1,control)
 
@@ -56,7 +56,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertEqual(len(self.doc.nav_classes),4)
         self.assertEqual(set(self.doc.nav_classes[0]),{"go-intro","admin-open"})
         self.assertEqual(set(self.doc.nav_classes[1]),{"back-library","select-mode"})
-        self.assertEqual(set(self.doc.nav_classes[2]),{"selection-cancel","selection-organize","selection-admin-delete","selection-download"})
+        self.assertEqual(set(self.doc.nav_classes[2]),{"selection-cancel","selection-organize","selection-original","selection-admin-delete","selection-download"})
         self.assertIn('id="selection-admin-delete" type="button" class="mobile-action mobile-action-danger hidden"',self.html)
         self.assertIn('classList.toggle("hidden",!S.me?.admin)',self.js)
         self.assertEqual(set(self.doc.nav_classes[3]),{"admin-back","admin-refresh","browser-logout"})
