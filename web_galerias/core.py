@@ -115,6 +115,9 @@ SCHEMA += download_plus.SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
  "title_image_height":120,"button_image_height":30,
+ "library_brand":"Web Galerías","library_brand_mode":"text","library_brand_image_height":60,
+ "library_eyebrow":"MI COLECCIÓN","library_eyebrow_mode":"text","library_eyebrow_image_height":44,
+ "library_heading":"Mis galerías","library_heading_mode":"text","library_heading_image_height":100,
  "intro_caption":"Explora nuestras galerías privadas","button_color":"#198ee8",
  "accent":"#2196f3","background":"#0b0d12","text_color":"#ffffff",
  "tile_shape":"square","daily_limit":50,"intro_label":"Descubre nuestras galerías",
@@ -125,10 +128,16 @@ ASSET_MIME={
  "logo":{"image/png","image/jpeg","image/webp"},
  "header":{"image/png","image/jpeg","image/webp"},
  "button-label-image":{"image/png","image/jpeg","image/webp"},
+ "library-brand":{"image/png","image/jpeg","image/webp"},
+ "library-eyebrow":{"image/png","image/jpeg","image/webp"},
+ "library-heading":{"image/png","image/jpeg","image/webp"},
  "intro-photo":{"image/png","image/jpeg","image/webp","image/gif"},
  "intro":{"video/mp4","video/quicktime","video/webm"}}
 MAX_ASSET={"logo":3_000_000,"header":5_000_000,
-           "button-label-image":3_000_000,"intro-photo":5_000_000,"intro":25_000_000}
+           "button-label-image":3_000_000,
+           "library-brand":5_000_000,"library-eyebrow":5_000_000,
+           "library-heading":5_000_000,
+           "intro-photo":5_000_000,"intro":25_000_000}
 
 # Request-scoped proof from CUSTOMER-SERVICE; never trust the bare Telegram ID.
 _CUSTOMER_BOT_UID=ContextVar("wg_customer_bot_verified_uid",default=0)
