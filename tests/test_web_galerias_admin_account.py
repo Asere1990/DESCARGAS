@@ -25,9 +25,9 @@ class AdminAccountTests(unittest.IsolatedAsyncioTestCase):
                  side_effect=lambda _,uid,item,kind:f"{uid}-{item}-{kind}") as token:
                 await admin_account.operation(g,42,"admin-view-items",
                     {"telegram_id":777,"folder":17,"kind":"all","cursor":0})
+                signer=g.list_items.await_args.args[4]
+                self.assertEqual(signer(777,55,"thumb"),"42-55-thumb")
         self.assertEqual(g.list_items.await_args.args[0:2],(777,17))
-        signer=g.list_items.await_args.args[4]
-        self.assertEqual(signer(777,55,"thumb"),"42-55-thumb")
         g.entitled.assert_awaited_once_with(777)
 
     async def test_admin_bootstrap_mirrors_target_plan_and_does_not_count_visit(self):
