@@ -29,7 +29,7 @@ test("administrator broadcast publishes only after confirmation, supports media 
  assert.ok(src.includes('api("admin-notices-publish"'));
  assert.ok(src.includes('api("admin-notices-audience")'));
  assert.ok(src.includes('api("admin-notices-list")'));
- assert.ok(src.includes('target="_blank"')===false);
+ assert.ok(src.includes('a.target="_blank"'));
  assert.ok(src.includes('a.rel="noopener noreferrer"'));
  assert.ok(app.includes('"/web-galerias/admin/notice-upload"'));
 });
