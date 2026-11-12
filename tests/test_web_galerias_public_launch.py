@@ -23,7 +23,8 @@ class PublicGalleryLaunchTests(unittest.IsolatedAsyncioTestCase):
         g.entitled=AsyncMock(return_value=False)
         g.design=AsyncMock(return_value={})
         g.storage=N(ready=True)
-        response=await core.GalleryCore.bootstrap(g,733332211)
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"1"}):
+            response=await core.GalleryCore.bootstrap(g,733332211)
         self.assertTrue(response["checkout_enabled"])
         self.assertFalse(response["allowed"])
         self.assertFalse(response["free_access"])
