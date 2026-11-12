@@ -414,6 +414,7 @@ async function api(op,data={}){
    "locate-media":"admin-view-locate",
    "favorite-set":"admin-view-favorite-set",
    "media-status":"admin-view-media-status",
+   "media-priority":"admin-view-media-priority",
    "quota-plus-checkout":"admin-view-quota-plus-checkout",
    "notices-count":"admin-view-notices-count",
    "notices-list":"admin-view-notices-list",
@@ -1118,6 +1119,78 @@ function showViewerMedia(){
   scheduleViewProgress(m);
   $("viewer-prev").disabled=S.viewer===0;$("viewer-next").disabled=S.viewer===S.items.length-1;
 }
+// Requests for a selected video interrupt background copies on its source.
+// Only the viewer's polling is cancelled when moving away; the backup is durable.
+let videoPriorityTimer=null,videoPriorityGeneration=0;
+function stopVideoPriority(){
+ ++videoPriorityGeneration;
+ if(videoPriorityTimer)clearTimeout(videoPriorityTimer);
+ videoPriorityTimer=null;
+ const indicator=$("viewer-priority-status");
+ if(indicator)indicator.classList.add("hidden");
+}
+function priorityText(message){
+ const indicator=$("viewer-priority-status");
+ if(!indicator)return;
+ indicator.textContent=message||"";
+ indicator.classList.toggle("hidden",!message);
+}
+function beginVideoPriority(expected){
+ stopVideoPriority();
+ if(!expected||expected.kind!=="video"||expected.available)return;
+ const generation=videoPriorityGeneration;
+ const unchanged=()=>generation===videoPriorityGeneration&&
+   !$("viewer").classList.contains("hidden")&&
+   S.items[S.viewer]?.id===expected.id;
+ const started=Date.now();
+ let requested=false;
+ priorityText("Preparando este video con prioridad…");
+ const poll=async()=>{
+  if(!unchanged())return;
+  try{
+   const result=await api(requested?"media-status":"media-priority",
+                          {media:expected.id});
+   requested=true;
+   if(!unchanged())return;
+   if(result.available&&result.view){
+    expected.available=true;
+    expected.view=result.view;
+    expected.kind=result.kind||expected.kind;
+    expected.mime=result.mime||expected.mime;
+    if(result.thumb)expected.thumb=result.thumb;
+    stopVideoPriority();
+    showViewerMedia();
+    const player=$("view-video");
+    if(!player.hidden){
+     try{player.load();player.play().catch(()=>{});}catch(_){}
+    }
+    return;
+   }
+   const state=result.priority_state||"queued";
+   if(state==="running")priorityText("Descargando el video seleccionado…");
+   else if(state==="waiting")priorityText(
+     "La cuenta Telegram está ocupada; reintentando este video…");
+   else priorityText("Tu video tiene prioridad de reproducción…");
+   if(Date.now()-started>=300000){
+    priorityText("El video sigue en preparación. Puedes volver a abrirlo después.");
+    return;
+   }
+   videoPriorityTimer=setTimeout(poll,state==="waiting"?5000:2500);
+  }catch(e){
+   if(!unchanged())return;
+   if(!requested){
+    priorityText("No se pudo priorizar este video. Inténtalo de nuevo al abrirlo.");
+    return;
+   }
+   if(Date.now()-started>=300000){
+    priorityText("El video sigue pendiente. Vuelve a intentarlo más tarde.");
+    return;
+   }
+   videoPriorityTimer=setTimeout(poll,8000);
+  }
+ };
+ void poll();
+}
 async function refreshAdminViewerMedia(index,expected){
  // Admin's embedded user view intentionally does not refresh every list while
  // scrolling. A preview may already have become a playable original.
@@ -1152,11 +1225,14 @@ function openViewer(index){
  document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
  if(ADMIN_ACCOUNT_VIEW){
   void refreshAdminViewerMedia(index,S.items[index]);
- }else if(!S.items[index].available){
-  notice("El original se está preparando; la miniatura se muestra si está disponible.");
  }
+ beginVideoPriority(S.items[index]);
+ if(S.items[index].kind!=="video"&&!S.items[index].available)
+  notice("El original se está preparando; la miniatura se muestra si está disponible.");
 }
 function closeViewer(){
+ // Some embedded legacy viewers can load this function in isolation.
+ if(typeof stopVideoPriority==="function")stopVideoPriority();
  $("viewer").classList.add("hidden");
  document.body.classList.remove("gallery-viewer-open");
  $("view-video").pause();
@@ -1183,8 +1259,10 @@ function backToViewedMedia(){
 }
 function moveViewer(delta){
  const i=S.viewer+delta;if(i<0||i>=S.items.length)return;
+ stopVideoPriority();
  S.viewer=i;showViewerMedia();
  if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i]);
+ beginVideoPriority(S.items[i]);
 }
 function nativeDownload(data){
  const url=location.origin+data.url;

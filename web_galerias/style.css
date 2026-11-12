@@ -1194,3 +1194,16 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  #viewer .viewer-top .viewer-admin-original,
  #viewer .viewer-top .viewer-admin-delete{padding:8px 9px;font-size:11px}
 }
+
+
+/* Solo aparece al abrir un video cuyo original aún está en R2 pendiente. */
+.viewer-priority-status{
+ position:absolute;z-index:8;left:50%;bottom:64px;
+ transform:translateX(-50%);width:max-content;max-width:calc(100% - 38px);
+ padding:9px 15px;border-radius:14px;
+ background:rgba(5,11,24,.87);color:#f5faff;
+ box-shadow:0 2px 12px rgba(0,0,0,.25);
+ font-size:13px;font-weight:600;line-height:1.35;text-align:center;
+ pointer-events:none;white-space:normal;
+}
+.viewer-priority-status.hidden{display:none!important;}
