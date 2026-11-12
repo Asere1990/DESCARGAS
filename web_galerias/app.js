@@ -25,7 +25,7 @@ const BROWSER_ADMIN=/^\/web-galerias\/admin(?:\/view)?\/?$/.test(location.pathna
 const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null,
  resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
-const selectionLimit=()=>S.me?.admin?100:10;
+const selectionLimit=()=>(S.me?.admin||S.me?.admin_controls)?100:10;
 let lastPresence=0;
 function galleryPresence(){
  if(BROWSER_ADMIN||ADMIN_ACCOUNT_VIEW||!S.me?.allowed||document.hidden)return;
