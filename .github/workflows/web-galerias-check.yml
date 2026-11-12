@@ -20,6 +20,7 @@ on:
       - 'tests/test_web_galerias_admin_user_controls.py'
       - 'tests/test_web_galerias_free_and_promo.py'
       - 'tests/test_web_galerias_button_label_image.py'
+      - 'tests/test_web_galerias_label_sizes.cjs'
       - 'galerias_standalone.py'
       - 'descargas_app/subscription_actions.py'
       - 'tests/test_subscription_actions.py'
@@ -45,6 +46,7 @@ jobs:
           node --check web_galerias/app.js
           node --check web_galerias/admin_tools.js
           node --test tests/test_web_galerias_drag.cjs
+          node --test tests/test_web_galerias_label_sizes.cjs
       - name: Dependencias
         run: pip install -e .
       - name: Tests de Web Galerías
