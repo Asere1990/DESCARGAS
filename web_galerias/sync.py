@@ -665,7 +665,7 @@ async def backup_one(g,folder,item,message,client,guard,progress=None):
     mime=item["mime"] or ("image/jpeg" if kind=="photo" else "video/mp4")
     if kind=="video" and mime=="image/gif":
         from .gif_backup import backup_gif
-        return await backup_gif(g,folder,item,message,client,guard)
+        return await backup_gif(g,folder,item,message,client,guard,progress=progress)
     extensions={"image/jpeg":".jpg","image/png":".png","image/webp":".webp",
       "image/bmp":".bmp","image/heic":".heic","image/heif":".heif",
       "image/avif":".avif","video/quicktime":".mov",
