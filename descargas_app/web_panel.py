@@ -105,6 +105,8 @@ class TelegramPanel:
         self.background_search=BackgroundPanelSearch(self)
         from .panel_favorites import PanelFavorites
         self.favorites=PanelFavorites(self)
+        from .panel_reports import TelegramReports
+        self.reports=TelegramReports(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -474,6 +476,12 @@ class TelegramPanel:
                 return web.json_response(await self.background_search.results(
                     actor,session['version'],request.query.get('id',''),
                     integer(request.query.get('after','0'),0)),headers=HEADERS)
+            if post and op in ('report-begin','report-step'):
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Reporte no válido.')
+                result=(await self.reports.begin(actor,data) if op=='report-begin'
+                        else await self.reports.next(actor,data))
+                return web.json_response(result,headers=HEADERS)
             if post and op=='deliver-selection':
                 from .panel_delivery import enqueue
                 data=await request.json()
