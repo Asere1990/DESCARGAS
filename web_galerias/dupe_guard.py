@@ -68,6 +68,9 @@ async def dedupe_once(g):
                         customer=p.customer,subscription=p.subscription,
                         state=p.status,paid_until=p.paid_until,
                         cancel_at_period_end=p.cancel_at_period_end,
+                        subscription_started_at=GREATEST(
+                          wg_subscriptions.subscription_started_at,
+                          p.subscription_started_at),
                         changed=GREATEST(wg_subscriptions.changed,$3)
                     FROM wg_link_subscriptions p
                     WHERE wg_subscriptions.uid=$1
