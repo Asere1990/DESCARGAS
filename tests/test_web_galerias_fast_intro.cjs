@@ -38,9 +38,10 @@ test("the pre-rendered CTA image is reused instead of requesting another",async(
  assert.equal(imageCount,0,"No duplicate image load");
  assert.equal(button["aria-label"],"ENTRAR A GALERIAS CUBANAS");
  assert.equal(classes.has("enter-image-label"),true);
- await ctx.renderEntryButtonLabel("COMPRAR MEMBRESÍA",true);
- assert.equal(button.textContent,"COMPRAR MEMBRESÍA");
- assert.equal(classes.has("enter-image-label"),false);
+ await ctx.renderEntryButtonLabel("ENTRAR A GALERIAS CUBANAS");
+ assert.equal(button.textContent,"","No replace saved image for visitor without membership");
+ assert.equal(imageCount,0);
+ assert.equal(classes.has("enter-image-label"),true);
 });
 test("entry remains click-locked until signed bootstrap returns",async()=>{
  let release,called=false;
