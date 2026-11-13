@@ -16,6 +16,15 @@ CREATE TABLE IF NOT EXISTS descarga_panel_favorites (
 );
 CREATE INDEX IF NOT EXISTS descarga_panel_favorites_by_actor
  ON descarga_panel_favorites(bot_id,actor,created DESC);
+-- Separate lightweight account bookmarks: never modify chat favorites,
+-- Telegram sessions, download jobs, or other account metadata.
+CREATE TABLE IF NOT EXISTS descarga_panel_favorite_accounts (
+ bot_id BIGINT NOT NULL, actor BIGINT NOT NULL, uid BIGINT NOT NULL,
+ payload BYTEA NOT NULL, created DOUBLE PRECISION NOT NULL,
+ PRIMARY KEY(bot_id,actor,uid)
+);
+CREATE INDEX IF NOT EXISTS descarga_panel_favorite_accounts_by_actor
+ ON descarga_panel_favorite_accounts(bot_id,actor,created DESC);
 """
 
 
@@ -59,7 +68,74 @@ class PanelFavorites:
                           'account':data.get('account','Cuenta de Telegram'),
                           'type':row['kind'],'handle':handle,
                           'generation':generation,'available':available})
-        return {'items':items}
+        return {'items':items,'accounts':await self.account_listing(actor)}
+
+    async def account_listing(self,actor):
+        """Account favorites only: one metadata query, no Telegram connection."""
+        if not authorized(actor):
+            raise web.HTTPForbidden()
+        rows=await self.s.repo.pool.fetch("""
+            SELECT f.uid,f.payload,a.session IS NOT NULL AS connected,
+                   a.generation
+            FROM descarga_panel_favorite_accounts f
+            LEFT JOIN descarga_accounts a ON a.uid=f.uid
+            WHERE f.bot_id=$1 AND f.actor=$2
+            ORDER BY f.created DESC LIMIT 1000
+        """,self.s.bot_id,actor)
+        accounts=[]
+        for row in rows:
+            uid=int(row['uid'])
+            try:
+                await require_account(self.s,uid,actor)
+            except ValueError:
+                continue
+            saved=self.s.repo.decode(row['payload'])
+            if not isinstance(saved,dict):
+                continue
+            accounts.append({
+                'id':str(uid),
+                'name':clean_name(saved.get('name'),'Cuenta de Telegram'),
+                'username':clean_name(saved.get('username'),''),
+                'generation':row['generation'],
+                'available':bool(row['connected']),
+            })
+        return accounts
+
+    async def toggle_account(self,actor,data):
+        """Actor-scoped, encrypted bookmark; no client connection or mutation."""
+        from .web_panel import integer
+        if not authorized(actor):
+            raise web.HTTPForbidden()
+        if not isinstance(data,dict):
+            raise ValueError('Cuenta favorita no válida.')
+        uid=integer(data.get('account'))
+        wanted=data.get('favorite')
+        if not isinstance(wanted,bool):
+            raise ValueError('Indica si quieres marcar o desmarcar la cuenta.')
+        if not wanted:
+            # Removing one's own bookmark is possible after disconnecting.
+            await self.s.repo.pool.execute("""
+                DELETE FROM descarga_panel_favorite_accounts
+                WHERE bot_id=$1 AND actor=$2 AND uid=$3
+            """,self.s.bot_id,actor,uid)
+            return {'favorite':False}
+        await require_account(self.s,uid,actor)
+        exists=await self.s.repo.pool.fetchval(
+            'SELECT 1 FROM descarga_accounts WHERE uid=$1',uid)
+        if not exists:
+            raise ValueError('La cuenta ya no está vinculada al panel.')
+        payload=self.s.repo.encode({
+            'name':clean_name(data.get('name'),'Cuenta de Telegram'),
+            'username':clean_name(data.get('username'),''),
+        })
+        await self.s.repo.pool.execute("""
+            INSERT INTO descarga_panel_favorite_accounts
+                (bot_id,actor,uid,payload,created)
+            VALUES($1,$2,$3,$4,$5)
+            ON CONFLICT(bot_id,actor,uid)
+            DO UPDATE SET payload=excluded.payload
+        """,self.s.bot_id,actor,uid,payload,time.time())
+        return {'favorite':True}
 
     async def toggle(self,actor,data):
         from .web_panel import integer,source_id
