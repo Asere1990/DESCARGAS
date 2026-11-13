@@ -9,6 +9,7 @@ on:
       - 'descargas_app/panel_web/**'
       - 'tests/test_panel_background_search.py'
       - 'tests/test_panel_favorites.py'
+      - 'tests/test_panel_account_favorite_client.cjs'
       - 'tests/test_panel_background_client.cjs'
       - 'tests/test_web_panel.py'
   workflow_dispatch:
@@ -44,7 +45,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m compileall -q descargas_app
       - run: node --check descargas_app/panel_web/app.js
-      - run: node --test tests/test_panel_background_client.cjs tests/test_panel_account_cache.cjs
+      - run: node --test tests/test_panel_background_client.cjs tests/test_panel_account_cache.cjs tests/test_panel_account_favorite_client.cjs
       - run: python -m unittest discover -s tests -p test_panel_background_search.py -v
       - run: python -m unittest discover -s tests -p test_panel_favorites.py -v
       - run: python -m unittest discover -s tests -p test_web_panel.py -v
