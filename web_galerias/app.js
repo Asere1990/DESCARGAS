@@ -924,6 +924,36 @@ function markFailedVideo(m){
  if(!$("viewer").classList.contains("hidden")&&S.items[S.viewer]?.id===m.id)
   showViewerMedia();
 }
+// Low-rate DB-only check for a repaired original. No Telegram connection,
+// new transfer or change to the existing priority queue.
+let failedVideoCheckBusy=false;
+async function recheckFailedVideos(){
+ if(failedVideoCheckBusy||document.hidden||!S.failedVideos.size||
+    !S.me?.allowed||!S.items.length)return;
+ failedVideoCheckBusy=true;
+ try{
+  const ids=[...S.failedVideos.keys()].filter(id=>S.items.some(x=>x.id===id)).slice(0,2);
+  for(const id of ids){
+   const saved=S.failedVideos.get(id);
+   if(!saved)continue;
+   try{
+    const state=await api("media-status",{media:id});
+    const newSize=Number(state.size)||0;
+    if(state.available&&newSize>4096&&newSize>saved.size){
+     const m=S.items.find(x=>x.id===id);
+     if(!m)continue;
+     m.available=true;m.size=newSize;m.view=state.view;
+     m.mime=state.mime||m.mime;
+     S.failedVideos.delete(id);
+     renderItems();
+     if(!$("viewer").classList.contains("hidden")&&S.items[S.viewer]?.id===id)
+      showViewerMedia();
+    }
+   }catch(_){/* Recheck is best-effort and must never block the gallery. */}
+  }
+ }finally{failedVideoCheckBusy=false;}
+}
+setInterval(()=>{void recheckFailedVideos();},60000);
 function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
