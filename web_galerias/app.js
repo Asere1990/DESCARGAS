@@ -1105,9 +1105,9 @@ function toggleSelection(id){
  else return notice("Puedes seleccionar hasta "+selectionLimit()+" archivos por operación.");
  updateSelection();renderItems();
 }
-// Prefer direct R2 playback. If WebKit stalls, retry only that video using
-// authorized same-origin Range requests; other media and downloads stay as-is.
-let viewerPlaybackTimer=null,viewerPlaybackEpoch=0,viewerStreamModeId=null;
+// Play video through bounded same-origin HTTP ranges on both Android and iPhone.
+// A stalled/erroring video can retry direct R2 once; downloads stay as-is.
+let viewerPlaybackTimer=null,viewerPlaybackEpoch=0,viewerDirectModeId=null;
 function clearViewerPlayback(){
  ++viewerPlaybackEpoch;
  if(viewerPlaybackTimer)clearTimeout(viewerPlaybackTimer);
@@ -1116,13 +1116,13 @@ function clearViewerPlayback(){
  player.onplay=player.onplaying=player.onwaiting=player.onstalled=
   player.ontimeupdate=player.onerror=null;
 }
-function videoStreamFallbackUrl(url){
+function videoStreamUrl(url){
  return url+(url.includes("?")?"&":"?")+"stream=1";
 }
 function prepareViewerPlayback(m){
  const player=$("view-video");
  const epoch=viewerPlaybackEpoch;
- let usingStream=viewerStreamModeId===m.id;
+ let usingDirect=viewerDirectModeId===m.id;
  let lastProgress=-1;
  const active=()=>epoch===viewerPlaybackEpoch&&
    !$("viewer").classList.contains("hidden")&&S.items[S.viewer]?.id===m.id;
@@ -1131,16 +1131,16 @@ function prepareViewerPlayback(m){
   viewerPlaybackTimer=null;
  };
  const cannotPlay=()=>priorityText(
-   "No se pudo reproducir este video. Puedes guardarlo y abrirlo en tu dispositivo.");
+   "No se pudo reproducir este video. Puede ser incompatible con el reproductor; prueba a guardarlo.");
  const fallback=()=>{
   cancel();
   if(!active())return;
-  if(usingStream){cannotPlay();return;}
-  usingStream=true;viewerStreamModeId=m.id;
+  if(usingDirect){cannotPlay();return;}
+  usingDirect=true;viewerDirectModeId=m.id;
   const at=Number.isFinite(player.currentTime)?player.currentTime:0;
   const wasPlaying=!player.paused;
-  priorityText("Recuperando reproducción del video…");
-  player.src=videoStreamFallbackUrl(m.view);
+  priorityText("Probando otra conexión para el video…");
+  player.src=m.view;
   try{player.load();}catch(_){}
   if(at>0)try{player.currentTime=at;}catch(_){}
   if(wasPlaying)try{player.play().catch(()=>{});}catch(_){}
@@ -1165,7 +1165,7 @@ function prepareViewerPlayback(m){
   const now=Number(player.currentTime)||0;
   if(now>lastProgress+0.15){
    lastProgress=now;cancel();
-   if(active()&&usingStream)priorityText("");
+   if(active()&&usingDirect)priorityText("");
   }
  };
  player.onerror=fallback;
@@ -1180,7 +1180,7 @@ function showViewerMedia(){
   const full=!!m.available&&!!m.view;
   if(m.kind==="video"&&full&&m.mime!=="image/gif"){
     img.hidden=true;video.hidden=false;
-    video.src=viewerStreamModeId===m.id?videoStreamFallbackUrl(m.view):m.view;
+    video.src=viewerDirectModeId===m.id?m.view:videoStreamUrl(m.view);
     prepareViewerPlayback(m);
   }else{
     video.hidden=true;img.hidden=false;
@@ -1344,7 +1344,7 @@ async function refreshAdminViewerMedia(index,expected){
  }
 }
 function openViewer(index){
- viewerStreamModeId=null;
+ viewerDirectModeId=null;
  S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
  document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
  if(ADMIN_ACCOUNT_VIEW){
@@ -1361,7 +1361,7 @@ function closeViewer(){
  document.body.classList.remove("gallery-viewer-open");
  $("view-video").pause();
  if(typeof clearViewerPlayback==="function")clearViewerPlayback();
- if(typeof viewerStreamModeId!=="undefined")viewerStreamModeId=null;
+ if(typeof viewerDirectModeId!=="undefined")viewerDirectModeId=null;
  if(S.folder?.favorites&&S.favoritesDirty){
   S.favoritesDirty=false;
   return loadItems(false).catch(()=>{});
@@ -1385,7 +1385,7 @@ function backToViewedMedia(){
 }
 function moveViewer(delta){
  const i=S.viewer+delta;if(i<0||i>=S.items.length)return;
- stopVideoPriority();viewerStreamModeId=null;
+ stopVideoPriority();viewerDirectModeId=null;
  S.viewer=i;showViewerMedia();
  if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i]);
  beginVideoPriority(S.items[i]);

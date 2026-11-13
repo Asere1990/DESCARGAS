@@ -4,7 +4,8 @@ const assert=require("node:assert/strict");
 const fs=require("node:fs");
 const vm=require("node:vm");
 const js=fs.readFileSync(__dirname+"/../web_galerias/app.js","utf8");
-const start=js.indexOf("// Prefer direct R2 playback.");
+const html=fs.readFileSync(__dirname+"/../web_galerias/index.html","utf8");
+const start=js.indexOf("// Play video through bounded same-origin HTTP ranges");
 const end=js.indexOf("function showViewerMedia(){",start);
 assert.ok(start>=0&&end>start);
 
@@ -14,7 +15,7 @@ function scenario(){
  const state={viewer:0,items:[item]};
  const notices=[],timers=[],calls=[];
  const video={
-  paused:false,currentTime:0,src:item.view,
+  paused:false,currentTime:0,src:item.view+"&stream=1",
   load:()=>calls.push("load"),
   play:()=>{calls.push("play");return Promise.resolve();}
  };
@@ -35,48 +36,57 @@ function scenario(){
  return {ctx,item,video,calls,timers,notices};
 }
 
-test("10-second stalled iPhone playback retries only selected video with same-origin ranges",()=>{
+test("iPhone and Android start with authorized same-origin streaming, not R2 redirect",()=>{
+ const s=scenario();
+ assert.equal(s.video.src,s.item.view+"&stream=1");
+ assert.equal(s.ctx.videoStreamUrl(s.item.view),s.item.view+"&stream=1");
+ assert.ok(js.includes('video.src=viewerDirectModeId===m.id?m.view:videoStreamUrl(m.view)'));
+ assert.ok(!js.includes("navigator.userAgent"));
+ assert.ok(html.includes("app.js?v=playback-range-android-ios-20261113-v2"));
+});
+
+test("10-second stalled video retries direct R2 once on both operating systems",()=>{
  const s=scenario();
  s.video.onwaiting();
  assert.equal(s.timers.length,1);
  s.timers.shift()();
- assert.equal(s.video.src,s.item.view+"&stream=1");
+ assert.equal(s.video.src,s.item.view);
  assert.ok(s.calls.includes("load"));
- assert.ok(s.notices.some(x=>x.includes("Recuperando")));
+ assert.ok(s.notices.some(x=>x.includes("Probando otra conexión")));
 });
 
-test("real playback progress does not trigger recovery",()=>{
+test("real playback progress keeps range stream active",()=>{
  const s=scenario();
  s.video.onwaiting();
  const callback=s.timers.shift();
  s.video.currentTime=2.0;
  callback();
- assert.equal(s.video.src,s.item.view);
+ assert.equal(s.video.src,s.item.view+"&stream=1");
  assert.deepEqual(s.calls,[]);
 });
 
-test("one fallback only; a second failure is reported instead of looping",()=>{
+test("after one retry a second error is shown rather than looping",()=>{
  const s=scenario();
  s.video.onerror();
- assert.ok(s.video.src.endsWith("&stream=1"));
+ assert.equal(s.video.src,s.item.view);
  s.video.onerror();
  assert.ok(s.notices.some(x=>x.includes("guardarlo")));
 });
 
-test("pause and viewer-close don't restart or change a video",()=>{
+test("pause and closing viewer don't restart or change a video",()=>{
  const s=scenario();
  s.video.onwaiting();
  const callback=s.timers.shift();
  s.video.paused=true;
  callback();
- assert.equal(s.video.src,s.item.view);
+ assert.equal(s.video.src,s.item.view+"&stream=1");
  s.video.paused=false;
  s.ctx.clearViewerPlayback();
  assert.equal(s.video.onwaiting,null);
 });
 
-test("selected video recovery does not alter R2 backup, download quota or customer apps",()=>{
- assert.ok(js.includes('video.src=viewerStreamModeId===m.id?videoStreamFallbackUrl(m.view):m.view'));
+test("priority and download features remain unchanged",()=>{
  assert.ok(js.includes('beginVideoPriority(S.items[index])'));
  assert.ok(js.includes('beginVideoPriority(S.items[i])'));
+ assert.ok(js.includes('if(typeof clearViewerPlayback==="function")clearViewerPlayback();'));
 });
