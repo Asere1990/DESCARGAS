@@ -22,7 +22,7 @@ class FavoritesDatabaseTests(unittest.IsolatedAsyncioTestCase):
             raise RuntimeError('Favorite tests refuse production databases')
         self.repo=Repository(URL,Fernet(Fernet.generate_key()))
         await self.repo.start()
-        await self.repo.pool.execute('TRUNCATE descarga_panel_favorites')
+        await self.repo.pool.execute('TRUNCATE descarga_panel_favorites, descarga_panel_favorite_accounts')
         await self.repo.save_account(22,'dummy-session',{'name':'Cuenta de prueba'})
         row=await self.repo.account(22)
         self.generation=row['generation']
@@ -38,7 +38,7 @@ class FavoritesDatabaseTests(unittest.IsolatedAsyncioTestCase):
             self.addCleanup(guard.stop)
 
     async def asyncTearDown(self):
-        await self.repo.pool.execute('TRUNCATE descarga_panel_favorites')
+        await self.repo.pool.execute('TRUNCATE descarga_panel_favorites, descarga_panel_favorite_accounts')
         await self.repo.close()
 
     def request(self,kind='group'):
@@ -83,6 +83,40 @@ class FavoritesDatabaseTests(unittest.IsolatedAsyncioTestCase):
         # An old bookmark can always be removed without opening the account.
         await self.favorite.remove(111,22,-1000000001234)
         self.assertEqual((await self.favorite.listing(111))['items'],[])
+
+    async def test_account_favorite_is_private_encrypted_and_never_alters_session(self):
+        before=(await self.repo.account(22))['session']
+        data={'account':22,'favorite':True,'name':'Cuenta principal','username':'cuenta'}
+        self.assertEqual((await self.favorite.toggle_account(111,data)),{'favorite':True})
+        self.assertEqual((await self.favorite.account_listing(222)),[])
+        account=(await self.favorite.account_listing(111))[0]
+        self.assertEqual(account['id'],'22')
+        self.assertEqual(account['name'],'Cuenta principal')
+        self.assertTrue(account['available'])
+        result=await self.favorite.listing(111)
+        self.assertEqual(result['items'],[],'Account favorites never become chat bookmarks')
+        self.assertEqual(len(result['accounts']),1)
+        payload=await self.repo.pool.fetchval(
+            'SELECT payload FROM descarga_panel_favorite_accounts WHERE bot_id=7 AND actor=111')
+        self.assertNotIn(b'Cuenta principal',bytes(payload))
+        self.assertEqual((await self.repo.account(22))['session'],before)
+        await self.repo.erase_session(22)
+        stale=(await self.favorite.account_listing(111))[0]
+        self.assertFalse(stale['available'])
+        self.assertEqual(stale['id'],'22')
+        self.assertEqual((await self.favorite.toggle_account(111,{
+            'account':22,'favorite':False})),{'favorite':False})
+        self.assertEqual(await self.favorite.account_listing(111),[])
+
+    async def test_account_bookmark_requires_valid_actor_account_and_boolean(self):
+        with self.assertRaises(Exception):
+            await self.favorite.toggle_account(111,{'account':22,'favorite':'yes'})
+        with self.assertRaises(ValueError):
+            await self.favorite.toggle_account(111,{'account':99999999,
+                'favorite':True,'name':'No existe'})
+        with self.assertRaises(Exception):
+            await self.favorite.toggle_account(333,{'account':22,'favorite':True})
+        self.assertEqual(await self.favorite.account_listing(111),[])
 
     async def test_invalid_peer_scope_does_not_write(self):
         payload=self.request()
