@@ -1038,10 +1038,12 @@ async function openPurchases(){
  await load();
 }
 
-(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;favoriteItems=[];accountFavoriteItems=[];hideFavoritesMenu();const restoredPages=restoreCachedAccounts();refreshAccountFavorites().catch(()=>{});await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
+(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;favoriteItems=[];accountFavoriteItems=[];hideFavoritesMenu();const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
  // Every fresh visit begins with an EMPTY name/query field and NO zombie job.
  // This deletes ONLY old search jobs/hits, never a linked Telegram session.
  clearAccountSearchView();
  await api('search-job-clear',{}).catch(e=>notice('Búsqueda previa no borrada: '+e.message));
+ // Load small star bookmarks only after accounts and search are usable.
+ refreshAccountFavorites().catch(()=>{});
  }catch(e){locked(e.message);}})();
 })();
