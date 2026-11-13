@@ -72,6 +72,24 @@ async def run(g):
                     info["sample"].get("brand"),info["sample"].get("moov_first"),
                     info["sample"].get("moov_last"),info["sample"].get("mdat_first"),
                     info["sample"].get("mdat_last"),",".join(info["sample"].get("codecs_sampled",[])))
+                # Repair only the two R2 objects already PROVEN to be invalid.
+                # Their R2 originals stay untouched until a new fully verified
+                # Telegram multipart completes successfully. No other media,
+                # user, session, billing or storage record is changed.
+                broken=(row["kind"]=="video" and row["mime"]=="video/mp4"
+                        and int(row["size"] or 0)==1024
+                        and info["r2_bytes"]==1024
+                        and info["sample"].get("signature")=="mp4"
+                        and not info["sample"].get("moov_first")
+                        and not info["sample"].get("moov_last"))
+                if broken:
+                    await g.db().execute("""
+                        UPDATE wg_media SET state='preview',
+                          error='r2_original_incompleto',available=0
+                        WHERE id=$1 AND state='ready'
+                          AND kind='video' AND size=1024
+                    """,row["id"])
+                    log.warning("Video original invalid; requeued id=%s",row["id"])
             except Exception as exc:
                 log.warning("Video inspection id=%s unavailable (%s)",
                             row["id"],type(exc).__name__)
