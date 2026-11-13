@@ -169,9 +169,12 @@ async def choose_account(g,folder):
           SELECT uid FROM descarga_accounts WHERE session IS NOT NULL
           UNION ALL
           SELECT d.uid FROM unnest($5::bigint[]) AS d(uid)
-          WHERE NOT EXISTS (
+          -- An explicit DATOS:telegram_id must win even when the same
+          -- Telegram ID is linked in DESCARGAS. Auto-discovery still keeps
+          -- the original DESCARGAS-first deduplication for unpinned folders.
+          WHERE (d.uid=$4 OR NOT EXISTS (
             SELECT 1 FROM descarga_accounts a0
-            WHERE a0.uid=-d.uid AND a0.session IS NOT NULL)
+            WHERE a0.uid=-d.uid AND a0.session IS NOT NULL))
         )
         SELECT a.uid FROM sources a
         LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
