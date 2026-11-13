@@ -30,14 +30,26 @@ CREATE TABLE IF NOT EXISTS wg_media_priority(
   state TEXT NOT NULL DEFAULT 'queued'
     CHECK(state IN ('queued','running')),
   last_error TEXT NOT NULL DEFAULT '');
+-- Real bytes delivered from Telegram, never guessed timer percentages.
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS received_bytes BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS expected_bytes BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS progress_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS wg_media_priority_requester ON wg_media_priority(requester);
+CREATE INDEX IF NOT EXISTS wg_media_priority_fifo
+  ON wg_media_priority(requested_at ASC) WHERE state='queued';
 CREATE INDEX IF NOT EXISTS wg_media_priority_due
   ON wg_media_priority(next_attempt,requested_at DESC)
   WHERE state='queued';
 """
 
-MAX_GLOBAL_PENDING = 48
+# The queue holds 250+ distinct requests; it does NOT start 250 Telegram
+# transfers at once. Actual transfers are separately bounded per service.
+MAX_GLOBAL_PENDING = 500
 MAX_USER_PENDING = 4
-JOB_TTL_SECONDS = 3600
+JOB_TTL_SECONDS = 48 * 3600
+DEFAULT_PARALLEL = 4
+MAX_PARALLEL = 6
 
 
 def active(g):
@@ -80,12 +92,25 @@ def _result(g, uid, row, priority=None):
         ) if row["thumb_key"] else None,
         "priority_state": "ready" if available else "idle",
         "retry_after": 0,
+        "progress_percent": 100 if available else None,
+        "received_bytes": 0,
+        "expected_bytes": 0,
+        "queue_position": None,
+        "queue_total": None,
     }
     if not available and priority:
+        priority = dict(priority)
         wait = max(0, int(float(priority["next_attempt"] or 0) - time.time()))
         result["priority_state"] = (
             "waiting" if wait else str(priority["state"]))
         result["retry_after"] = wait
+        received = max(0, int(priority.get("received_bytes") or 0))
+        expected = max(0, int(priority.get("expected_bytes") or 0))
+        result["received_bytes"] = received
+        result["expected_bytes"] = expected
+        if priority["state"] == "running" and expected > 0:
+            # 100% is reserved for the verified, published R2 object.
+            result["progress_percent"] = min(99, received * 100 // expected)
     return result
 
 
@@ -94,9 +119,22 @@ async def status(g, uid, media):
     job = None
     if row["state"] != "ready" and active(g):
         job = await g.db().fetchrow(
-            "SELECT state,next_attempt FROM wg_media_priority WHERE media=$1",
-            row["id"])
-    return _result(g, uid, row, job)
+            """SELECT state,next_attempt,requested_at,received_bytes,
+                      expected_bytes,progress_at
+               FROM wg_media_priority WHERE media=$1""", row["id"])
+    result = _result(g, uid, row, job)
+    if job and job["state"] == "queued":
+        # A position is factual; no predicted completion time is invented.
+        stats = await g.db().fetchrow("""
+            SELECT COUNT(*) FILTER(
+                     WHERE state='queued' AND requested_at<=$1)::int AS position,
+                   COUNT(*) FILTER(WHERE state='queued')::int AS total
+            FROM wg_media_priority
+        """, job["requested_at"])
+        if stats:
+            result["queue_position"] = int(stats["position"] or 0)
+            result["queue_total"] = int(stats["total"] or 0)
+    return result
 
 
 async def request(g, uid, media):
