@@ -23,7 +23,7 @@ const ADMIN_ACCOUNT_INITDATA=ADMIN_ACCOUNT_VIEW?
 const BROWSER_ADMIN=/^\/web-galerias\/admin(?:\/view)?\/?$/.test(location.pathname)&&
  !tg?.initData&&!ADMIN_ACCOUNT_INITDATA;
 const S={me:null,folders:[],personal:[],folder:null,filter:"all",items:[],next:null,search:"",selection:false,selected:new Set(),viewer:0,admin:null,adminExpanded:new Set(),epoch:0,toastTimer:null,prepared:null,saveData:null,suppressClick:null,personalMenuOpen:false,dropMenuOpen:false,drag:null,personalSaving:false,coverFolder:null,
- resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false};
+ resumes:[],favoritesCount:0,collectionsReady:false,collectionsPending:false,collectionsAt:0,progressTimer:null,favoritesDirty:false,failedVideos:new Map()};
 const pretty=n=>Number(n||0).toLocaleString("es-ES");
 const selectionLimit=()=>(S.me?.admin||S.me?.admin_controls)?100:10;
 let lastPresence=0;
@@ -906,15 +906,33 @@ function onMediaTileClick(item,index,event){
  },275)};
 }
 
+function failedVideo(m){
+ const previous=S.failedVideos.get(m?.id);
+ if(!previous)return false;
+ // A newly restored, larger original can be played on the next refresh.
+ if(m.available&&Number(m.size)>4096&&Number(m.size)>previous.size){
+  S.failedVideos.delete(m.id);return false;
+ }
+ return true;
+}
+function markFailedVideo(m){
+ if(!m||m.kind!=="video"||failedVideo(m))return;
+ S.failedVideos.set(m.id,{size:Number(m.size)||0,at:Date.now()});
+ stopVideoPriority();
+ priorityText("");
+ renderItems();
+ if(!$("viewer").classList.contains("hidden")&&S.items[S.viewer]?.id===m.id)
+  showViewerMedia();
+}
 function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
   const b=document.createElement("button");b.className="media-tile"+(S.selected.has(m.id)?" selected":"");
   b.type="button";b.dataset.mediaId=String(m.id);b.draggable=!!window.matchMedia?.("(pointer:fine)")?.matches;
-  b.setAttribute("aria-label",m.kind==="video"?"Abrir video":"Abrir foto");
+  b.setAttribute("aria-label",m.kind==="video"&&!failedVideo(m)?"Abrir video":"Abrir foto");
   if(m.thumb){const img=document.createElement("img");img.src=m.thumb;img.loading="lazy";img.decoding="async";img.alt="";
    img.onerror=()=>{img.remove();fallback(b,m);};b.append(img);}else fallback(b,m);
-  if(m.kind==="video"){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
+  if(m.kind==="video"&&!failedVideo(m)){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
   if(m.favorite){
    const heart=document.createElement("span");heart.className="favorite-mark";
    heart.textContent="♥";heart.setAttribute("aria-hidden","true");b.append(heart);
@@ -1130,8 +1148,11 @@ function prepareViewerPlayback(m){
   if(viewerPlaybackTimer)clearTimeout(viewerPlaybackTimer);
   viewerPlaybackTimer=null;
  };
- const cannotPlay=()=>priorityText(
-   "No se pudo reproducir este video. Puede ser incompatible con el reproductor; prueba a guardarlo.");
+ const cannotPlay=()=>{
+  // Both authorized playback routes failed. The thumbnail becomes a photo;
+  // the real item remains video in DB/R2, ready for a later valid upload.
+  markFailedVideo(m);
+ };
  const fallback=()=>{
   cancel();
   if(!active())return;
@@ -1178,21 +1199,24 @@ function showViewerMedia(){
   clearViewerPlayback();
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
-  if(m.kind==="video"&&full&&m.mime!=="image/gif"){
+  if(m.kind==="video"&&full&&m.mime!=="image/gif"&&!failedVideo(m)){
     img.hidden=true;video.hidden=false;
     video.src=viewerDirectModeId===m.id?m.view:videoStreamUrl(m.view);
     prepareViewerPlayback(m);
   }else{
     video.hidden=true;img.hidden=false;
-    if(full||m.thumb)img.src=full?m.view:m.thumb;
+    const imageFull=full&&!failedVideo(m);
+    if(imageFull||m.thumb)img.src=imageFull?m.view:m.thumb;
     else img.removeAttribute("src");
-    img.alt=full?"Vista completa":"Vista previa; original en preparación";
+    img.alt=failedVideo(m)?"Miniatura del video aún no reproducible":
+      imageFull?"Vista completa":"Vista previa; original en preparación";
   }
   const canCover=!!(S.folder?.personal&&m.kind==="photo"&&m.thumb);
   $("viewer-set-cover").classList.toggle("hidden",!canCover);
   document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
-  $("viewer-download").disabled=!full;
-  $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
+  $("viewer-download").disabled=!full||failedVideo(m);
+  $("viewer-download").title=failedVideo(m)?"Video en preparación":
+   full?"Guardar archivo":"Original en preparación";
   $("viewer-admin-delete").classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls));
   $("viewer-admin-original")?.classList.toggle("hidden",
     !(ADMIN_ACCOUNT_VIEW&&S.me?.admin_controls));
@@ -1268,6 +1292,7 @@ function beginVideoPriority(expected){
    if(!unchanged())return;
    if(result.available&&result.view){
     expected.available=true;
+    if(result.size!=null)expected.size=result.size;
     expected.view=result.view;
     expected.kind=result.kind||expected.kind;
     expected.mime=result.mime||expected.mime;
@@ -1284,6 +1309,8 @@ function beginVideoPriority(expected){
     }
     return;
    }
+   // A confirmed invalid Telegram original is different from a slow queue.
+   if(result.priority_failed){markFailedVideo(expected);return;}
    const state=result.priority_state||"queued";
    if(state==="running"&&result.progress_percent!=null){
     advance(result.progress_percent);
