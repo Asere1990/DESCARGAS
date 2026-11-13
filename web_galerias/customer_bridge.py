@@ -98,12 +98,18 @@ async def sync_once(g):
     db = g.db()
     rows = await db.fetch(
         """SELECT s.uid,s.customer,s.subscription,
-                  CASE WHEN r.subscription IS NOT NULL OR d.uid IS NOT NULL
+                  CASE WHEN d.uid IS NOT NULL OR
+                    (f.uid IS NOT NULL AND NOT EXISTS (
+                      SELECT 1 FROM wg_checkouts x
+                      JOIN wg_link_subscriptions p ON p.subscription=x.subscription
+                      WHERE x.uid=s.uid AND x.session IS NOT NULL AND
+                            p.price_id=$2 AND p.last_invoice_paid_at>f.event_created
+                    ))
                     THEN 'canceled' ELSE s.state END AS state,
                   s.paid_until,s.changed,s.cancel_at_period_end,
                   c.session,c.created,COALESCE(u.name,'') AS telegram_name
            FROM wg_subscriptions s
-           LEFT JOIN wg_web_revocations r ON r.subscription=s.subscription
+           LEFT JOIN wg_web_refund_blocks f ON f.uid=s.uid
            LEFT JOIN wg_web_dispute_blocks d ON d.uid=s.uid
            JOIN LATERAL (
               SELECT session,created FROM wg_checkouts
@@ -116,6 +122,7 @@ async def sync_once(g):
               OR COALESCE(b.last_checked,0)<$1
            ORDER BY COALESCE(b.last_checked,0) ASC
            LIMIT 30""", time.time() - 90,
+           os.getenv("GALERIAS_STRIPE_PRICE_ID",""),
     )
     ok = 0
     price = os.getenv("GALERIAS_STRIPE_PRICE_ID", "")
