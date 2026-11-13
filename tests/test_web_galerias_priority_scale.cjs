@@ -47,11 +47,11 @@ function viewer(){
 }
 const settled=async()=>new Promise(resolve=>setImmediate(resolve));
 
-test("250 waiting requests show a factual queue position and poll at a restrained rate",async()=>{
+test("pending video shows only 0% (never internal queue numbers) and polls at a restrained rate",async()=>{
  const v=viewer();
  v.context.beginVideoPriority(v.item);
  await settled();
- assert.equal(v.indicator.textContent,"En cola · posición aproximada 23 de 250");
+ assert.equal(v.indicator.textContent,"Cargando video · 0 %");
  assert.equal(v.ops[0][0],"media-priority");
  assert.ok(v.timers[0].ms>=8000);
 });
@@ -69,7 +69,7 @@ test("center overlay advances from 37 to 99, then verified 100 and playback",asy
  assert.equal(v.indicator.textContent,"Cargando video · 99 %");
  v.timers.shift().callback();
  await settled();
- assert.equal(v.indicator.textContent,"100 % · Video listo");
+ assert.equal(v.indicator.textContent,"Cargando video · 100 %");
  assert.equal(v.item.available,true);
  assert.ok(v.renders.includes("render"));
  assert.ok(v.renders.includes("load"));
