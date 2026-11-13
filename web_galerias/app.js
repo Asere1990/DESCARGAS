@@ -1640,7 +1640,7 @@ function previewAdmin(){
   details.id="admin-folder-details-"+f.id;
   trigger.setAttribute("aria-controls",details.id);
   const info=document.createElement("div");info.className="admin-folder-data";
-  const state=!f.active?"Pausada":S.admin.sync_enabled?"Respaldo activo":"Esperando sincronizador";
+  const state=S.admin.sync_enabled?"Respaldo activo":"Esperando sincronizador";
   function addAdminDatum(label,value,description=""){
    const row=document.createElement("div");row.className="admin-data-row";
    const name=document.createElement("span");name.className="admin-data-label";
@@ -1656,6 +1656,8 @@ function previewAdmin(){
   }
   addAdminDatum("Nombre público",f.public_name||("Galería "+f.id));
   addAdminDatum("Nombre interno",f.name||"Sin nombre");
+  addAdminDatum("Visibilidad para clientes",f.active?"Visible":"Oculta",
+    "Ocultarla no detiene la catalogación ni el respaldo en Cloudflare R2.");
   addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal de origen.");
   addAdminDatum("Cuenta Telegram para el historial",
     f.preferred_uid?gallerySourceLabel(f.preferred_uid):"No asignada",
@@ -1865,7 +1867,7 @@ function previewAdmin(){
   "</p><p>"+(S.admin.sync_enabled?
    "✓ Copia masiva automática: "+esc(S.admin.sync_phase||"en marcha"):
    "⚠ Sincronizador detenido o pendiente de conexión")+
-  "</p><p>Agregar carpeta → comenzar; ocultar carpeta → pausar; restaurar → continuar. No se borran archivos de R2.</p>";
+  "</p><p>Agregar carpeta → iniciar copia; ocultar carpeta → ocultar solo a clientes; restaurar → volver a mostrarla. Las carpetas ocultas siguen sincronizando. No se borran archivos de R2.</p>";
 }
 async function loadAdmin(){
  try{

@@ -317,7 +317,8 @@ async def admin_op(g,uid,op,data):
         return {"ok":True}
     if op=="admin-folder-remove":
         folder=identifier(data.get("folder"))
-        # Desactivar en galería, nunca abandonar, borrar o denunciar grupos de Telegram.
+        # Solo ocultar a los clientes: sincronización Telegram/R2 continúa.
+        # Nunca abandonar, borrar ni denunciar grupos de Telegram.
         await db.execute("UPDATE wg_folders SET active=FALSE WHERE id=$1",folder)
         await g.log(uid,op)
         return {"ok":True}
