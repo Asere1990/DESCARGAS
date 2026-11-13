@@ -658,14 +658,14 @@ async def catalog(g,folder,m):
       caption,normal(caption)[:4000],reply,grouped,time.time(),source_type)
 
 
-async def backup_one(g,folder,item,message,client,guard):
+async def backup_one(g,folder,item,message,client,guard,progress=None):
     """Respaldo íntegro y verificable, sin modificar el formato original."""
     await guard()
     kind=item["kind"]
     mime=item["mime"] or ("image/jpeg" if kind=="photo" else "video/mp4")
     if kind=="video" and mime=="image/gif":
         from .gif_backup import backup_gif
-        return await backup_gif(g,folder,item,message,client,guard)
+        return await backup_gif(g,folder,item,message,client,guard,progress=progress)
     extensions={"image/jpeg":".jpg","image/png":".png","image/webp":".webp",
       "image/bmp":".bmp","image/heic":".heic","image/heif":".heif",
       "image/avif":".avif","video/quicktime":".mov",
@@ -714,7 +714,10 @@ async def backup_one(g,folder,item,message,client,guard):
         elif kind=="video" and not original_valid:
             # Los videos se transmiten a R2 por partes sin cargar todo en RAM.
             parts=client.iter_download(message.media,request_size=512*1024)
-            original_size=await g.storage.upload_stream(parts,key,mime,check=guard)
+            kwargs={"check":guard}
+            if progress is not None:
+                kwargs["progress"]=progress
+            original_size=await g.storage.upload_stream(parts,key,mime,**kwargs)
 
         if kind=="photo" and not thumb.is_file() and not thumb_size:
             image_path=tmp/("source"+ending)

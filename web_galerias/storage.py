@@ -73,7 +73,7 @@ class PrivateStorage:
     async def exists(self, key):
         return await self.object_size(key) is not None
 
-    async def upload_stream(self, chunks, key, mime, check=None):
+    async def upload_stream(self, chunks, key, mime, check=None, progress=None):
         """Vídeo Telegram -> R2 con lectura anticipada acotada y verificación completa.
 
         Una única descarga Telegram. Mientras R2 sube una parte, una cola
@@ -111,6 +111,11 @@ class PrivateStorage:
                     break
                 buffer.extend(chunk)
                 total += len(chunk)
+                # Actual Telegram bytes consumed by the R2 upload pipeline.
+                # A caller can publish progress at a throttled cadence;
+                # no full video is ever kept in RAM.
+                if progress is not None:
+                    await progress(total)
                 while len(buffer) >= 8 * 1024 * 1024:
                     body = bytes(buffer[:8 * 1024 * 1024])
                     del buffer[:8 * 1024 * 1024]

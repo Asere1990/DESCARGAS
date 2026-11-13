@@ -13,6 +13,8 @@ on:
       - 'tests/test_web_galerias_sync.py'
       - 'tests/test_web_galerias_priority.py'
       - 'tests/test_web_galerias_priority.cjs'
+      - 'tests/test_web_galerias_priority_scale.py'
+      - 'tests/test_web_galerias_priority_scale.cjs'
       - 'tests/test_web_galerias_datos_source.py'
       - 'tests/test_web_galerias_mobile_navigation.py'
       - 'tests/test_web_galerias_public_metadata.py'
@@ -83,6 +85,7 @@ jobs:
           node --test tests/test_web_galerias_admin_account.cjs
           node --test tests/test_web_galerias_admin_playback.cjs
           node --test tests/test_web_galerias_priority.cjs
+          node --test tests/test_web_galerias_priority_scale.cjs
           node --test tests/test_web_galerias_exact_account.cjs
           node --test tests/test_web_galerias_admin_mirror.cjs
           node --test tests/test_web_galerias_drag.cjs
@@ -107,6 +110,7 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_standalone.py -v
           python -m unittest discover -s tests -p test_web_galerias_sync.py -v
           python -m unittest discover -s tests -p test_web_galerias_priority.py -v
+          python -m unittest discover -s tests -p test_web_galerias_priority_scale.py -v
           python -m unittest discover -s tests -p test_web_galerias_album_metadata.py -v
           python -m unittest discover -s tests -p test_web_galerias_datos_source.py -v
           python -m unittest discover -s tests -p test_subscription_actions.py -v

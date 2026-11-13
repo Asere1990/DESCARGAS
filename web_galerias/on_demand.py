@@ -30,14 +30,26 @@ CREATE TABLE IF NOT EXISTS wg_media_priority(
   state TEXT NOT NULL DEFAULT 'queued'
     CHECK(state IN ('queued','running')),
   last_error TEXT NOT NULL DEFAULT '');
+-- Real bytes delivered from Telegram, never guessed timer percentages.
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS received_bytes BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS expected_bytes BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS progress_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_media_priority ADD COLUMN IF NOT EXISTS started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS wg_media_priority_requester ON wg_media_priority(requester);
+CREATE INDEX IF NOT EXISTS wg_media_priority_fifo
+  ON wg_media_priority(requested_at ASC) WHERE state='queued';
 CREATE INDEX IF NOT EXISTS wg_media_priority_due
   ON wg_media_priority(next_attempt,requested_at DESC)
   WHERE state='queued';
 """
 
-MAX_GLOBAL_PENDING = 48
+# The queue holds 250+ distinct requests; it does NOT start 250 Telegram
+# transfers at once. Actual transfers are separately bounded per service.
+MAX_GLOBAL_PENDING = 500
 MAX_USER_PENDING = 4
-JOB_TTL_SECONDS = 3600
+JOB_TTL_SECONDS = 48 * 3600
+DEFAULT_PARALLEL = 4
+MAX_PARALLEL = 6
 
 
 def active(g):
@@ -80,12 +92,25 @@ def _result(g, uid, row, priority=None):
         ) if row["thumb_key"] else None,
         "priority_state": "ready" if available else "idle",
         "retry_after": 0,
+        "progress_percent": 100 if available else None,
+        "received_bytes": 0,
+        "expected_bytes": 0,
+        "queue_position": None,
+        "queue_total": None,
     }
     if not available and priority:
+        priority = dict(priority)
         wait = max(0, int(float(priority["next_attempt"] or 0) - time.time()))
         result["priority_state"] = (
             "waiting" if wait else str(priority["state"]))
         result["retry_after"] = wait
+        received = max(0, int(priority.get("received_bytes") or 0))
+        expected = max(0, int(priority.get("expected_bytes") or 0))
+        result["received_bytes"] = received
+        result["expected_bytes"] = expected
+        if priority["state"] == "running" and expected > 0:
+            # 100% is reserved for the verified, published R2 object.
+            result["progress_percent"] = min(99, received * 100 // expected)
     return result
 
 
@@ -94,9 +119,23 @@ async def status(g, uid, media):
     job = None
     if row["state"] != "ready" and active(g):
         job = await g.db().fetchrow(
-            "SELECT state,next_attempt FROM wg_media_priority WHERE media=$1",
-            row["id"])
-    return _result(g, uid, row, job)
+            """SELECT state,next_attempt,requested_at,received_bytes,
+                      expected_bytes,progress_at
+               FROM wg_media_priority WHERE media=$1""", row["id"])
+    result = _result(g, uid, row, job)
+    requested_at = dict(job).get("requested_at") if job else None
+    if job and job["state"] == "queued" and requested_at is not None:
+        # A position is approximate when other users have multiple requests.
+        stats = await g.db().fetchrow("""
+            SELECT COUNT(*) FILTER(
+                     WHERE state='queued' AND requested_at<=$1)::int AS position,
+                   COUNT(*) FILTER(WHERE state='queued')::int AS total
+            FROM wg_media_priority
+        """, requested_at)
+        if stats and "position" in dict(stats):
+            result["queue_position"] = int(stats["position"] or 0)
+            result["queue_total"] = int(stats["total"] or 0)
+    return result
 
 
 async def request(g, uid, media):
@@ -160,8 +199,59 @@ async def _defer(g, media, error, seconds):
     await g.db().execute("""
       UPDATE wg_media_priority SET
         state='queued',attempts=attempts+1,next_attempt=$2,
-        last_error=$3 WHERE media=$1
+        last_error=$3,received_bytes=0,progress_at=0,started_at=0
+      WHERE media=$1
     """, media, time.time()+max(2, float(seconds)), str(error)[:90])
+
+
+async def _select_source(g, folder):
+    """Prefer the known source, then another previously verified free account.
+
+    All accounts still use the original account_lock (wait=False), including
+    DATOS. Administratively pinned accounts are never silently changed.
+    """
+    first = await sync.choose_account(g, folder)
+    candidates = [first] if first is not None else []
+    if folder.get("preferred_uid") is None:
+        verified = await g.db().fetch("""
+            SELECT d.uid FROM wg_discovery d
+            LEFT JOIN wg_account_cooldown c ON c.uid=d.uid
+            WHERE d.folder=$1 AND d.works
+              AND COALESCE(c.available_at,0)<=$2
+            ORDER BY d.tried_at DESC LIMIT 16
+        """, folder["id"], time.time())
+        candidates.extend(int(entry["uid"]) for entry in verified)
+    seen = set()
+    reserved = getattr(g, "priority_accounts_in_use", None)
+    lock = getattr(g, "priority_source_lock", None)
+    for uid in candidates:
+        if uid is None or uid in seen:
+            continue
+        seen.add(uid)
+        source = g.s if uid > 0 else getattr(g.s, "datos", None)
+        if source is None or (uid < 0 and not getattr(source, "ready", False)):
+            continue
+        if uid < 0:
+            # DESCARGAS and DATOS can contain the same Telegram UID.
+            # Their independent DB locks would not protect each other:
+            # never open that real account through both systems at once.
+            duplicate = await g.db().fetchval("""
+                SELECT EXISTS(SELECT 1 FROM descarga_accounts
+                              WHERE uid=$1 AND session IS NOT NULL)
+            """, -uid)
+            if duplicate:
+                continue
+        if reserved is not None and uid in reserved:
+            continue
+        if not await sync.source_free(g, uid, folder["id"]):
+            continue
+        if lock is not None and reserved is not None:
+            async with lock:
+                if uid in reserved:
+                    continue
+                reserved.add(uid)
+        return uid
+    return None
 
 
 async def _process(g, media):
@@ -188,11 +278,9 @@ async def _process(g, media):
     try:
         if not active(g):
             raise sync.PauseRequested("priority_disabled")
-        uid = await sync.choose_account(g, folder)
+        uid = await _select_source(g, folder)
         if uid is None:
-            raise sync.PauseRequested("source_unavailable")
-        if not await sync.source_free(g, uid, folder["id"]):
-            raise sync.PauseRequested("source_busy")
+            raise sync.PauseRequested("source_busy_or_unavailable")
         service = g.s if uid > 0 else getattr(g.s, "datos", None)
         if service is None or (uid < 0 and not getattr(service, "ready", False)):
             raise sync.PauseRequested("source_unavailable")
@@ -209,8 +297,35 @@ async def _process(g, media):
                     g, folder["id"], dict(row), message):
                 await _defer(g, media, "source_revalidation", 45)
                 return
+            # Real bytes from Telethon; never a simulated clock-based counter.
+            document = getattr(message, "document", None)
+            expected = max(0, int(getattr(document, "size", 0) or
+                                  row["size"] or 0))
+            await g.db().execute("""
+                UPDATE wg_media_priority
+                SET expected_bytes=$2,received_bytes=0,progress_at=$3
+                WHERE media=$1 AND state='running'
+            """, media, expected, time.time())
+            last_report = 0.0
+            last_received = 0
+
+            async def transfer_progress(received):
+                nonlocal last_report, last_received
+                amount = max(0, int(received or 0))
+                moment = time.monotonic()
+                if moment-last_report < 0.85 and amount-last_received < 4*1024*1024:
+                    return
+                last_report = moment
+                last_received = amount
+                await g.db().execute("""
+                    UPDATE wg_media_priority SET
+                      received_bytes=$2,expected_bytes=$3,progress_at=$4
+                    WHERE media=$1 AND state='running'
+                """, media, amount, expected, time.time())
+
             await sync.backup_one(
-                g, folder["id"], dict(row), message, client, guard)
+                g, folder["id"], dict(row), message, client, guard,
+                progress=transfer_progress)
         ready = await g.db().fetchval(
             "SELECT state='ready' FROM wg_media WHERE id=$1", media)
         if ready:
@@ -242,14 +357,26 @@ async def _process(g, media):
         delay = min(600, 15 * 2 ** min(5, int(count or 0)))
         await _defer(g, media, type(exc).__name__, delay)
         log.warning("Priority video deferred (%s)", type(exc).__name__)
+    finally:
+        reserved = getattr(g, "priority_accounts_in_use", None)
+        if reserved is not None and uid is not None:
+            reserved.discard(uid)
 
 
 async def run(g):
-    """At most two urgent videos; leader + durable queue survive restarts."""
+    """Bounded streams, durable 500-slot queue, fair across active sources."""
     db = g.db()
     await db.execute(SCHEMA)
-    parallel = max(1, min(2, int(os.getenv("GALERIAS_PRIORITY_PARALLEL", "2"))))
+    try:
+        parallel = max(1, min(MAX_PARALLEL,
+            int(os.getenv("GALERIAS_PRIORITY_PARALLEL", str(DEFAULT_PARALLEL)))))
+    except (ValueError, TypeError):
+        parallel = DEFAULT_PARALLEL
     running = {}
+    # Reservations avoid waking several transfers on the same Telegram
+    # account at once. The original PostgreSQL lock remains authoritative.
+    g.priority_accounts_in_use = set()
+    g.priority_source_lock = asyncio.Lock()
     async with db.acquire() as leader:
         while not g.closed:
             if await leader.fetchval("SELECT pg_try_advisory_lock(784,22)"):
@@ -262,7 +389,10 @@ async def run(g):
                 UPDATE wg_media_priority SET state='queued',next_attempt=0
                 WHERE state='running'
             """)
-            log.warning("On-demand gallery video priority active; parallel=%d", parallel)
+            log.warning(
+                "On-demand gallery video priority active; parallel=%d capacity=%d",
+                parallel, MAX_GLOBAL_PENDING)
+            last_queue_report = 0.0
             while not g.closed:
                 if not g.storage.ready or os.getenv("GALERIAS_SYNC_ENABLED","0")!="1":
                     await asyncio.sleep(5)
@@ -277,23 +407,64 @@ async def run(g):
                     """, time.time()-JOB_TTL_SECONDS)
                     available = parallel-len(running)
                     if available > 0:
+                        # Respect a fixed account, or at most the number of
+                        # previously verified sources for an unpinned folder.
+                        # A burst of 250 clicks from one folder with one source
+                        # therefore creates just ONE active Telegram transfer.
+                        # First requests from different users are scheduled
+                        # before any user's second/third/fourth request.
                         due = await db.fetch("""
-                            WITH next AS (
-                              SELECT media FROM wg_media_priority
-                              WHERE state='queued' AND next_attempt<=$1
-                              ORDER BY requested_at DESC LIMIT $2
-                              FOR UPDATE SKIP LOCKED
+                            WITH eligible AS (
+                              SELECT q.media,q.requested_at,m.folder,
+                                CASE WHEN f.preferred_uid IS NOT NULL THEN 1
+                                ELSE LEAST($3::int,GREATEST(1,
+                                  (SELECT COUNT(*)::int FROM wg_discovery d
+                                   WHERE d.folder=m.folder AND d.works))) END
+                                  AS folder_capacity,
+                                ROW_NUMBER() OVER(
+                                  PARTITION BY m.folder
+                                  ORDER BY q.requested_at ASC,q.media) AS folder_rank,
+                                ROW_NUMBER() OVER(
+                                  PARTITION BY q.requester
+                                  ORDER BY q.requested_at ASC,q.media) AS user_round
+                              FROM wg_media_priority q
+                              JOIN wg_media m ON m.id=q.media
+                              JOIN wg_folders f ON f.id=m.folder
+                              WHERE q.state='queued' AND q.next_attempt<=$1
+                                AND m.state='preview' AND m.kind='video'
+                                AND f.active
+                            ), next AS (
+                              SELECT e.media FROM eligible e
+                              WHERE e.folder_rank <= GREATEST(0,e.folder_capacity-
+                                (SELECT COUNT(*)::int FROM wg_media_priority r
+                                 JOIN wg_media mr ON mr.id=r.media
+                                 WHERE r.state='running' AND mr.folder=e.folder))
+                              ORDER BY e.user_round,e.requested_at ASC
+                              LIMIT $2
                             )
-                            UPDATE wg_media_priority p SET state='running'
-                            FROM next WHERE p.media=next.media
+                            UPDATE wg_media_priority p SET
+                              state='running',received_bytes=0,
+                              progress_at=0,started_at=$1
+                            FROM next WHERE p.media=next.media AND p.state='queued'
                             RETURNING p.media
-                        """, time.time(), available)
+                        """, time.time(), available, parallel)
                         for record in due:
                             media=int(record["media"])
                             task=asyncio.create_task(_process(g,media))
                             running[media]=task
                             task.add_done_callback(
                                 lambda _task, mid=media: running.pop(mid, None))
+                    if time.monotonic()-last_queue_report>=120:
+                        snapshot=await db.fetchrow("""
+                            SELECT COUNT(*) FILTER(WHERE state='queued')::int AS queued,
+                                   COUNT(*) FILTER(WHERE state='running')::int AS running
+                            FROM wg_media_priority
+                        """)
+                        log.warning(
+                            "On-demand video capacity: queued=%d running=%d slots=%d max_queue=%d",
+                            int(snapshot["queued"] or 0),int(snapshot["running"] or 0),
+                            parallel,MAX_GLOBAL_PENDING)
+                        last_queue_report=time.monotonic()
                     await asyncio.sleep(1)
                 except asyncio.CancelledError:
                     raise

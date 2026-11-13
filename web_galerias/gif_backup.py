@@ -34,7 +34,7 @@ def copy_from_r2(storage,key,destination):
         body.close()
 
 
-async def backup_gif(g,folder,item,message,client,guard):
+async def backup_gif(g,folder,item,message,client,guard,progress=None):
     """Mantener el GIF original en R2 y una copia MP4 reproducible en la web.
 
     Si ffmpeg no puede convertir ese GIF particular, la web reproduce el
@@ -56,7 +56,12 @@ async def backup_gif(g,folder,item,message,client,guard):
             if src_size:
                 await asyncio.to_thread(copy_from_r2,g.storage,source_key,source)
             else:
-                name=await client.download_media(message,file=str(source))
+                async def on_telegram_progress(received,total):
+                    if progress is not None:
+                        await progress(int(received))
+                    await guard()
+                kwargs={"progress_callback":on_telegram_progress} if progress is not None else {}
+                name=await client.download_media(message,file=str(source),**kwargs)
                 await guard()
                 if not name or not Path(name).is_file() or Path(name).stat().st_size<=0:
                     raise ValueError("Telegram no entregó GIF")

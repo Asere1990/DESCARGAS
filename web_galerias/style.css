@@ -1196,14 +1196,17 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 }
 
 
-/* Solo aparece al abrir un video cuyo original aún está en R2 pendiente. */
-.viewer-priority-status{
- position:absolute;z-index:8;left:50%;bottom:64px;
- transform:translateX(-50%);width:max-content;max-width:calc(100% - 38px);
- padding:9px 15px;border-radius:14px;
- background:rgba(5,11,24,.87);color:#f5faff;
- box-shadow:0 2px 12px rgba(0,0,0,.25);
- font-size:13px;font-weight:600;line-height:1.35;text-align:center;
+/* Estado del video exactamente sobre el área visible, nunca bajo botones. */
+#viewer .viewer-stage{position:relative}
+#viewer .viewer-priority-status{
+ position:absolute;z-index:25;left:50%;top:44%;bottom:auto;
+ transform:translate(-50%,-50%);
+ width:max-content;max-width:min(260px,76%);
+ padding:7px 10px;border-radius:10px;
+ background:rgba(4,10,20,.82);color:#f5faff;
+ box-shadow:0 2px 10px rgba(0,0,0,.28);
+ font-size:12px;font-weight:550;line-height:1.4;text-align:center;
+ font-variant-numeric:tabular-nums;
  pointer-events:none;white-space:normal;
 }
 .viewer-priority-status.hidden{display:none!important;}
