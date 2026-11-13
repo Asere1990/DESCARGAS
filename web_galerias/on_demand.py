@@ -97,6 +97,7 @@ def _result(g, uid, row, priority=None):
         "expected_bytes": 0,
         "queue_position": None,
         "queue_total": None,
+        "priority_failure": False,
     }
     if not available and priority:
         priority = dict(priority)
@@ -104,6 +105,17 @@ def _result(g, uid, row, priority=None):
         result["priority_state"] = (
             "waiting" if wait else str(priority["state"]))
         result["retry_after"] = wait
+        # Only report actual failed transfer attempts, not routine waiting,
+        # downloading, account busy, or a user's slow internet connection.
+        result["priority_failure"] = bool(
+            wait and str(priority.get("last_error") or "") in (
+                "invalid_or_incomplete_original",
+                "source_has_no_access",
+                "FileReferenceExpiredError",
+                "TimeoutError",
+                "MediaInvalidError",
+            )
+        )
         received = max(0, int(priority.get("received_bytes") or 0))
         expected = max(0, int(priority.get("expected_bytes") or 0))
         result["received_bytes"] = received
@@ -120,7 +132,7 @@ async def status(g, uid, media):
     if row["state"] != "ready" and active(g):
         job = await g.db().fetchrow(
             """SELECT state,next_attempt,requested_at,received_bytes,
-                      expected_bytes,progress_at
+                      expected_bytes,progress_at,last_error
                FROM wg_media_priority WHERE media=$1""", row["id"])
     result = _result(g, uid, row, job)
     requested_at = dict(job).get("requested_at") if job else None
