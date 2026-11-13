@@ -953,7 +953,7 @@ async function recheckFailedVideos(){
   }
  }finally{failedVideoCheckBusy=false;}
 }
-setInterval(()=>{void recheckFailedVideos();},60000);
+if(typeof setInterval==="function")setInterval(()=>{void recheckFailedVideos();},60000);
 function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
