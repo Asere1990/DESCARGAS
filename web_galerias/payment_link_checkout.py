@@ -191,7 +191,7 @@ async def reconcile_access(connection,sub_id):
        cancel_at_period_end=excluded.cancel_at_period_end,
        changed=excluded.changed""",
        data["uid"],data["customer"],sub_id,state,data["paid_until"],
-       time.time(),bool(data["cancel_at_period_end"]))
+       time.time(),bool(dict(data).get("cancel_at_period_end",False)))
 
 
 
