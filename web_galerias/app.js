@@ -84,12 +84,69 @@ function updateQuotaStatus(){
  const tierLabel=$("quota-tier");
  if(!tierLabel)return; // A running session may still hold the previous HTML.
  tierLabel.textContent=unlimited?
-   (S.me.quota_plus_active?"♾ Descargas ilimitadas · extra mensual activo":
+   (S.me.quota_plus_active?(S.me.quota_plus_cancel_scheduled?
+     "♾ Descargas ilimitadas · renovación cancelada":"♾ Descargas ilimitadas · extra mensual activo"):
      "♾ Descargas ilimitadas · autorización existente"):
    linked?"🔗 Cuenta vinculada a DESCARGAS · 200 archivos diarios":
      "Plan básico · 50 archivos diarios";
  $("quota-connect")?.classList.toggle("hidden",unlimited||linked);
  $("quota-plus")?.classList.toggle("hidden",unlimited||!S.me.quota_plus_available);
+}
+function renderSubscriptionManage(){
+ const panel=$("subscription-manage"),button=$("subscription-cancel");
+ const status=$("subscription-status");
+ if(!panel||!button||!status)return;
+ const paid=!!S.me?.subscription_paid&&!ADMIN_ACCOUNT_VIEW;
+ panel.classList.toggle("hidden",!paid);
+ if(!paid)return;
+ const mainScheduled=!!S.me.subscription_cancel_scheduled;
+ const plusActive=!!S.me.quota_plus_active;
+ const plusScheduled=!!S.me.quota_plus_cancel_scheduled;
+ const fullyScheduled=mainScheduled&&(!plusActive||plusScheduled);
+ const end=Number(S.me.subscription_paid_until)||0;
+ const date=end>0?new Date(end*1000).toLocaleDateString("es-US",{
+   year:"numeric",month:"long",day:"numeric",timeZone:"America/New_York"}):"fecha pendiente";
+ button.classList.toggle("hidden",fullyScheduled);
+ button.textContent=mainScheduled?"Cancelar renovación de descargas ilimitadas":
+   "Cancelar suscripción";
+ button.disabled=!!S.billingCancellationPending;
+ status.classList.toggle("pending",!fullyScheduled);
+ status.textContent=fullyScheduled?"Activo hasta: "+date:
+   mainScheduled?"Tu membresía sigue activa hasta "+date+
+      ". Falta confirmar la cancelación del extra de descargas ilimitadas.":
+   plusActive?"Cancelar detiene futuras renovaciones de la membresía y las descargas ilimitadas.":
+     "Puedes cancelar futuras renovaciones y conservar el tiempo pagado.";
+}
+async function cancelWebSubscription(){
+ if(!S.me?.subscription_paid||ADMIN_ACCOUNT_VIEW||S.billingCancellationPending)return;
+ const plus=!!S.me.quota_plus_active&&!S.me.quota_plus_cancel_scheduled;
+ const description=plus?
+   "Se cancelará la renovación de tu membresía y del extra de descargas ilimitadas. "+
+   "Conservarás lo ya pagado hasta su vencimiento. ¿Confirmas?":
+   "Se cancelará la renovación de tu membresía Web. "+
+   "Mantendrás el acceso hasta la fecha pagada. ¿Confirmas?";
+ if(!window.confirm(description))return;
+ S.billingCancellationPending=true;renderSubscriptionManage();
+ try{
+  const result=await api("billing-cancel",{confirm:"CANCELAR_RENOVACION_WEB"});
+  if(result.main_scheduled)S.me.subscription_cancel_scheduled=true;
+  if(result.plus_total&&result.plus_scheduled===result.plus_total)
+   S.me.quota_plus_cancel_scheduled=true;
+  if(result.ok){
+   // Also update the CUSTOMER-SERVICE mirror via its existing signed sync.
+   // No extra Telegram or Stripe call is made on page load.
+   await refresh(true);
+   notice("Renovación cancelada. Conservas el acceso hasta la fecha pagada.");
+  }else{
+   await refresh(true);
+   notice("Cancelación parcial: falta confirmar una renovación. "+
+          "Reintenta o contacta con soporte.");
+  }
+ }catch(e){
+  notice(e?.message||"No se pudo confirmar la cancelación en Stripe.");
+ }finally{
+  S.billingCancellationPending=false;renderSubscriptionManage();
+ }
 }
 function watermarkFromEditor(){
  return {
@@ -484,6 +541,7 @@ async function refresh(lite=false){
  $("stat-photos").textContent=pretty(S.me.photos);
  $("stat-videos").textContent=pretty(S.me.videos);
  updateQuotaStatus();
+ renderSubscriptionManage();
  // One edited entrance label for every visitor. Only the click action
  // changes with verified access: gallery for members, Stripe for buyers.
  const buttonReady=renderEntryButtonLabel(
@@ -2389,6 +2447,7 @@ async function openAdminScreen(){
  populateEditor();show("admin");switchAdminTab("carpetas");await loadAdmin();
 }
 $("admin-open").onclick=openAdminScreen;
+$("subscription-cancel").onclick=cancelWebSubscription;
 $("admin-back").onclick=()=>show("library");
 $("admin-refresh").onclick=loadAdmin;
 document.querySelectorAll(".admin-tabs button").forEach(b=>b.onclick=()=>switchAdminTab(b.dataset.tab));
