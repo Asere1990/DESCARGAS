@@ -1,6 +1,6 @@
 """Disposable public Telegram Mini App entry for Web Galerías.
 
-Only GALERIAS_PUBLIC_BOT_TOKEN changes on future replacements. The bot's
+Only TOKEN_NUEVO changes on future replacements. The bot's
 username is obtained from Telegram getMe, never entered manually. This class
 does not poll Telegram, write to databases or touch paid-media operations.
 """
@@ -22,7 +22,7 @@ class PublicGalleryEntry:
     """Read-only discovery of a disposable public Main Mini App bot."""
 
     def __init__(self, token=None):
-        raw = os.getenv("GALERIAS_PUBLIC_BOT_TOKEN", "") if token is None else token
+        raw = os.getenv("TOKEN_NUEVO", "") if token is None else token
         self.token = raw.strip() if TOKEN_RE.fullmatch(raw.strip()) else ""
         self._configured = bool(str(raw).strip())
         self._url = None
