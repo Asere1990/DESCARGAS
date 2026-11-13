@@ -313,7 +313,8 @@ class FolderCoverTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_custom_cover_precedes_automatic_media_thumbnail(self):
         db=SimpleNamespace(execute=AsyncMock(),fetchval=AsyncMock(return_value=0),
-                           fetch=AsyncMock(return_value=[]))
+                           fetch=AsyncMock(return_value=[]),
+                           fetchrow=AsyncMock(return_value=None))
         service=SimpleNamespace(cipher=Fernet(Fernet.generate_key()),
                                 repo=SimpleNamespace(pool=db))
         g=GalleryCore(service);g.ready=True;g.db=lambda:db

@@ -738,6 +738,9 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 .admin-user-list-name{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
 .admin-user-indicators{display:flex;align-items:center;gap:9px;flex-shrink:0}
 .admin-user-active{font-size:11px;color:#a9ecc5;font-weight:700}
+.admin-user-cancel-scheduled{color:#ff657a}
+.admin-user-plus{width:9px;height:9px;border-radius:50%;background:#f7d94a;
+ display:block;box-shadow:0 0 0 3px #f7d94a24}
 .admin-user-retired{font-size:11px;color:#ff98a3;font-weight:700}
 .admin-user-online{width:9px;height:9px;border-radius:50%;background:#24d574;
  display:block;box-shadow:0 0 0 3px #24d57424}
@@ -1214,3 +1217,12 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  pointer-events:none;white-space:normal;
 }
 .viewer-priority-status.hidden{display:none!important;}
+
+/* Web membership cancellation is separate from media and quota controls. */
+#subscription-manage{margin:10px 0 2px;padding:10px 12px;border:1px solid var(--line);
+ border-radius:12px;display:flex;flex-direction:column;gap:7px;background:#ffffff08}
+#subscription-manage button{border:1px solid #a63b53;color:#ffdce4;background:#67162a55;
+ min-height:39px;padding:8px 14px;border-radius:10px;font-weight:650;text-align:center}
+#subscription-manage button:disabled{opacity:.5}
+#subscription-manage .subscription-status{font-size:12px;color:#b7c4d5;line-height:1.5}
+#subscription-manage .subscription-status.pending{color:#ffd592}

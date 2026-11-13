@@ -50,7 +50,7 @@ def signed_payload(data: dict):
 
 
 async def post_signed(operation: str, data: dict, *, timeout=6):
-    if operation not in {"verify", "sync", "profile", "offers-link", "chat-link", "chat-unread"}:
+    if operation not in {"verify", "sync", "profile", "offers-link", "chat-link", "chat-unread", "cancel-renewal"}:
         raise ValueError("Unknown bridge operation")
     body, headers = signed_payload(data)
     async with httpx.AsyncClient(
@@ -98,6 +98,7 @@ async def sync_once(g):
     db = g.db()
     rows = await db.fetch(
         """SELECT s.uid,s.customer,s.subscription,s.state,s.paid_until,s.changed,
+                  s.cancel_at_period_end,
                   c.session,c.created,COALESCE(u.name,'') AS telegram_name
            FROM wg_subscriptions s
            JOIN LATERAL (
@@ -125,6 +126,7 @@ async def sync_once(g):
             "price_id": price,
             "state": str(row["state"]),
             "paid_until": int(row["paid_until"]),
+            "cancel_at_period_end": bool(dict(row).get("cancel_at_period_end",False)),
             "first_paid_at": int(row["created"]),
             "source_changed": float(row["changed"]),
             "telegram_name": str(row["telegram_name"] or "")[:100],

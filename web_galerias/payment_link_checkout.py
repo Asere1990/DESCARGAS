@@ -97,16 +97,19 @@ async def stage_subscription(connection,obj,event_time):
     period=subscription_period(obj,price)
     if not str(sub_id).startswith("sub_") or period is None:return None
     state=str(obj.get("status") or "incomplete")
+    scheduled=bool(obj.get("cancel_at_period_end",False))
     await connection.execute("""INSERT INTO wg_link_subscriptions(
-          subscription,customer,price_id,status,period_end,changed)
-       VALUES($1,$2,$3,$4,$5,$6)
+          subscription,customer,price_id,status,period_end,changed,cancel_at_period_end)
+       VALUES($1,$2,$3,$4,$5,$6,$7)
        ON CONFLICT(subscription) DO UPDATE SET
         customer=excluded.customer,price_id=excluded.price_id,
         period_end=GREATEST(wg_link_subscriptions.period_end,excluded.period_end),
         status=CASE WHEN wg_link_subscriptions.changed<=$6
            THEN excluded.status ELSE wg_link_subscriptions.status END,
+        cancel_at_period_end=CASE WHEN wg_link_subscriptions.changed<=$6
+           THEN excluded.cancel_at_period_end ELSE wg_link_subscriptions.cancel_at_period_end END,
         changed=GREATEST(wg_link_subscriptions.changed,$6)""",
-        sub_id,str(obj.get("customer") or ""),price,state,period,event_time)
+        sub_id,str(obj.get("customer") or ""),price,state,period,event_time,scheduled)
     return sub_id
 
 
@@ -161,7 +164,7 @@ async def bind_paid_checkout(connection,obj):
 async def reconcile_access(connection,sub_id):
     if not sub_id:return
     data=await connection.fetchrow("""SELECT c.uid,p.customer,p.subscription,
-        p.status,p.price_id,p.paid_until
+        p.status,p.price_id,p.paid_until,p.cancel_at_period_end
       FROM wg_checkouts c JOIN wg_link_subscriptions p
         ON p.subscription=c.subscription
       WHERE c.subscription=$1 AND c.session IS NOT NULL
@@ -178,15 +181,17 @@ async def reconcile_access(connection,sub_id):
            sub_id,state,time.time())
         return
     await connection.execute("""INSERT INTO wg_subscriptions(
-        uid,customer,subscription,state,paid_until,changed)
-      VALUES($1,$2,$3,$4,$5,$6)
+        uid,customer,subscription,state,paid_until,changed,cancel_at_period_end)
+      VALUES($1,$2,$3,$4,$5,$6,$7)
       ON CONFLICT(uid) DO UPDATE SET
        customer=excluded.customer,
        subscription=excluded.subscription,
        state=excluded.state,
        paid_until=GREATEST(wg_subscriptions.paid_until,excluded.paid_until),
+       cancel_at_period_end=excluded.cancel_at_period_end,
        changed=excluded.changed""",
-       data["uid"],data["customer"],sub_id,state,data["paid_until"],time.time())
+       data["uid"],data["customer"],sub_id,state,data["paid_until"],
+       time.time(),bool(dict(data).get("cancel_at_period_end",False)))
 
 
 

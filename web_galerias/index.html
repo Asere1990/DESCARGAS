@@ -11,9 +11,9 @@
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/intro-poster">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=entry-current-design-20261113-v1">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=entry-current-design-20261113-v1-cancel-ui">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=playback-range-android-ios-20261113-v2-playback-alert"></script>
+<script defer src="/web-galerias/static/app.js?v=playback-range-android-ios-20261113-v2-playback-alert-cubanitas-billing-20261113"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=admin-original-media-20261112-v1"></script>
 <script defer src="/web-galerias/static/broadcast_ui.js?v=announcements-20261112-v1"></script>
 </head><body>
@@ -99,6 +99,10 @@
        <button id="quota-connect" type="button" class="quota-upgrade-button hidden">Descargar 200 archivos diarios</button>
        <button id="quota-plus" type="button" class="quota-upgrade-button quota-upgrade-paid hidden">♾ Descargas ilimitadas</button>
      </div>
+   </section>
+   <section id="subscription-manage" class="hidden" aria-label="Gestionar renovación Web">
+     <button id="subscription-cancel" type="button">Cancelar suscripción</button>
+     <span id="subscription-status" class="subscription-status" role="status"></span>
    </section>
   </main>
   <nav class="mobile-actions" aria-label="Accesos de Web Galerías">

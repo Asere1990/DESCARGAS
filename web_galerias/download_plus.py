@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS wg_plus_subscriptions(
  period_end DOUBLE PRECISION NOT NULL DEFAULT 0,
  paid_until DOUBLE PRECISION NOT NULL DEFAULT 0,
  changed DOUBLE PRECISION NOT NULL DEFAULT 0);
+ALTER TABLE wg_plus_subscriptions
+ ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE TABLE IF NOT EXISTS wg_plus_invoices(
  invoice TEXT PRIMARY KEY,subscription TEXT NOT NULL,
  payment_intent TEXT,charge TEXT);
@@ -74,13 +76,25 @@ async def tier(g,uid):
     free=bool(await g.free_granted(uid))
     plus=False if free else await paid_plus(g,uid)
     if free or plus:
+        scheduled=False
+        if plus:
+            scheduled=bool(await g.db().fetchval("""
+              SELECT COALESCE(BOOL_AND(s.cancel_at_period_end),FALSE)
+              FROM wg_plus_checkouts c JOIN wg_plus_subscriptions s
+                ON s.subscription=c.subscription
+              WHERE c.uid=$1 AND c.session IS NOT NULL
+                AND s.price_id=$3 AND s.status IN ('active','trialing')
+                AND s.paid_until>$2
+            """,uid,time.time(),os.environ["GALERIAS_PLUS_PRICE"]))
         return {"daily_limit":None,"tier":"unlimited",
                 "quota_unlimited":True,"plus_active":plus,
+                "plus_cancel_scheduled":scheduled,
                 "linked_descargas":False}
     linked=await linked_descargas(g,uid)
     return {"daily_limit":LINKED_LIMIT if linked else BASE_LIMIT,
             "tier":"linked" if linked else "basic",
             "quota_unlimited":False,"plus_active":False,
+            "plus_cancel_scheduled":False,
             "linked_descargas":linked}
 
 async def checkout(g,uid):
@@ -176,16 +190,20 @@ async def apply_webhook(conn,kind,obj,event_time):
             sub,price)
         if end is None and not tracked:return
         state="canceled" if kind.endswith(".deleted") else str(obj.get("status") or "incomplete")
+        cancel_scheduled=bool(obj.get("cancel_at_period_end",False))
         await conn.execute("""INSERT INTO wg_plus_subscriptions(
-           subscription,customer,price_id,status,period_end,changed)
-           VALUES($1,$2,$3,$4,$5,$6)
+           subscription,customer,price_id,status,period_end,changed,cancel_at_period_end)
+           VALUES($1,$2,$3,$4,$5,$6,$7)
            ON CONFLICT(subscription) DO UPDATE SET
             customer=excluded.customer,price_id=$3,
             period_end=GREATEST(wg_plus_subscriptions.period_end,$5),
             status=CASE WHEN wg_plus_subscriptions.changed<=$6
               THEN excluded.status ELSE wg_plus_subscriptions.status END,
+            cancel_at_period_end=CASE WHEN wg_plus_subscriptions.changed<=$6
+              THEN excluded.cancel_at_period_end ELSE wg_plus_subscriptions.cancel_at_period_end END,
             changed=GREATEST(wg_plus_subscriptions.changed,$6)""",
-            sub,str(obj.get("customer") or ""),price,state,int(end or 0),event_time)
+            sub,str(obj.get("customer") or ""),price,state,int(end or 0),
+            event_time,cancel_scheduled)
     elif kind=="invoice.payment_failed":
         sub=subscription_id_from_invoice(obj)
         if sub:

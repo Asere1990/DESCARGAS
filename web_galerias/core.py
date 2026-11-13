@@ -83,6 +83,9 @@ CREATE TABLE IF NOT EXISTS wg_subscriptions(
 CREATE TABLE IF NOT EXISTS wg_checkouts(
  nonce TEXT PRIMARY KEY,uid BIGINT NOT NULL,session TEXT UNIQUE,created DOUBLE PRECISION NOT NULL);
 ALTER TABLE wg_checkouts ADD COLUMN IF NOT EXISTS subscription TEXT;
+-- Billing state only; scheduling cancellation preserves paid access.
+ALTER TABLE wg_subscriptions
+ ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
  subscription TEXT PRIMARY KEY,
  customer TEXT NOT NULL DEFAULT '',
@@ -91,6 +94,8 @@ CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
  period_end DOUBLE PRECISION NOT NULL DEFAULT 0,
  paid_until DOUBLE PRECISION NOT NULL DEFAULT 0,
  changed DOUBLE PRECISION NOT NULL DEFAULT 0);
+ALTER TABLE wg_link_subscriptions
+ ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE TABLE IF NOT EXISTS wg_payment_events(id TEXT PRIMARY KEY,created DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS wg_activity(
  id BIGSERIAL PRIMARY KEY,actor BIGINT NOT NULL,operation TEXT NOT NULL,at DOUBLE PRECISION NOT NULL);
@@ -380,6 +385,16 @@ class GalleryCore:
               ON CONFLICT(uid,visit_day) DO NOTHING
             """,uid,now,str(name)[:100],utc_day())
         allowed=await self.entitled(uid)
+        # This is the verified Web subscription only, not any of the user's
+        # unrelated Telegram-group memberships.
+        billing=None
+        if allowed and callable(getattr(self.db(),"fetchrow",None)):
+            billing=await self.db().fetchrow(
+                "SELECT subscription,state,paid_until,cancel_at_period_end "
+                "FROM wg_subscriptions WHERE uid=$1",uid)
+        paid=bool(billing and billing["subscription"] and
+                  billing["state"] in ("active","trialing") and
+                  billing["paid_until"]>time.time())
         folders=await self.folder_list(uid) if allowed else []
         owned_folders=await personal_folders(self,uid) if allowed else []
         if folders and not is_admin(uid):
@@ -426,6 +441,10 @@ class GalleryCore:
           "quota_tier":plan["tier"],"quota_linked":plan["linked_descargas"],
           "quota_plus_active":plan["plus_active"],
           "quota_plus_available":bool(allowed and download_plus.configured()),
+          "subscription_paid":paid,
+          "subscription_paid_until":int(billing["paid_until"]) if paid else 0,
+          "subscription_cancel_scheduled":bool(paid and billing["cancel_at_period_end"]),
+          "quota_plus_cancel_scheduled":bool(plan.get("plus_cancel_scheduled")),
           "quota_link_bot":GalleryCore.download_link_bot(self),
           "quota_link_miniapp":getattr(self.s,"descargas_miniapp_url",None) if allowed else None,
           "storage_ready":self.storage.ready,
