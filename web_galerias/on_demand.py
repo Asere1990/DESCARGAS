@@ -198,8 +198,49 @@ async def _defer(g, media, error, seconds):
     await g.db().execute("""
       UPDATE wg_media_priority SET
         state='queued',attempts=attempts+1,next_attempt=$2,
-        last_error=$3 WHERE media=$1
+        last_error=$3,received_bytes=0,progress_at=0,started_at=0
+      WHERE media=$1
     """, media, time.time()+max(2, float(seconds)), str(error)[:90])
+
+
+async def _select_source(g, folder):
+    """Prefer the known source, then another previously verified free account.
+
+    All accounts still use the original account_lock (wait=False), including
+    DATOS. Administratively pinned accounts are never silently changed.
+    """
+    first = await sync.choose_account(g, folder)
+    candidates = [first] if first is not None else []
+    if folder.get("preferred_uid") is None:
+        verified = await g.db().fetch("""
+            SELECT d.uid FROM wg_discovery d
+            LEFT JOIN wg_account_cooldown c ON c.uid=d.uid
+            WHERE d.folder=$1 AND d.works
+              AND COALESCE(c.available_at,0)<=$2
+            ORDER BY d.tried_at DESC LIMIT 16
+        """, folder["id"], time.time())
+        candidates.extend(int(entry["uid"]) for entry in verified)
+    seen = set()
+    reserved = getattr(g, "priority_accounts_in_use", None)
+    lock = getattr(g, "priority_source_lock", None)
+    for uid in candidates:
+        if uid is None or uid in seen:
+            continue
+        seen.add(uid)
+        source = g.s if uid > 0 else getattr(g.s, "datos", None)
+        if source is None or (uid < 0 and not getattr(source, "ready", False)):
+            continue
+        if reserved is not None and uid in reserved:
+            continue
+        if not await sync.source_free(g, uid, folder["id"]):
+            continue
+        if lock is not None and reserved is not None:
+            async with lock:
+                if uid in reserved:
+                    continue
+                reserved.add(uid)
+        return uid
+    return None
 
 
 async def _process(g, media):
@@ -226,11 +267,9 @@ async def _process(g, media):
     try:
         if not active(g):
             raise sync.PauseRequested("priority_disabled")
-        uid = await sync.choose_account(g, folder)
+        uid = await _select_source(g, folder)
         if uid is None:
-            raise sync.PauseRequested("source_unavailable")
-        if not await sync.source_free(g, uid, folder["id"]):
-            raise sync.PauseRequested("source_busy")
+            raise sync.PauseRequested("source_busy_or_unavailable")
         service = g.s if uid > 0 else getattr(g.s, "datos", None)
         if service is None or (uid < 0 and not getattr(service, "ready", False)):
             raise sync.PauseRequested("source_unavailable")
@@ -247,8 +286,35 @@ async def _process(g, media):
                     g, folder["id"], dict(row), message):
                 await _defer(g, media, "source_revalidation", 45)
                 return
+            # Real bytes from Telethon; never a simulated clock-based counter.
+            document = getattr(message, "document", None)
+            expected = max(0, int(getattr(document, "size", 0) or
+                                  row["size"] or 0))
+            await g.db().execute("""
+                UPDATE wg_media_priority
+                SET expected_bytes=$2,received_bytes=0,progress_at=$3
+                WHERE media=$1 AND state='running'
+            """, media, expected, time.time())
+            last_report = 0.0
+            last_received = 0
+
+            async def transfer_progress(received):
+                nonlocal last_report, last_received
+                amount = max(0, int(received or 0))
+                moment = time.monotonic()
+                if moment-last_report < 0.85 and amount-last_received < 4*1024*1024:
+                    return
+                last_report = moment
+                last_received = amount
+                await g.db().execute("""
+                    UPDATE wg_media_priority SET
+                      received_bytes=$2,expected_bytes=$3,progress_at=$4
+                    WHERE media=$1 AND state='running'
+                """, media, amount, expected, time.time())
+
             await sync.backup_one(
-                g, folder["id"], dict(row), message, client, guard)
+                g, folder["id"], dict(row), message, client, guard,
+                progress=transfer_progress)
         ready = await g.db().fetchval(
             "SELECT state='ready' FROM wg_media WHERE id=$1", media)
         if ready:
@@ -280,6 +346,10 @@ async def _process(g, media):
         delay = min(600, 15 * 2 ** min(5, int(count or 0)))
         await _defer(g, media, type(exc).__name__, delay)
         log.warning("Priority video deferred (%s)", type(exc).__name__)
+    finally:
+        reserved = getattr(g, "priority_accounts_in_use", None)
+        if reserved is not None and uid is not None:
+            reserved.discard(uid)
 
 
 async def run(g):
