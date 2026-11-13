@@ -124,7 +124,7 @@ async def stage_paid_invoice(connection,obj,event_time=None):
     until=invoice_paid_period(obj,price)
     if until<=time.time():return None
     customer=str(obj.get("customer") or "")
-    paid_at=int(event_time or obj.get("status_transitions",{}).get("paid_at")
+    paid_at=int(event_time or (obj.get("status_transitions") or {}).get("paid_at")
                 or obj.get("created") or 0)
     await connection.execute("""INSERT INTO wg_link_subscriptions(
          subscription,customer,price_id,status,period_end,paid_until,changed,
