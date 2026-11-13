@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id),el=(tag,text)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;return e;},base=document.body.dataset.base;
 let capabilities=null,operationBusy=false,replyDraft=null,attachedFile=null,sendRequest=null;
 let panelReviewer=false,panelAdmin=false;
-let favoriteItems=[];
+let favoriteItems=[],accountFavoriteItems=[];
 let csrf='',account=null,chat=null,accountsNext=null,chatsNext=null,filter='all',mode='messages',before=null,query='',epoch=0,polling=false,rows=[],messages=new Map(),thumbQueue=[],thumbBusy=false,modal=false,retryAt=0,pendingEpoch=-1,requestId=0,listPolling=false,networkTail=Promise.resolve();
 const imageCache=new Map();let imageBytes=0;let topic=0,topicNext=null,folder=null,folders=[],scheduleDraft=null,contextMode=false,contextFocus=null,autoHistoryArmed=false,olderLoading=false;
 function clearImages(){for(const c of imageCache.values())URL.revokeObjectURL(c.url);imageCache.clear();imageBytes=0;thumbQueue=[];}
@@ -10,7 +10,7 @@ function network(url,options){const work=networkTail.then(()=>fetch(url,options)
 const labels={photo:'Foto',video:'Video',voice:'Mensaje de voz',audio:'Audio',document:'Archivo',sticker:'Sticker'};
 const time=stamp=>new Date(stamp*1000).toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'}),date=stamp=>new Date(stamp*1000).toLocaleDateString('es',{day:'numeric',month:'short'});
 function notice(text){$('global-notice').textContent=text||'';$('global-notice').hidden=!text;for(const dialog of document.querySelectorAll('dialog[open]')){let line=dialog.querySelector('.dialog-status');if(!line){line=el('p');line.className='dialog-status';dialog.append(line);}line.textContent=text||'';line.hidden=!text;}}
-function locked(text){forgetAccounts();forgetResume();cancelOverviewSearch();cancelBatch();stopLive();disposePremium();epoch++;clearImages();$('workspace').hidden=true;$('locked').hidden=false;$('login-note').textContent=text;}
+function locked(text){forgetAccounts();forgetResume();cancelOverviewSearch();cancelBatch();stopLive();disposePremium();epoch++;clearImages();favoriteItems=[];accountFavoriteItems=[];$('favorites-menu').hidden=true;$('workspace').hidden=true;$('locked').hidden=false;$('login-note').textContent=text;}
 async function api(op,data,raw=false){const r=await network(base+'/api/'+op,{cache:'no-store',method:data?'POST':'GET',headers:data?{...(!raw?{'Content-Type':'application/json'}:{}),'X-Panel-CSRF':csrf}:{},body:data?(raw?data:JSON.stringify(data)):undefined});const result=await r.json();if(!r.ok){if(r.status===401||r.status===403)locked(result.error);if(result.retry)retryAt=Date.now()+Math.max(15000,result.retry*1000);throw Error(result.error||'No se pudo completar.');}return result;}
 const view=v=>{$('workspace').dataset.view=v;if(v==='accounts')setTimeout(pumpStatuses,0);};
 function avatar(title){const a=el('div',title.split(/\s+/).slice(0,2).map(v=>v[0]).join('').toUpperCase());a.className='avatar';return a;}
@@ -23,8 +23,47 @@ function updateFavoriteStar(){
  button.setAttribute('aria-label',active?'Quitar de favoritos':'Marcar como favorito');
  button.title=active?'Quitar de favoritos':'Marcar como favorito';
 }
+async function refreshAccountFavorites(){
+ const result=await api('favorite-accounts');
+ accountFavoriteItems=result.accounts||[];
+ updateAccountFavoriteStars();
+ if(!$('favorites-menu').hidden)renderFavoritesMenu();
+ return accountFavoriteItems;
+}
 async function refreshFavorites(){
- const result=await api('favorites');favoriteItems=result.items||[];updateFavoriteStar();return favoriteItems;
+ const result=await api('favorites');
+ favoriteItems=result.items||[];
+ accountFavoriteItems=result.accounts||[];
+ updateFavoriteStar();updateAccountFavoriteStars();
+ if(!$('favorites-menu').hidden)renderFavoritesMenu();
+ return favoriteItems;
+}
+function isAccountFavorite(uid){
+ return accountFavoriteItems.some(item=>String(item.id)===String(uid));
+}
+function updateAccountFavoriteStar(a){
+ const card=accountCards.get(String(a.id))||accountCards.get(a.id);
+ if(!card?.favorite)return;
+ const active=isAccountFavorite(a.id);
+ card.favorite.textContent=active?'★':'☆';
+ card.favorite.setAttribute('aria-pressed',String(active));
+ card.favorite.setAttribute('aria-label',(active?'Quitar de favoritos: ':'Agregar a favoritos: ')+a.name);
+ card.favorite.title=active?'Quitar cuenta de favoritos':'Marcar cuenta como favorita';
+}
+function updateAccountFavoriteStars(){
+ for(const a of overviewAccounts.values())updateAccountFavoriteStar(a);
+}
+async function toggleAccountFavorite(a,button){
+ if(!a)return;
+ button.disabled=true;
+ try{
+  await api('favorite-account-toggle',{
+   account:a.id,name:a.name,username:a.username||'',
+   favorite:!isAccountFavorite(a.id)
+  });
+  await refreshAccountFavorites();
+ }catch(e){notice(e.message);}
+ finally{button.disabled=false;}
 }
 async function toggleChatFavorite(){
  if(!chat||!account)return;
@@ -37,58 +76,98 @@ async function toggleChatFavorite(){
  }catch(e){notice(e.message);}
  finally{button.disabled=false;}
 }
-function favoriteFolder(){
- const box=management('⭐ Mis favoritos');
- const info=el('p','Grupos, canales y chats privados que has marcado. Cada elemento conserva el ID del chat y el Telegram ID de la cuenta vinculada.');
- const tabs=el('div');tabs.className='favorite-categories';const list=el('div');
- let selected='all';box.append(info,tabs,list);
- const render=()=>{
-  tabs.replaceChildren();list.replaceChildren();
-  for(const [kind,title] of [['all','Todos'],['group','Grupos'],['channel','Canales'],['private','Privados']]){
-   const button=el('button',title);button.className=kind===selected?'active':'';
-   button.setAttribute('aria-pressed',String(kind===selected));
-   button.onclick=()=>{selected=kind;render();};tabs.append(button);
-  }
-  const matching=favoriteItems.filter(item=>selected==='all'||item.type===selected);
-  if(!matching.length){list.append(el('p','No tienes favoritos en esta categoría.'));return;}
-  for(const item of matching){
-   const entry=el('div');entry.className='favorite-entry';
-   const open=el('button');open.className='favorite-open';
-   open.append(el('strong',item.name),el('small',(item.username?'@'+item.username+' · ':'')+
-    ({group:'Grupo',channel:'Canal',private:'Privado'}[item.type]||'Chat')),
-    el('small','ID: '+item.id+' · Telegram ID: '+item.account_id),
-    el('small','Cuenta: '+item.account+(item.available?'':' · Reconecta o actualiza esta cuenta para abrir')));
+function hideFavoritesMenu(){
+ $('favorites-menu').hidden=true;
+ $('favorites-open').setAttribute('aria-expanded','false');
+}
+function renderFavoritesMenu(){
+ const list=$('favorites-items');
+ if(!list||$('favorites-menu').hidden)return;
+ const selected=$('favorites-kind').value;
+ const matching=selected==='account'?accountFavoriteItems:
+   favoriteItems.filter(item=>item.type===selected);
+ list.replaceChildren();
+ if(!matching.length){
+  list.append(el('p','No tienes favoritos en esta categoría.'));
+  return;
+ }
+ for(const item of matching){
+  const entry=el('div');entry.className='favorite-entry';
+  const open=el('button');open.type='button';open.className='favorite-open';
+  const isAccount=selected==='account';
+  if(isAccount){
+   const saved=overviewAccounts.get(String(item.id))||overviewAccounts.get(item.id);
+   const title=saved?.name||item.name;
+   open.append(el('strong',title),
+     el('small','Cuenta · Telegram ID: '+item.id),
+     el('small',(saved?.username||item.username?'@'+(saved?.username||item.username)+' · ':'')+
+        (item.available?'Cuenta vinculada':'Cuenta sin sesión activa')));
    open.onclick=async()=>{
-    if(!item.available||!item.handle)return notice('Actualiza la lista de chats de la cuenta vinculada para abrir este favorito.');
-    $('management').close();
+    if(!item.available)return notice('Esta cuenta necesita una sesión activa para abrir sus chats.');
+    hideFavoritesMenu();
     try{
-     if(!account||String(account.id)!==String(item.account_id)){
-      const a=overviewAccounts.get(String(item.account_id))||{id:item.account_id,name:item.account,generation:item.generation};
-      await selectAccount(a);
-     }
-     await openChat({id:item.id,handle:item.handle,name:item.name,username:item.username,
-      type:item.type,avatar:false,forum:false,members:null});
+     await selectAccount(saved||{id:item.id,name:item.name,
+       username:item.username||'',generation:item.generation});
     }catch(e){notice(e.message);}
    };
-   const star=el('button','★');star.className='favorite-remove';
-   star.title='Quitar de favoritos';star.setAttribute('aria-label','Quitar '+item.name+' de favoritos');
-   star.onclick=async()=>{
-    star.disabled=true;
+  }else{
+   open.append(el('strong',item.name),
+     el('small',(item.username?'@'+item.username+' · ':'')+
+       ({group:'Grupo',channel:'Canal',private:'Privado'}[item.type]||'Chat')),
+     el('small','ID: '+item.id+' · Telegram ID: '+item.account_id),
+     el('small','Cuenta: '+item.account+(item.available?'':' · Reconecta la cuenta para abrir')));
+   open.onclick=async()=>{
+    if(!item.available||!item.handle)
+     return notice('Actualiza la lista de chats de la cuenta vinculada para abrir este favorito.');
+    hideFavoritesMenu();
     try{
-     await api('favorite-remove',{account:item.account_id,source:item.id});
-     favoriteItems=favoriteItems.filter(f=>!(String(f.account_id)===String(item.account_id)&&String(f.id)===String(item.id)));
-     updateFavoriteStar();render();
-    }catch(e){star.disabled=false;notice(e.message);}
+     if(!account||String(account.id)!==String(item.account_id)){
+      const a=overviewAccounts.get(String(item.account_id))||
+       {id:item.account_id,name:item.account,generation:item.generation};
+      await selectAccount(a);
+     }
+     await openChat({id:item.id,handle:item.handle,name:item.name,
+      username:item.username,type:item.type,avatar:false,forum:false,members:null});
+    }catch(e){notice(e.message);}
    };
-   entry.append(open,star);list.append(entry);
   }
- };
- list.append(el('p','Cargando favoritos…'));
- refreshFavorites().then(()=>{if($('management').open)render();}).catch(e=>notice(e.message));
+  const star=el('button','★');star.type='button';star.className='favorite-remove';
+  star.title='Quitar de favoritos';
+  star.setAttribute('aria-label','Quitar '+item.name+' de favoritos');
+  star.onclick=async()=>{
+   star.disabled=true;
+   try{
+    if(isAccount){
+     await api('favorite-account-toggle',{account:item.id,favorite:false});
+     await refreshAccountFavorites();
+    }else{
+     await api('favorite-remove',{account:item.account_id,source:item.id});
+     await refreshFavorites();
+    }
+   }catch(e){star.disabled=false;notice(e.message);}
+  };
+  entry.append(open,star);
+  list.append(entry);
+ }
 }
+function favoriteFolder(){
+ const menu=$('favorites-menu');
+ if(!menu.hidden){hideFavoritesMenu();return;}
+ menu.hidden=false;
+ $('favorites-open').setAttribute('aria-expanded','true');
+ $('favorites-items').replaceChildren(el('p','Cargando favoritos…'));
+ refreshFavorites().catch(e=>{
+  if(!menu.hidden){$('favorites-items').replaceChildren(el('p','No se pudieron consultar los favoritos.'));notice(e.message);}
+ });
+}
+$('favorites-kind').onchange=renderFavoritesMenu;
 $('favorite-toggle').onclick=toggleChatFavorite;
 $('favorites-open').onclick=favoriteFolder;
-$('favorites-folder').onclick=favoriteFolder;
+$('favorites-folder').onclick=()=>{
+ view('accounts');
+ if($('favorites-menu').hidden)favoriteFolder();
+ else renderFavoritesMenu();
+};
 function scheduleImage(img,url){thumbQueue.push({img,url,epoch,protected:img.dataset.protected==='1'});pumpThumbs();}
 async function pumpThumbs(){if(thumbBusy||modal||operationBusy||!thumbQueue.length)return;thumbBusy=true;const task=thumbQueue.shift();if(task.epoch===epoch&&task.img.isConnected){try{const r=await network(task.url,{cache:'no-store'});if(r.ok&&r.status!==204){const blob=await r.blob();if(task.epoch===epoch&&task.img.isConnected){const url=URL.createObjectURL(blob);if(task.protected){task.img.onload=()=>URL.revokeObjectURL(url);task.img.onerror=()=>URL.revokeObjectURL(url);}else{imageCache.set(task.url,{url,size:blob.size});imageBytes+=blob.size;}while((imageBytes>8*1024*1024||imageCache.size>120)&&imageCache.size>1){const [key,old]=imageCache.entries().next().value;imageCache.delete(key);imageBytes-=old.size;URL.revokeObjectURL(old.url);}task.img.src=url;task.img.style.opacity='1';}}}catch{}}thumbBusy=false;pumpThumbs();}
 let profileQueue=[],profileBusy=false;
@@ -257,11 +336,11 @@ function setAccountTab(value){
 }
 $('account-tab-active').onclick=()=>setAccountTab('active');
 $('account-tab-inactive').onclick=()=>setAccountTab('inactive');
-function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';card.status.textContent=accountStates[state]||accountStates.unknown;card.status.dataset.state=state;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');const group=accountGroups.get(statusGroup(state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
+function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';card.status.textContent=accountStates[state]||accountStates.unknown;card.status.dataset.state=state;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');updateAccountFavoriteStar(a);const group=accountGroups.get(statusGroup(state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
 async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
 async function pumpStatuses(){if(statusBusy||overviewSearching||operationBusy||!statusQueue.length||$('workspace').dataset.view!=='accounts')return;statusBusy=true;const a=statusQueue.shift();try{await verifyAccount(a);}finally{statusBusy=false;pumpStatuses();}}
 function queueStatus(a){if(!a.statusQueued&&(!a.status?.checked||Date.now()/1000-a.status.checked>300)){a.statusQueued=true;statusQueue.push(a);pumpStatuses();}}
-function createAccountCard(a,skipProfile=false){const wrapper=el('div'),b=el('button'),av=avatar(a.name),body=el('div'),title=el('strong',a.name),detail=el('small'),status=el('span'),checked=el('small'),check=el('button','Comprobar sesión');wrapper.className='account-card';b.className='account';status.className='account-status';checked.className='account-checked';check.className='account-check';body.append(title,detail,status);b.append(av,body);wrapper.append(b,checked,check);check.onclick=()=>verifyAccount(a);b.onclick=()=>selectAccount(a).catch(e=>notice(e.message));b.profileTask={epoch,account:a,row:b,avatar:av,title,detail};if(!skipProfile)profileObserver.observe(b);accountCards.set(a.id,{wrapper,row:b,title,detail,status,checked,check,avatar:av});updateAccountCard(a);}
+function createAccountCard(a,skipProfile=false){const wrapper=el('div'),b=el('button'),av=avatar(a.name),body=el('div'),title=el('strong',a.name),detail=el('small'),status=el('span'),checked=el('small'),check=el('button','Comprobar sesión'),favorite=el('button','☆');wrapper.className='account-card';b.className='account';status.className='account-status';checked.className='account-checked';check.className='account-check';favorite.type='button';favorite.className='account-favorite-star';favorite.onclick=()=>toggleAccountFavorite(a,favorite);body.append(title,detail,status);b.append(av,body);wrapper.append(b,favorite,checked,check);check.onclick=()=>verifyAccount(a);b.onclick=()=>selectAccount(a).catch(e=>notice(e.message));b.profileTask={epoch,account:a,row:b,avatar:av,title,detail};if(!skipProfile)profileObserver.observe(b);accountCards.set(a.id,{wrapper,row:b,title,detail,status,checked,check,avatar:av,favorite});updateAccountCard(a);}
 
 // Short-lived, administrator-only display snapshot. Never store Telegram sessions,
 // tokens, access links, media or credentials. Always authenticate before restoring.
@@ -959,7 +1038,7 @@ async function openPurchases(){
  await load();
 }
 
-(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
+(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;favoriteItems=[];accountFavoriteItems=[];hideFavoritesMenu();const restoredPages=restoreCachedAccounts();refreshAccountFavorites().catch(()=>{});await loadAccounts();await resumePanel();while(loadedAccountPages<restoredPages&&accountsNext)await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
  // Every fresh visit begins with an EMPTY name/query field and NO zombie job.
  // This deletes ONLY old search jobs/hits, never a linked Telegram session.
  clearAccountSearchView();
