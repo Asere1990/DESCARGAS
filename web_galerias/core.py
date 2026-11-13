@@ -86,6 +86,8 @@ ALTER TABLE wg_checkouts ADD COLUMN IF NOT EXISTS subscription TEXT;
 -- Billing state only; scheduling cancellation preserves paid access.
 ALTER TABLE wg_subscriptions
  ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE wg_subscriptions
+ ADD COLUMN IF NOT EXISTS subscription_started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
  subscription TEXT PRIMARY KEY,
  customer TEXT NOT NULL DEFAULT '',
@@ -96,6 +98,8 @@ CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
  changed DOUBLE PRECISION NOT NULL DEFAULT 0);
 ALTER TABLE wg_link_subscriptions
  ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE wg_link_subscriptions
+ ADD COLUMN IF NOT EXISTS subscription_started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS wg_payment_events(id TEXT PRIMARY KEY,created DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS wg_activity(
  id BIGSERIAL PRIMARY KEY,actor BIGINT NOT NULL,operation TEXT NOT NULL,at DOUBLE PRECISION NOT NULL);
@@ -117,6 +121,8 @@ SCHEMA += COVER_SCHEMA
 SCHEMA += USER_FEATURES_SCHEMA
 SCHEMA += COMMERCIAL_SCHEMA
 SCHEMA += download_plus.SCHEMA
+from .payment_risk import SCHEMA as PAYMENT_RISK_SCHEMA
+SCHEMA += PAYMENT_RISK_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
  "title_image_height":120,"button_image_height":30,
@@ -227,6 +233,9 @@ class GalleryCore:
                     from .customer_bridge import ready as bridge_ready,run as bridge_run
                     if bridge_ready():
                         self.customer_bridge_task=asyncio.create_task(bridge_run(self))
+                        from . import dupe_guard,payment_risk
+                        self.dedupe_task=asyncio.create_task(dupe_guard.run(self))
+                        self.risk_task=asyncio.create_task(payment_risk.run(self))
                     # A single independently verified Stripe receipt can
                     # repair a paid tester whose webhook failed before it was
                     # processed. A failure must never stop Web Galerías.
@@ -323,14 +332,19 @@ class GalleryCore:
             return False
         # A public launch never grants free files: only a verified paid Stripe
         # subscription or explicit free authorization passes this check.
-        row=await self.db().fetchrow("""SELECT s.state,s.paid_until,
+        row=await self.db().fetchrow("""SELECT s.state,s.paid_until,s.subscription,
                    COALESCE(b.blocked,FALSE) AS blocked
                    FROM wg_subscriptions s
                    LEFT JOIN wg_access_blocks b ON b.uid=s.uid
                    WHERE s.uid=$1""",uid)
         return bool(row and not row.get("blocked",False)
                 and row["state"] in ("active","trialing")
-                and row["paid_until"]>time.time())
+                and row["paid_until"]>time.time()
+                and not await self.db().fetchval(
+                    "SELECT 1 FROM wg_web_revocations WHERE subscription=$1",
+                    row["subscription"])
+                and not await self.db().fetchval(
+                    "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid))
 
     async def permitted(self,uid,folder):
         if not await self.entitled(uid):return False
