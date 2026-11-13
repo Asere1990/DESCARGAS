@@ -116,6 +116,7 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_priority.py -v
           python -m unittest discover -s tests -p test_web_galerias_priority_scale.py -v
           python -m unittest discover -s tests -p test_web_galerias_large_video_playback.py -v
+          python -m unittest discover -s tests -p test_web_galerias_video_diagnostic.py -v
           python -m unittest discover -s tests -p test_web_galerias_album_metadata.py -v
           python -m unittest discover -s tests -p test_web_galerias_datos_source.py -v
           python -m unittest discover -s tests -p test_subscription_actions.py -v
