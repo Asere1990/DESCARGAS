@@ -98,6 +98,19 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(await response.read()),length)
         self.assertLessEqual(self.r2.max_read,512*1024)
 
+    async def test_android_and_iphone_webviews_have_identical_range_support(self):
+        agents=(
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120 Mobile",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 Mobile",
+        )
+        for agent in agents:
+            with self.subTest(agent=agent):
+                async with self.client.get(self.url+"&stream=1",
+                    headers={"Range":"bytes=0-1","User-Agent":agent}) as response:
+                    self.assertEqual(response.status,206)
+                    self.assertEqual(response.headers["Content-Range"],"bytes 0-1/10240")
+                    self.assertEqual(await response.read(),b"01")
+
     async def test_no_range_is_chunked_without_buffering_whole_video(self):
         async with self.client.get(self.url+"&stream=1") as response:
             self.assertEqual(response.status,200)
