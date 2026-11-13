@@ -15,6 +15,10 @@ from aiohttp import web
 from telethon import errors
 from .creator_access import require_account, require_source
 from .moderation import authorized
+from .panel_entity_index import (
+    SCHEMA as ENTITY_INDEX_SCHEMA, ENTITY_MODES, EntityIndex,
+    session_tag, stored_chat,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS descarga_panel_search_jobs (
@@ -41,6 +45,7 @@ CREATE TABLE IF NOT EXISTS descarga_panel_search_hits (
 CREATE INDEX IF NOT EXISTS descarga_panel_search_results
  ON descarga_panel_search_hits(job_id,seq);
 """
+SCHEMA += ENTITY_INDEX_SCHEMA
 
 class LeaseLost(Exception):
     """The browser paused or another worker owns the job; keep the scheduler alive."""
@@ -104,6 +109,7 @@ class BackgroundPanelSearch:
         self.s=panel.s
         self.owner=uuid.uuid4().hex
         self.task=None
+        self.entity_index=EntityIndex(panel)
 
     async def start(self,app):
         self.task=asyncio.create_task(self.loop(),name='descargas-panel-search')
@@ -166,9 +172,22 @@ class BackgroundPanelSearch:
         # Each new submission supersedes the previous job, even if identical.
         accounts=await self.active_accounts(actor)
         if not authorized(actor):raise web.HTTPForbidden()
+        # Completed group/channel indexes remove repeated Telegram dialog scans.
+        # Access rights and the encrypted session fingerprint are rechecked.
+        cached=[];pending=accounts;cached_hits=[]
+        if mode in ENTITY_MODES:
+            try:
+                cached,pending,cached_hits=await self.entity_index.lookup(
+                    actor,accounts,mode,query,entity_matches)
+            except Exception as exc:
+                # An index issue must never disable the existing full search.
+                LOG.warning('Entity index unavailable; using Telegram (%s)',
+                            type(exc).__name__)
+                cached=[];pending=accounts;cached_hits=[]
         now=time.time()
         job_id=uuid.uuid4().hex
-        data={'query':query,'accounts':accounts,'index':0,'completed':0,'cursor':'','cursors':[],
+        data={'query':query,'accounts':pending,'index':0,'completed':len(cached),
+              'cached_completed':len(cached),'cursor':'','cursors':[],
               'attempts':0,'errors':[]}
         async with self.s.repo.pool.acquire() as conn,conn.transaction():
             # Only one unpaused job per administrator. This also resolves races
@@ -190,10 +209,21 @@ class BackgroundPanelSearch:
             await conn.execute(
                 """INSERT INTO descarga_panel_search_jobs
                    (id,bot_id,actor,access_version,mode,state,checkpoint,total,
-                    created,updated,next_at)
-                   VALUES($1,$2,$3,$4,$5,'queued',$6,$7,$8,$8,$8)""",
+                    completed,found,created,updated,next_at)
+                   VALUES($1,$2,$3,$4,$5,'queued',$6,$7,$8,$9,$10,$10,$10)""",
                 job_id,self.s.bot_id,actor,version,mode,
-                self.s.repo.encode(data),len(accounts),now)
+                self.s.repo.encode(data),len(accounts),len(cached),len(cached_hits),now)
+            if cached_hits:
+                records=[]
+                for hit in cached_hits:
+                    account=hit['account'];chat=hit['hit']['chat']
+                    key=str(account['id'])+':'+str(chat['id'])+':title'
+                    records.append((job_id,hashlib.sha256(key.encode()).hexdigest(),
+                                    self.s.repo.encode(hit)))
+                await conn.executemany("""
+                    INSERT INTO descarga_panel_search_hits(job_id,hit_key,payload)
+                    VALUES($1,$2,$3) ON CONFLICT DO NOTHING
+                """,records)
         return await self.status(actor,version,job_id)
 
     def summary(self,row):
@@ -203,6 +233,7 @@ class BackgroundPanelSearch:
         return {'id':row['id'],'mode':row['mode'],'query':data.get('query',''),
                 'state':row['state'],'total':row['total'],'completed':row['completed'],
                 'found':row['found'],'failures':row['failures'],
+                'cached':data.get('cached_completed',0),
                 'current':accounts[index].get('name','') if index<len(accounts) else '',
                 'errors':[{'name':e.get('name',''),'reason':e.get('reason','')}
                           for e in data.get('errors',[])][:40],
@@ -307,6 +338,7 @@ class BackgroundPanelSearch:
         current=await self.s.repo.account(uid)
         if not current or not current['session'] or current['generation']!=account['generation']:
             raise ValueError('La sesión fue desconectada o cambió durante la búsqueda.')
+        cache_items=[];key=None
         if mode=='phrases':
             page=await self.p.features.overview_search(row['actor'],uid,query,data['cursor'])
             hits=[{'account':account,'hit':item} for item in page['items']]
@@ -314,6 +346,23 @@ class BackgroundPanelSearch:
             page=await self.p.chats(row['actor'],uid,data['cursor'])
             hits=[{'account':account,'hit':{'chat':chat}} for chat in page['items']
                   if entity_matches(chat,mode,query)]
+            # Catalog only group/channel peer metadata, NEVER private chats.
+            # The same complete snapshot serves later searches by name or ID.
+            if data.get('cache_account')!=uid:
+                data['cache_account']=uid
+                data['cache_started']=time.time()
+                data['cache_ok']=True
+            key=session_tag(current)
+            if page.get('generation') is not None and (
+                int(page['generation'])!=int(account['generation'])):
+                raise ValueError('La cuenta cambió durante la revisión de chats.')
+            for chat in page['items']:
+                if chat.get('type') not in ('group','channel'):continue
+                normalized=stored_chat(self.p,chat,row['actor'],uid,
+                                       int(account['generation']))
+                if normalized is None:
+                    data['cache_ok']=False
+                else:cache_items.append(normalized)
         else:
             page={'next':None}
             hits=[{'account':account,'hit':None}] if matches(account,mode,query) else []
@@ -321,11 +370,14 @@ class BackgroundPanelSearch:
         if next_cursor:
             cursor_hash=self.cursor_hash(mode,next_cursor)
             if cursor_hash in data['cursors']:raise ValueError('Telegram repitió una página.')
-        return hits,next_cursor
+        return hits,next_cursor,cache_items,key
 
-    async def checkpoint_page(self,row,data,hits,next_cursor):
+    async def checkpoint_page(self,row,data,hits,next_cursor,cache_items=(),key=None):
         account=data['accounts'][data['index']]
         mode=row['mode']
+        completed=not next_cursor
+        started=data.get('cache_started',0)
+        can_cache=bool(data.get('cache_ok',False))
         if next_cursor:
             data['cursor']=next_cursor
             hashes=data['cursors']
@@ -333,20 +385,31 @@ class BackgroundPanelSearch:
             data['cursors']=hashes[-1000:]
         else:
             data['index']+=1;data['completed']=data.get('completed',0)+1;data['cursor']='';data['cursors']=[];data['attempts']=0
+            for field in ('cache_account','cache_started','cache_ok'):
+                data.pop(field,None)
         async with self.s.repo.pool.acquire() as conn,conn.transaction():
             inserted=0
             for hit in hits:
                 item=hit.get('hit')
                 chat=(item or {}).get('chat') or {}
                 message=(item or {}).get('message') or {}
-                key=':'.join((str(account['id']),str(chat.get('id','metadata')),
-                              str(message.get('id','title'))))
-                fingerprint=hashlib.sha256(key.encode()).hexdigest()
+                hit_key=':'.join((str(account['id']),str(chat.get('id','metadata')),
+                                  str(message.get('id','title'))))
+                fingerprint=hashlib.sha256(hit_key.encode()).hexdigest()
                 ok=await conn.fetchval(
                     """INSERT INTO descarga_panel_search_hits(job_id,hit_key,payload)
                        VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING 1""",
                     row['id'],fingerprint,self.s.repo.encode(hit))
                 inserted+=int(bool(ok))
+            if key is not None and can_cache and started and mode in ENTITIES:
+                try:
+                    # A nested savepoint isolates optional cache failures.
+                    async with conn.transaction():
+                        await self.entity_index.store_page(
+                            conn,row['actor'],account,key,cache_items,started,completed)
+                except Exception as exc:
+                    if not completed:data['cache_ok']=False
+                    LOG.warning('Entity index write deferred (%s)',type(exc).__name__)
             updated=await conn.fetchrow(
                 """UPDATE descarga_panel_search_jobs
                    SET checkpoint=$3,completed=$4,found=found+$5,
@@ -369,6 +432,8 @@ class BackgroundPanelSearch:
             data['errors'].append({'account':account,'name':account['name'],
                                    'reason':type(exc).__name__,'cursor':data.get('cursor','')})
             data['index']+=1;data['cursor']='';data['cursors']=[];data['attempts']=0
+            for field in ('cache_account','cache_started','cache_ok'):
+                data.pop(field,None)
         now=time.time()
         next_at=now+retry_delay
         state='waiting' if flood or (attempts<3 and retry_delay>0) else 'running'
@@ -422,8 +487,8 @@ class BackgroundPanelSearch:
                     row['id'],self.owner,'incomplete' if data['errors'] else 'complete',time.time())
                 return
             try:
-                hits,next_cursor=await self.scan_page(row,data)
-                await self.checkpoint_page(row,data,hits,next_cursor)
+                hits,next_cursor,items,key=await self.scan_page(row,data)
+                await self.checkpoint_page(row,data,hits,next_cursor,items,key)
                 pages+=1
             except asyncio.CancelledError:raise
             except LeaseLost:return

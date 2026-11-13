@@ -935,7 +935,7 @@ async function pausePersistentSearchForChats(){
  }catch(e){notice('No se pudo pausar la búsqueda: '+e.message);}
 }
 function serverSearchNote(job){
- const count=job.completed+'/'+job.total+' cuentas activas revisadas · '+job.found+' resultados';
+ const count=job.completed+'/'+job.total+' cuentas activas revisadas · '+job.found+' resultados'+(job.cached?' · '+job.cached+' revisadas desde índice local':'');
  if(job.state==='complete')return 'Búsqueda terminada · '+count;
  if(job.state==='incomplete')return 'Búsqueda incompleta · '+count+' · '+job.failures+' cuentas con error. Puedes reintentar.';
  if(job.state==='paused')return 'Búsqueda pausada · '+count;
