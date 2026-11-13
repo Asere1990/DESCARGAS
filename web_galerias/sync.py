@@ -690,6 +690,12 @@ async def backup_one(g,folder,item,message,client,guard,progress=None):
     original_valid=original_size is not None and original_size>0 and (
         original_size==telegram_size if kind=="video"
         else (known_size==0 or original_size==known_size))
+    # A 1-KiB MP4 can contain ftyp/mdat but no movie metadata. Matching
+    # Telegram's possibly misleading cached length is NOT proof of validity.
+    # Never promote these previously confirmed corrupted objects via fast path.
+    if kind=="video" and mime=="video/mp4" and original_size is not None:
+        if original_size<=4096:
+            original_valid=False
     if (kind=="video" and telegram_size and original_size is not None
             and original_size!=telegram_size):
         log.warning("R2 incomplete video: folder=%s message=%s bytes=%s expected=%s",

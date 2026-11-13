@@ -266,6 +266,9 @@ async def _process(g, media):
       WHERE m.id=$1
     """, media)
     if not row or not row["active"] or row["state"] == "ready":
+        if media in (132224,132225):
+            log.warning("Video recovery skipped id=%s state=%s",
+                        media,dict(row).get("state") if row else "missing")
         await g.db().execute("DELETE FROM wg_media_priority WHERE media=$1", media)
         return
     if row["state"] != "preview" or row["kind"] != "video":
@@ -280,6 +283,8 @@ async def _process(g, media):
             raise sync.PauseRequested("priority_disabled")
         uid = await _select_source(g, folder)
         if uid is None:
+            if media in (132224,132225):
+                log.warning("Video recovery id=%s source_busy_or_unavailable",media)
             raise sync.PauseRequested("source_busy_or_unavailable")
         service = g.s if uid > 0 else getattr(g.s, "datos", None)
         if service is None or (uid < 0 and not getattr(service, "ready", False)):
@@ -301,6 +306,10 @@ async def _process(g, media):
             document = getattr(message, "document", None)
             expected = max(0, int(getattr(document, "size", 0) or
                                   row["size"] or 0))
+            if media in (132224,132225):
+                log.warning("Video recovery source id=%s telegram_bytes=%s indexed_bytes=%s media_type=%s",
+                            media,int(getattr(document,"size",0) or 0),
+                            row["size"],type(getattr(message,"media",None)).__name__)
             await g.db().execute("""
                 UPDATE wg_media_priority
                 SET expected_bytes=$2,received_bytes=0,progress_at=$3
@@ -329,6 +338,9 @@ async def _process(g, media):
         ready = await g.db().fetchval(
             "SELECT state='ready' FROM wg_media WHERE id=$1", media)
         if ready:
+            if media in (132224,132225):
+                size=await g.db().fetchval("SELECT size FROM wg_media WHERE id=$1",media)
+                log.warning("Video recovery complete id=%s final_bytes=%s",media,size)
             await g.db().execute(
                 "DELETE FROM wg_media_priority WHERE media=$1", media)
         else:
@@ -350,8 +362,14 @@ async def _process(g, media):
         await _defer(g, media, "FloodWaitError", cooldown)
         log.warning("Priority video Telegram cooldown=%ds", cooldown)
     except sync.PauseRequested as exc:
+        if media in (132224,132225):
+            log.warning("Video recovery deferred id=%s reason=%s",
+                        media,str(exc)[:75])
         await _defer(g, media, type(exc).__name__, 8)
-    except ValueError:
+    except ValueError as exc:
+        if media in (132224,132225):
+            log.warning("Video recovery invalid id=%s reason=%s",
+                        media,str(exc)[:90])
         # Invalid/short Telegram data is not a busy account. Exponential
         # backoff avoids repeated 1-KiB retries and unnecessary API load.
         attempts=await g.db().fetchval(

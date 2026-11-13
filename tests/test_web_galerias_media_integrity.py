@@ -68,6 +68,21 @@ class IntegrityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("state='ready'",db.execute.await_args.args[0])
         self.assertEqual(db.execute.await_args.args[-1],8192)
 
+    async def test_existing_one_kib_video_is_not_marked_ready_even_if_telegram_metadata_matches(self):
+        db=N(execute=AsyncMock())
+        storage=N(object_size=AsyncMock(side_effect=[1024,100]),
+                  upload_stream=AsyncMock(side_effect=ValueError("MP4 incompleto")))
+        g=N(storage=storage,db=lambda:db)
+        message=N(id=5,document=N(size=1024),media=N())
+        client=N(iter_download=MagicMock(return_value="source_stream"),
+                 download_media=AsyncMock())
+        item={"kind":"video","mime":"video/mp4","size":1024,"message":5}
+        with self.assertRaisesRegex(ValueError,"MP4 incompleto"):
+            await backup_one(g,7,item,message,client,AsyncMock())
+        client.iter_download.assert_called_once()
+        storage.upload_stream.assert_awaited_once()
+        db.execute.assert_not_awaited()
+
     async def test_missing_telegram_size_is_not_replaced_by_old_1kb_database_value(self):
         db=N(execute=AsyncMock())
         storage=N(object_size=AsyncMock(side_effect=[1024,100]),
