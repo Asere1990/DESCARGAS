@@ -100,6 +100,8 @@ ALTER TABLE wg_link_subscriptions
  ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE wg_link_subscriptions
  ADD COLUMN IF NOT EXISTS subscription_started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_link_subscriptions
+ ADD COLUMN IF NOT EXISTS last_invoice_paid_at DOUBLE PRECISION NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS wg_payment_events(id TEXT PRIMARY KEY,created DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS wg_activity(
  id BIGSERIAL PRIMARY KEY,actor BIGINT NOT NULL,operation TEXT NOT NULL,at DOUBLE PRECISION NOT NULL);
@@ -324,20 +326,27 @@ class GalleryCore:
         return free_access(uid)
 
     async def entitled(self,uid):
+        # A proven dispute suspends access, including admin/test grants,
+        # exactly as the central customer account restriction does.
+        if await self.db().fetchval(
+                "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid):
+            return False
         if is_admin(uid):return True
         if await self.free_granted(uid):
             if await self.db().fetchval(
                     "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
                 return False
-            # A paid chargeback also withdraws any temporary free Web grant.
-            if await self.db().fetchval(
-                    "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid):
-                return False
+            # A full Web refund blocks access until a genuinely NEW paid Web
+            # invoice, not merely a new Checkout attempt or an old invoice.
             return not bool(await self.db().fetchval("""
-                SELECT 1 FROM wg_subscriptions s
-                JOIN wg_web_revocations r ON r.subscription=s.subscription
-                WHERE s.uid=$1
-            """,uid))
+                SELECT 1 FROM wg_web_refund_blocks r
+                WHERE r.uid=$1 AND NOT EXISTS (
+                    SELECT 1 FROM wg_checkouts c
+                    JOIN wg_link_subscriptions p ON p.subscription=c.subscription
+                    WHERE c.uid=$1 AND c.session IS NOT NULL AND p.price_id=$2
+                      AND p.last_invoice_paid_at>r.event_created
+                )
+            """,uid,os.getenv("GALERIAS_STRIPE_PRICE_ID","")))
         if (os.getenv("GALERIAS_PUBLIC","0")!="1"
             and not payment_test_user(uid)
             and not customer_bot_signed(uid)):
@@ -346,16 +355,18 @@ class GalleryCore:
         # subscription or explicit free authorization passes this check.
         row=await self.db().fetchrow("""SELECT s.state,s.paid_until,
                    COALESCE(b.blocked,FALSE) AS blocked,
-                   (r.subscription IS NOT NULL) AS revoked,
-                   (d.uid IS NOT NULL) AS risk_dispute
+                   (f.uid IS NOT NULL AND NOT EXISTS (
+                       SELECT 1 FROM wg_checkouts c
+                       JOIN wg_link_subscriptions p ON p.subscription=c.subscription
+                       WHERE c.uid=s.uid AND c.session IS NOT NULL
+                         AND p.price_id=$2 AND p.last_invoice_paid_at>f.event_created
+                   )) AS risk_refund
                    FROM wg_subscriptions s
                    LEFT JOIN wg_access_blocks b ON b.uid=s.uid
-                   LEFT JOIN wg_web_revocations r ON r.subscription=s.subscription
-                   LEFT JOIN wg_web_dispute_blocks d ON d.uid=s.uid
-                   WHERE s.uid=$1""",uid)
+                   LEFT JOIN wg_web_refund_blocks f ON f.uid=s.uid
+                   WHERE s.uid=$1""",uid,os.getenv("GALERIAS_STRIPE_PRICE_ID",""))
         return bool(row and not row.get("blocked",False)
-                and not row.get("revoked",False)
-                and not row.get("risk_dispute",False)
+                and not row.get("risk_refund",False)
                 and row["state"] in ("active","trialing")
                 and row["paid_until"]>time.time())
 
