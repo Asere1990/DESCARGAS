@@ -66,6 +66,10 @@ class PublicGalleryEntry:
                 if not (isinstance(name, str) and BOT_RE.fullmatch(name)
                         and user.get("is_bot") is True):
                     raise ValueError("Invalid public bot identity")
+                # BotFather must have configured the *Main* Mini App. Without
+                # this flag a ?startapp link may open the bot's DM instead.
+                if user.get("has_main_web_app") is not True:
+                    raise ValueError("Main Mini App not configured in BotFather")
                 self._url = "https://t.me/" + name + "?startapp"
             except (Exception,) as exc:
                 log.warning("Public gallery bot not ready (%s)", type(exc).__name__)
