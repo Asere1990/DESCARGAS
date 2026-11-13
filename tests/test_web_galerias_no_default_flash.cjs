@@ -72,7 +72,7 @@ test("first appearance only happens when title and CTA artwork are both ready",a
  assert.equal($("intro").attrs["aria-busy"],"false");
 });
 
-test("paywall keeps plain checkout CTA and waits for selected title image",async()=>{
+test("unpaid visitor keeps the same edited CTA while checkout remains active",async()=>{
  const title=defer(),nodes=new Map(),calls=[];
  const $=id=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id);};
  const ctx={
@@ -90,14 +90,14 @@ test("paywall keeps plain checkout CTA and waits for selected title image",async
  const result=ctx.refresh(false);
  await new Promise(setImmediate);
  assert.equal($("intro").classList.contains("intro-loading"),true);
- assert.equal($("enter").textContent,"COMPRAR MEMBRESÍA");
- assert.deepEqual(calls,[["COMPRAR MEMBRESÍA",true]]);
+ assert.deepEqual(calls,[["Entrar",undefined]]);
+ assert.equal($("enter").textContent,"","no paywall label replaces the saved entrance");
  title.resolve();
  await result;
  assert.equal($("intro").classList.contains("intro-loading"),false);
 });
 
-test("image renderers resolve only after image load, preserving old paywall contract",async()=>{
+test("image renderers resolve only after image load; text fallback stays available",async()=>{
  const nodes=new Map(),assets=[];
  const $=id=>{if(!nodes.has(id))nodes.set(id,makeNode());return nodes.get(id);};
  class FakeImage{
@@ -116,9 +116,9 @@ test("image renderers resolve only after image load, preserving old paywall cont
  await pending;
  assert.equal($("enter").children[0],assets[0]);
  assert.equal($("enter").classList.contains("enter-image-label"),true);
- const checkout=ctx.renderEntryButtonLabel("COMPRAR MEMBRESÍA",true);
- await checkout;
- assert.equal($("enter").textContent,"COMPRAR MEMBRESÍA");
+ const fallback=ctx.renderEntryButtonLabel("Texto alternativo",true);
+ await fallback;
+ assert.equal($("enter").textContent,"Texto alternativo");
  assert.equal($("enter").classList.contains("enter-image-label"),false);
 });
 

@@ -29,7 +29,7 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('src="/web-galerias/assets/header-fast"',result)
         self.assertIn('loading="eager" decoding="async"',result)
         self.assertIn("ENTRAR A GALERIAS CUBANAS</button>",result)
-        self.assertIn('<html lang="es" style="--button:#123ABC"><head>',result)
+        self.assertIn('<html lang="es" style="--button:#123ABC;--accent:#2196f3;--bg:#0b0d12;--text:#ffffff"><head>',result)
         self.assertIn('id="enter" class="primary" disabled',result)
         self.assertIn('data-fast-title-height="160"',result)
         self.assertIn('height="160"',result)
@@ -45,7 +45,7 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         page=fast_intro.fast_intro_html(PAGE,{"button_color":"#0A8BCF"},[])
         policy=intro_page_headers(page)["Content-Security-Policy"]
         expected=base64.b64encode(
-            hashlib.sha256(b"--button:#0A8BCF").digest()).decode("ascii")
+            hashlib.sha256(b"--button:#0A8BCF;--accent:#2196f3;--bg:#0b0d12;--text:#ffffff").digest()).decode("ascii")
         self.assertIn("'unsafe-hashes' 'sha256-"+expected+"'",policy)
         self.assertNotIn("'unsafe-inline'",policy)
         self.assertEqual(intro_page_headers(PAGE),HEADERS)
@@ -74,7 +74,7 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;",source)
         self.assertIn("&#x27;" if False else '&quot;quoted&quot;',source)
         self.assertNotIn("--button:red;url(bad)",source)
-        self.assertIn('style="--button:#198ee8"',source)
+        self.assertIn('style="--button:#198ee8;--accent:#2196f3;--bg:#0b0d12;--text:#ffffff"',source)
 
     def test_unavailable_metadata_falls_back_to_original_atomic_login(self):
         page=fast_intro.fast_intro_html(PAGE,{"title":"TEST"},[])
@@ -82,22 +82,52 @@ class FirstPaintTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(fast_intro.fast_intro_html(
             "not a full page",{"title":"TEST"},[]),"not a full page")
 
-    async def test_public_identity_fetch_reads_only_design_and_asset_keys(self):
-        db=N(fetch=AsyncMock(return_value=[{"key":"header"}]))
-        g=N(ready=True,design=AsyncMock(return_value={
-              "header_mode":"image","button_mode":"text","title":"Welcome"
-            }),db=lambda:db)
+    async def test_public_identity_fetch_uses_one_current_snapshot_no_private_data(self):
+        # The exact saved public design, asset revisions and poster revision
+        # are consistent in ONE SQL statement even during an admin edit.
+        db=N(fetchrow=AsyncMock(return_value={
+          "design":{"header_mode":"image","button_mode":"text","title":"Welcome"},
+          "promo_updated":"1234.5",
+          "assets":{"header":1111.5,"intro-legacy-poster":1000.0}}))
+        g=N(ready=True,design=AsyncMock(),db=lambda:db)
         result=await fast_intro.render_fast_intro(g,PAGE)
         self.assertIn('data-fast-title',result)
-        self.assertIn('WHERE key=ANY($1::text[])',db.fetch.await_args.args[0])
-        self.assertEqual(db.fetch.await_args.args[1],
-                         ["header","button-label-image",
-                          "library-brand","library-eyebrow","library-heading"])
-        g.design.assert_awaited_once_with()
-        db.fetch.assert_awaited_once()
-        not_ready=N(ready=False,design=AsyncMock())
+        self.assertIn('src="/web-galerias/assets/header-fast?v=1111500"',result)
+        self.assertIn('href="/web-galerias/assets/header-fast?v=1111500"',result)
+        self.assertIn('data-hero-revision=',result)
+        query,keys=db.fetchrow.await_args.args
+        self.assertIn("jsonb_object_agg",query)
+        self.assertIn("WHERE key=ANY($1::text[])",query)
+        self.assertIn("key='design'",query)
+        self.assertIn("key='intro_promo'",query)
+        self.assertNotIn("wg_subscriptions",query)
+        self.assertNotIn("descarga_accounts",query)
+        self.assertEqual(keys,["header","button-label-image",
+            "library-brand","library-eyebrow","library-heading",
+            "intro-photo","intro","intro-legacy-poster"])
+        db.fetchrow.assert_awaited_once()
+        g.design.assert_not_awaited()
+        not_ready=N(ready=False,db=lambda:db)
         self.assertEqual(await fast_intro.render_fast_intro(not_ready,PAGE),PAGE)
-        not_ready.design.assert_not_awaited()
+        db.fetchrow.assert_awaited_once()
+
+    def test_every_new_editor_revision_is_present_on_first_frame(self):
+        design={"title":"Nueva portada","intro_label":"NUEVO CONTENIDO",
+                "intro_caption":"Cambios publicados",
+                "intro_fit":"contain","button_color":"#112233",
+                "accent":"#445566","background":"#010203","text_color":"#EEDDCC"}
+        revisions={"header":1234.8,"button-label-image":2234.1}
+        page=fast_intro.fast_intro_html(
+            PAGE,design,["header","button-label-image"],revisions,"ab12cd34ef56")
+        self.assertIn("<title>Nueva portada</title>",page)
+        self.assertIn("NUEVO CONTENIDO",page)
+        self.assertIn("Cambios publicados",page)
+        self.assertIn("intro-fit-contain",page)
+        self.assertIn("data-hero-revision=\"ab12cd34ef56\"",page)
+        self.assertEqual(page.count('/assets/intro-poster?v=ab12cd34ef56'),3)
+        self.assertIn('style="--button:#112233;--accent:#445566;--bg:#010203;--text:#EEDDCC"',page)
+        self.assertIn("'unsafe-hashes'",intro_page_headers(page)["Content-Security-Policy"])
+        self.assertNotIn("'unsafe-inline'",intro_page_headers(page)["Content-Security-Policy"])
 
     async def test_fast_header_is_smaller_without_touching_original_asset(self):
         source=Image.effect_noise((1250,650),45).convert("RGB")
