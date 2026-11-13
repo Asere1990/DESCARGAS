@@ -452,7 +452,9 @@ class GalleryCore:
                          or os.getenv("GALERIAS_PUBLIC","0")=="1"
                          or customer_bot_signed(uid))
                          and not await self.db().fetchval(
-                            "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
+                            "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid)
+                         and not await self.db().fetchval(
+                            "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid))
         return {"admin":is_admin(uid),"allowed":allowed,
           "checkout_enabled":checkout_enabled,
           "checkout_ready":stripe_ready() if checkout_enabled else False,
