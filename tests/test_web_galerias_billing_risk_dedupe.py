@@ -84,6 +84,33 @@ class PaymentRiskTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("state='queued'" in c.args[0]
                              for c in db.execute.await_args_list))
 
+    async def test_full_web_refund_denies_gallery_until_new_paid_invoice(self):
+        import os
+        from web_galerias.core import GalleryCore
+        db=N(fetchval=AsyncMock(return_value=False),
+             fetchrow=AsyncMock(return_value={
+                 "state":"active","paid_until":time.time()+86400*30,
+                 "blocked":False,"risk_refund":True}))
+        g=N(db=lambda:db,free_granted=AsyncMock(return_value=False))
+        uid=7536216348
+        with patch.dict(os.environ,{"GALERIAS_PUBLIC":"1",
+                                  "GALERIAS_STRIPE_PRICE_ID":"price_web_test"}):
+            self.assertFalse(await GalleryCore.entitled(g,uid))
+            db.fetchrow.return_value={
+                "state":"active","paid_until":time.time()+86400*30,
+                "blocked":False,"risk_refund":False}
+            self.assertTrue(await GalleryCore.entitled(g,uid))
+        self.assertIn("last_invoice_paid_at>f.event_created",
+                      db.fetchrow.await_args.args[0])
+
+    async def test_verified_dispute_denies_even_free_web_access(self):
+        from web_galerias.core import GalleryCore
+        db=N(fetchval=AsyncMock(return_value=True),fetchrow=AsyncMock())
+        g=N(db=lambda:db,free_granted=AsyncMock(return_value=True))
+        self.assertFalse(await GalleryCore.entitled(g,7536216348))
+        g.free_granted.assert_not_awaited()
+        db.fetchrow.assert_not_awaited()
+
     async def test_payment_receipts_order_can_only_move_to_newer_subscription(self):
         import os
         newer=int(time.time())+86400
