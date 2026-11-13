@@ -387,9 +387,11 @@ class GalleryCore:
         allowed=await self.entitled(uid)
         # This is the verified Web subscription only, not any of the user's
         # unrelated Telegram-group memberships.
-        billing=await self.db().fetchrow(
-            "SELECT subscription,state,paid_until,cancel_at_period_end "
-            "FROM wg_subscriptions WHERE uid=$1",uid) if allowed else None
+        billing=None
+        if allowed and callable(getattr(self.db(),"fetchrow",None)):
+            billing=await self.db().fetchrow(
+                "SELECT subscription,state,paid_until,cancel_at_period_end "
+                "FROM wg_subscriptions WHERE uid=$1",uid)
         paid=bool(billing and billing["subscription"] and
                   billing["state"] in ("active","trialing") and
                   billing["paid_until"]>time.time())
