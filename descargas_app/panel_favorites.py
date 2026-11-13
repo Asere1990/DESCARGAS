@@ -68,8 +68,12 @@ class PanelFavorites:
                           'account':data.get('account','Cuenta de Telegram'),
                           'type':row['kind'],'handle':handle,
                           'generation':generation,'available':available})
-        # A separate category means bookmarking an account never occupies a
-        # chat favorite slot or touches an account's saved Telegram session.
+        return {'items':items,'accounts':await self.account_listing(actor)}
+
+    async def account_listing(self,actor):
+        """Account favorites only: one metadata query, no Telegram connection."""
+        if not authorized(actor):
+            raise web.HTTPForbidden()
         rows=await self.s.repo.pool.fetch("""
             SELECT f.uid,f.payload,a.session IS NOT NULL AS connected,
                    a.generation
@@ -95,7 +99,7 @@ class PanelFavorites:
                 'generation':row['generation'],
                 'available':bool(row['connected']),
             })
-        return {'items':items,'accounts':accounts}
+        return accounts
 
     async def toggle_account(self,actor,data):
         """Actor-scoped, encrypted bookmark; no client connection or mutation."""
