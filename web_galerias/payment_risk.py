@@ -102,8 +102,8 @@ async def _process(g,row):
                 # Paid Stripe receipts are not deleted or changed.
                 await conn.execute("""
                     UPDATE wg_subscriptions SET changed=GREATEST(changed,$2)
-                    WHERE subscription=$1
-                """,sub,when)
+                    WHERE uid=$1
+                """,uid,when)
                 await conn.execute("""
                     UPDATE wg_web_risk_events SET state='done',last_error=''
                     WHERE event_id=$1
@@ -131,7 +131,7 @@ async def process_once(g):
         row=await db.fetchrow("""
             WITH due AS (
                 SELECT event_id FROM wg_web_risk_events
-                WHERE state='queued' AND next_attempt<=$1
+                WHERE state IN ('queued','running') AND next_attempt<=$1
                 ORDER BY created ASC LIMIT 1
                 FOR UPDATE SKIP LOCKED
             )
