@@ -126,7 +126,7 @@ async def sync_once(g):
             "price_id": price,
             "state": str(row["state"]),
             "paid_until": int(row["paid_until"]),
-            "cancel_at_period_end": bool(row["cancel_at_period_end"]),
+            "cancel_at_period_end": bool(dict(row).get("cancel_at_period_end",False)),
             "first_paid_at": int(row["created"]),
             "source_changed": float(row["changed"]),
             "telegram_name": str(row["telegram_name"] or "")[:100],
