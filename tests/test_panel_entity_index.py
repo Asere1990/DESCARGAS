@@ -90,6 +90,16 @@ class EntityIndexTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(done['found'],1)
         self.assertEqual(done['completed'],1)
         self.p.chats.reset_mock()
+        record=await self.repo.pool.fetchrow("""
+            SELECT s.generation,s.session_tag,md5(a.session) AS actual_tag,
+                   a.generation AS actual_generation
+            FROM descarga_panel_entity_scans s
+            JOIN descarga_accounts a ON a.uid=s.uid
+            WHERE s.bot_id=99001 AND s.actor=99003 AND s.uid=99002
+        """)
+        self.assertIsNotNone(record)
+        self.assertEqual(record['session_tag'],record['actual_tag'])
+        self.assertEqual(record['generation'],record['actual_generation'])
 
     async def test_private_chats_are_not_saved_and_names_are_encrypted(self):
         await self.seed()
@@ -104,6 +114,11 @@ class EntityIndexTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_repeated_name_and_exact_id_queries_use_local_index(self):
         await self.seed()
+        cached,pending,hits=await self.job.entity_index.lookup(
+            99003,[dict(self.account)],'groups','cuba',search.entity_matches)
+        self.assertEqual(len(cached),1)
+        self.assertEqual(len(pending),0)
+        self.assertEqual(len(hits),1)
         for mode,term,expected in (
             ('group_id','-1000000000777',self.group),
             ('groups','fotos',self.group),
