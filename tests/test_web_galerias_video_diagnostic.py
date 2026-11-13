@@ -38,10 +38,11 @@ class Check(unittest.IsolatedAsyncioTestCase):
                 self.assertLessEqual(b-a+1,d.SAMPLE)
 
     async def test_logs_two_ids_only_and_catches_R2_errors(self):
-        g=N(db=lambda:N(fetch=AsyncMock(return_value=[])))
+        db=N(fetch=AsyncMock(return_value=[]))
+        g=N(db=lambda:db)
         with patch.object(d.asyncio,"sleep",new=AsyncMock()):
             await d.run(g)
-        g.db().fetch.assert_awaited_once()
+        db.fetch.assert_awaited_once()
         self.assertEqual(d.IDS,(132224,132225))
 
 
