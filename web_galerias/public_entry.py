@@ -79,6 +79,11 @@ class PublicGalleryEntry:
 
     async def details(self, protected_token="", secondary_tokens=""):
         url = await self.link(protected_token, secondary_tokens)
-        if url:
-            return {"ready": True, "url": url}
-        return {"ready": False, "url": None}
+        # The caller must distinguish "never configured" from "public bot
+        # temporarily blocked": do not expose the protected Customer bot as
+        # an emergency fallback after the disposable public bot is enabled.
+        return {
+            "configured": self._configured,
+            "ready": bool(url),
+            "url": url,
+        }
