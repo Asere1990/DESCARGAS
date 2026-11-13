@@ -13,7 +13,7 @@ function scenario(){
  const item={id:55,kind:"video",mime:"video/mp4",available:true,
              view:"/web-galerias/media/55/view?t=secure"};
  const state={viewer:0,items:[item]};
- const notices=[],timers=[],calls=[];
+ const notices=[],timers=[],calls=[],reports=[];
  const video={
   paused:false,currentTime:0,src:item.view+"&stream=1",
   load:()=>calls.push("load"),
@@ -27,13 +27,14 @@ function scenario(){
   S:state,$:name=>nodes[name],Number,Promise,
   setTimeout:callback=>{timers.push(callback);return timers.length;},
   clearTimeout:()=>{},
-  priorityText:text=>notices.push(text)
+  priorityText:text=>notices.push(text),
+  markVideoTemporarilyFailed:item=>reports.push(item.id)
  };
  vm.createContext(ctx);
  vm.runInContext(js.slice(start,end),ctx);
  ctx.clearViewerPlayback();
  ctx.prepareViewerPlayback(item);
- return {ctx,item,video,calls,timers,notices};
+ return {ctx,item,video,calls,timers,notices,reports};
 }
 
 test("iPhone and Android start with authorized same-origin streaming, not R2 redirect",()=>{
@@ -45,7 +46,7 @@ test("iPhone and Android start with authorized same-origin streaming, not R2 red
  assert.ok(html.includes("app.js?v=playback-range-android-ios-20261113-v2"));
 });
 
-test("10-second stalled video retries direct R2 once on both operating systems",()=>{
+test("stalled video retries direct R2 only once on both operating systems",()=>{
  const s=scenario();
  s.video.onwaiting();
  assert.equal(s.timers.length,1);
@@ -70,7 +71,8 @@ test("after one retry a second error is shown rather than looping",()=>{
  s.video.onerror();
  assert.equal(s.video.src,s.item.view);
  s.video.onerror();
- assert.ok(s.notices.some(x=>x.includes("guardarlo")));
+ assert.ok(s.notices.some(x=>x.includes("preparación")));
+ assert.deepEqual(s.reports,[s.item.id]);
 });
 
 test("pause and closing viewer don't restart or change a video",()=>{
