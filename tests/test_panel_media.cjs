@@ -50,30 +50,29 @@ test('view in chat requests the exact current message in chat context, even from
  assert.deepEqual([...state.context.jump],[2,true]);assert.equal(state.context.modal,false);assert.equal(state.$('message-search').hidden,true);
 });
 
-test('holding an open image shows the same message options without changing pages',()=>{
- const s=setup();let scheduled=null;const opened=[];
- s.context.setTimeout=fn=>{scheduled=fn;return 1;};
- s.context.clearTimeout=()=>{scheduled=null;};
- s.context.messageOptions=m=>opened.push(m.id);
- s.context.openMedia(s.context.messages.get(3));
- const area=s.$('media-content');
- area.listeners.pointerdown({button:0,pointerType:'touch',clientX:70,clientY:80});
- assert.equal(typeof scheduled,'function');
- scheduled();
- assert.deepEqual(opened,[3]);
- assert.equal(s.$('media-dialog').open,false);
+
+test('the red report button follows the enlarged photo or video without blocking navigation', async()=>{
+ const state=setup(),reported=[];
+ state.context.panelAdmin=true;
+ state.context.chat={type:'group'};
+ state.context.reportMessageDialog=m=>{reported.push(m.id);return Promise.resolve();};
+ state.context.openMedia(state.context.messages.get(3));
+ assert.equal(state.$('report-media').hidden,false);
+ state.swipe(-100);
+ assert.equal(state.$('media-name').textContent,'2.jpg');
+ assert.equal(state.$('report-media').hidden,false);
+ await state.$('report-media').onclick();
+ assert.deepEqual(reported,[2]);
+ assert.equal(state.$('media-dialog').open,false);
 });
-test('viewer scrolling cancels the hold and ordinary swipe remains available',()=>{
- const s=setup();let scheduled=null;const opened=[];
- s.context.setTimeout=fn=>{scheduled=fn;return 1;};
- s.context.clearTimeout=()=>{scheduled=null;};
- s.context.messageOptions=m=>opened.push(m.id);
- s.context.openMedia(s.context.messages.get(3));
- const area=s.$('media-content');
- area.listeners.pointerdown({button:0,pointerType:'touch',clientX:100,clientY:100});
- area.listeners.pointermove({clientX:100,clientY:135});
- assert.equal(scheduled,null);
- s.swipe(-100);
- assert.equal(s.$('media-name').textContent,'2.jpg');
- assert.deepEqual(opened,[]);
+test('report action stays hidden for private chats and own messages',()=>{
+ const state=setup();
+ state.context.panelAdmin=true;
+ state.context.chat={type:'private'};
+ state.context.openMedia(state.context.messages.get(3));
+ assert.equal(state.$('report-media').hidden,true);
+ state.context.chat={type:'group'};
+ state.context.messages.get(3).out=true;
+ state.context.openMedia(state.context.messages.get(3));
+ assert.equal(state.$('report-media').hidden,true);
 });
