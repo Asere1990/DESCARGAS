@@ -1142,7 +1142,6 @@ function beginVideoPriority(expected){
  const unchanged=()=>generation===videoPriorityGeneration&&
    !$("viewer").classList.contains("hidden")&&
    S.items[S.viewer]?.id===expected.id;
- const started=Date.now();
  let requested=false;
  priorityText("Preparando este video con prioridad…");
  const poll=async()=>{
@@ -1187,14 +1186,15 @@ function beginVideoPriority(expected){
       "En cola · posición aproximada "+position+" de "+total:
       "Tu video está en la cola prioritaria…");
    }else priorityText("Preparando el video seleccionado…");
-   if(Date.now()-started>=300000){
-    priorityText(state==="running"?
-      "La carga continúa en segundo plano. Puedes volver a este video.":
-      "En espera: la solicitud sigue guardada. Puedes volver después.");
-    return;
+   // A large video or 250-user backlog can take longer than five minutes.
+   // Continue only while this exact viewer is open; no background polling.
+   if(state==="idle"){
+    requested=false;
+    priorityText("Reactivando la solicitud de este video…");
    }
    // Queued viewers poll less often: 250 simultaneous users must not flood DB.
-   const interval=state==="running"?2000:state==="waiting"?9000:8000;
+   const interval=state==="running"?2000:state==="waiting"?9000:
+     state==="idle"?12000:8000;
    videoPriorityTimer=setTimeout(poll,interval);
   }catch(e){
    if(!unchanged())return;
@@ -1202,11 +1202,8 @@ function beginVideoPriority(expected){
     priorityText("No se pudo priorizar este video. Inténtalo de nuevo al abrirlo.");
     return;
    }
-   if(Date.now()-started>=300000){
-    priorityText("El video sigue pendiente. Vuelve a intentarlo más tarde.");
-    return;
-   }
-   videoPriorityTimer=setTimeout(poll,8000);
+   // Temporary connection problems must not abandon a queued video.
+   videoPriorityTimer=setTimeout(poll,10000);
   }
  };
  void poll();
