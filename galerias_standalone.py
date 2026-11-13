@@ -29,12 +29,15 @@ class GalleryRepository(Repository):
             self.pool=None
             raise
 from web_galerias.app import mount
+from web_galerias.public_entry import PublicGalleryEntry
 
 class IsolatedGalleryService:
     def __init__(self):
         self.token=os.getenv("GALERIAS_AUTH_BOT_TOKEN","")
         self.url=os.getenv("RENDER_EXTERNAL_URL","https://localhost").rstrip("/")
         self.descargas_miniapp_url=None
+        # Optional disposable bot: only one Render token, never a polling client.
+        self.public_entry=PublicGalleryEntry()
         try:
             self.cipher=Fernet(os.environ["DESCARGAS_SESSION_KEY"].encode()) if os.getenv("DESCARGAS_SESSION_KEY") else None
         except (ValueError,TypeError):
