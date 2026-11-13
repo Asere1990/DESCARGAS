@@ -1,0 +1,26 @@
+name: Panel móvil — pulsación sostenida
+on:
+  push:
+    branches: [fix/mobile-longpress-report-context-20261113]
+  pull_request:
+    paths:
+      - 'descargas_app/panel_web/app.js'
+      - 'descargas_app/panel_web/style.css'
+      - 'tests/test_panel_batch_selection.cjs'
+      - 'tests/test_panel_media.cjs'
+      - 'tests/test_panel_mobile_longpress.cjs'
+      - '.github/workflows/panel-mobile-longpress.yml'
+permissions:
+  contents: read
+jobs:
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript válido
+        run: node --check descargas_app/panel_web/app.js
+      - name: Gestos, selección y navegación del visor
+        run: node --test tests/test_panel_mobile_longpress.cjs tests/test_panel_batch_selection.cjs tests/test_panel_media.cjs
