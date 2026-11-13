@@ -393,9 +393,9 @@ class BackgroundPanelSearch:
                 item=hit.get('hit')
                 chat=(item or {}).get('chat') or {}
                 message=(item or {}).get('message') or {}
-                key=':'.join((str(account['id']),str(chat.get('id','metadata')),
-                              str(message.get('id','title'))))
-                fingerprint=hashlib.sha256(key.encode()).hexdigest()
+                hit_key=':'.join((str(account['id']),str(chat.get('id','metadata')),
+                                  str(message.get('id','title'))))
+                fingerprint=hashlib.sha256(hit_key.encode()).hexdigest()
                 ok=await conn.fetchval(
                     """INSERT INTO descarga_panel_search_hits(job_id,hit_key,payload)
                        VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING 1""",
