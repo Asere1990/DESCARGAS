@@ -4,6 +4,7 @@ La API de Telegram suministra las opciones de cada reporte (no se inventan motiv
 No existen denuncias masivas, automáticas ni desde el bot.
 """
 import base64
+import binascii
 import hashlib
 import json
 import time
@@ -27,7 +28,7 @@ class TelegramReports:
         if not police(actor):
             raise web.HTTPForbidden(text="Solo los administradores pueden enviar reportes.")
 
-    def token(self, actor, uid, generation, source, message, stage, option, depth):
+    def token(self, actor, uid, generation, source, message, stage, option, depth, optional=False):
         if not isinstance(option, bytes) or not option or len(option) > 2048:
             raise ValueError("Telegram devolvió una opción de reporte no válida.")
         if depth > MAX_STEPS:
@@ -36,7 +37,7 @@ class TelegramReports:
             "telegram-report", actor=actor, uid=uid, generation=generation,
             source=source, mid=message, stage=stage,
             option=base64.b64encode(option).decode("ascii"),
-            created=int(time.time()), depth=depth,
+            created=int(time.time()), depth=depth, optional=bool(optional),
         )
 
     def response(self, actor, uid, generation, source, message, value, depth):
@@ -64,7 +65,7 @@ class TelegramReports:
             return {
                 "kind": "comment", "optional": bool(getattr(value, "optional", False)),
                 "token": self.token(actor, uid, generation, source, message,
-                                    "comment", value.option, depth),
+                                    "comment", value.option, depth, optional=bool(getattr(value, "optional", False))),
             }
         raise ValueError("Telegram devolvió un estado de reporte no reconocido.")
 
@@ -106,7 +107,7 @@ class TelegramReports:
             raise ValueError("Paso de reporte no válido.")
         try:
             option=base64.b64decode(state.get("option",""),validate=True)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, binascii.Error):
             raise ValueError("Opción de reporte no válida.") from None
         if not option or len(option)>2048:
             raise ValueError("Opción de reporte no válida.")
@@ -115,10 +116,10 @@ class TelegramReports:
             raise ValueError("El comentario supera el límite permitido.")
         if state["stage"]=="choice" and comment:
             raise ValueError("Selecciona un motivo antes de escribir el comentario.")
-        if state["stage"]=="comment" and not comment.strip() and not payload.get("skip"):
-            raise ValueError("Escribe un comentario o selecciona Omitir si Telegram lo permite.")
-        if payload.get("skip") and (state["stage"]!="comment" or comment):
-            raise ValueError("No se puede omitir esta opción.")
+        if state["stage"]=="comment" and not comment.strip() and not state.get("optional"):
+            raise ValueError("Telegram requiere un comentario para este reporte.")
+        if payload.get("skip") and (state["stage"]!="comment" or not state.get("optional") or comment):
+            raise ValueError("Telegram no permite omitir este comentario.")
         self.p.rate("report-step:%s:%s"%(actor,uid),12)
         async with self.p.account(actor,uid) as (client,generation):
             entity=await self.p.target(actor,uid,generation,client,payload.get("peer",""))
