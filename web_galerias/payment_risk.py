@@ -36,6 +36,14 @@ CREATE TABLE IF NOT EXISTS wg_web_dispute_blocks(
  event_id TEXT NOT NULL,
  at DOUBLE PRECISION NOT NULL
 );
+-- A full refund blocks this Web membership until a NEW invoice.paid after
+-- the event, even if a newer subscription was already active at refund time.
+CREATE TABLE IF NOT EXISTS wg_web_refund_blocks(
+ uid BIGINT PRIMARY KEY,
+ event_id TEXT NOT NULL,
+ event_created DOUBLE PRECISION NOT NULL,
+ at DOUBLE PRECISION NOT NULL
+);
 """
 
 
@@ -98,6 +106,23 @@ async def _process(g,row):
                         VALUES($1,$2,$3) ON CONFLICT(uid) DO UPDATE
                         SET event_id=excluded.event_id,at=excluded.at
                     """,uid,event_id,when)
+                elif reason=="refund":
+                    # Mirror CUSTOMER-SERVICE refund_blocks: only a NEW paid
+                    # invoice restores Web. Never let an earlier refund's
+                    # delayed webhook re-block a later paid receipt.
+                    event_created=int(checked.get("event_created") or 0)
+                    if event_created<=0:
+                        raise ValueError("Missing confirmed Stripe refund timestamp")
+                    await conn.execute("""
+                        INSERT INTO wg_web_refund_blocks(uid,event_id,event_created,at)
+                        VALUES($1,$2,$3,$4) ON CONFLICT(uid) DO UPDATE SET
+                          event_id=CASE WHEN EXCLUDED.event_created>
+                               wg_web_refund_blocks.event_created
+                               THEN EXCLUDED.event_id ELSE wg_web_refund_blocks.event_id END,
+                          event_created=GREATEST(wg_web_refund_blocks.event_created,
+                                                 EXCLUDED.event_created),
+                          at=GREATEST(wg_web_refund_blocks.at,EXCLUDED.at)
+                    """,uid,event_id,event_created,when)
                 # Trigger existing signed CRM/NOTIFICACIONES sync promptly.
                 # Paid Stripe receipts are not deleted or changed.
                 await conn.execute("""
