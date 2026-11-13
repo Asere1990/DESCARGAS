@@ -911,28 +911,52 @@ function onMediaTileClick(item,index,event){
 // Playback and source accounts stay on their existing, bounded work lanes.
 const failedVideoUntil=new Map();
 function videoTemporarilyFailed(item){
- const deadline=failedVideoUntil.get(item?.id)||0;
- if(deadline&&Date.now()<deadline)return true;
- if(deadline)failedVideoUntil.delete(item.id);
- return false;
+ return !!item&&failedVideoUntil.has(item.id);
 }
-function markVideoTemporarilyFailed(item){
+async function recheckFailedVideo(id,record){
+ if(failedVideoUntil.get(id)!==record)return;
+ const item=S.items.find(m=>m.id===id);
+ if(!item){failedVideoUntil.delete(id);return;}
+ try{
+  // Read-only DB status; existing CLOUDFLARE worker does any actual repair.
+  const result=await api("media-status",{media:id});
+  if(failedVideoUntil.get(id)!==record)return;
+  if(result){
+   item.available=!!result.available;
+   item.view=result.view||null;
+   if(result.thumb)item.thumb=result.thumb;
+   if(Number(result.expected_bytes)>Number(item.size||0))
+    item.size=Number(result.expected_bytes);
+  }
+  // Never show a play icon for a previously failed, still-pending video.
+  // A verified-ready original can be retried after the brief hold.
+  if(result?.available&&result?.view){
+   failedVideoUntil.delete(id);
+   if(S.items[S.viewer]?.id===id)viewerDirectModeId=null;
+   renderItems();
+   if(S.items[S.viewer]?.id===id
+       &&!$("viewer").classList.contains("hidden"))showViewerMedia();
+   return;
+  }
+ }catch(_){/* transient status failure is not proof of a bad original */}
+ record.timer=setTimeout(()=>recheckFailedVideo(id,record),30000);
+}
+function markVideoTemporarilyFailed(item,report=true){
  if(!item||videoTemporarilyFailed(item))return;
+ // Size changes the retry interval, NOT whether a slow video has failed.
  const large=Number(item.size||0)>=100*1024*1024;
- const holdMs=large?180000:90000;
- const deadline=Date.now()+holdMs;
- failedVideoUntil.set(item.id,deadline);
- // This authenticated report uses the SAME priority queue, only if the
- // server verifies R2 corruption. No new Telegram connections are opened.
- void api("media-playback-failed",{media:item.id}).catch(()=>{});
+ const record={timer:null};
+ if(failedVideoUntil.size>=100)failedVideoUntil.delete(failedVideoUntil.keys().next().value);
+ failedVideoUntil.set(item.id,record);
+ if(report){
+  // One authenticated R2 HEAD; only a provably incomplete copy joins the
+  // existing priority queue. Never open another Telegram account connection.
+  void api("media-playback-failed",{media:item.id}).catch(()=>{});
+ }
  renderItems();
  if(S.items[S.viewer]?.id===item.id)showViewerMedia();
- setTimeout(()=>{
-  if(failedVideoUntil.get(item.id)!==deadline)return;
-  failedVideoUntil.delete(item.id);
-  // A temporary client failure can recover in minutes. It is not a ban.
-  renderItems();
- },holdMs);
+ record.timer=setTimeout(()=>recheckFailedVideo(item.id,record),
+                         large?180000:90000);
 }
 function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
@@ -1104,7 +1128,7 @@ function attachLongPress(b,m,index){
  });
  b.addEventListener("pointerleave",()=>{if(!held)clear();});
 }
-function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"?"▶":"▧";b.prepend(p);}
+function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"&&!videoTemporarilyFailed(m)?"▶":"▧";b.prepend(p);}
 function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
@@ -1224,7 +1248,7 @@ function showViewerMedia(){
   const canCover=!!(S.folder?.personal&&m.kind==="photo"&&m.thumb);
   $("viewer-set-cover").classList.toggle("hidden",!canCover);
   document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
-  $("viewer-download").disabled=!full||videoTemporarilyFailed(m);
+  $("viewer-download").disabled=!full;
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
   $("viewer-admin-delete").classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls));
   $("viewer-admin-original")?.classList.toggle("hidden",
@@ -1318,6 +1342,14 @@ function beginVideoPriority(expected){
     return;
    }
    const state=result.priority_state||"queued";
+   if(Number(result.expected_bytes)>Number(expected.size||0))
+    expected.size=Number(result.expected_bytes);
+   // Only a confirmed failed attempt, never simple waiting or slow progress.
+   if(state==="waiting"&&result.priority_failure){
+    stopVideoPriority();
+    markVideoTemporarilyFailed(expected,false);
+    return;
+   }
    if(state==="running"&&result.progress_percent!=null){
     advance(result.progress_percent);
    }else if(state==="queued"||state==="waiting"){
