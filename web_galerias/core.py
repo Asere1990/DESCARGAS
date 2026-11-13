@@ -189,6 +189,8 @@ class GalleryCore:
         self.priority_leader_ready=asyncio.Event()
         self.intro_poster_task=None
         self.customer_bridge_task=None
+        self.dedupe_task=None
+        self.risk_task=None
         self.moderation_task=None
         self.broadcast_task=None
         self.media_text_task=None
