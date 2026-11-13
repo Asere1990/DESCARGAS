@@ -50,7 +50,7 @@ def signed_payload(data: dict):
 
 
 async def post_signed(operation: str, data: dict, *, timeout=6):
-    if operation not in {"verify", "sync", "profile", "offers-link", "chat-link", "chat-unread", "cancel-renewal"}:
+    if operation not in {"verify", "sync", "profile", "offers-link", "chat-link", "chat-unread", "cancel-renewal", "dedupe-web", "risk-web"}:
         raise ValueError("Unknown bridge operation")
     body, headers = signed_payload(data)
     async with httpx.AsyncClient(
@@ -97,10 +97,14 @@ async def sync_once(g):
         return 0
     db = g.db()
     rows = await db.fetch(
-        """SELECT s.uid,s.customer,s.subscription,s.state,s.paid_until,s.changed,
-                  s.cancel_at_period_end,
+        """SELECT s.uid,s.customer,s.subscription,
+                  CASE WHEN r.subscription IS NOT NULL OR d.uid IS NOT NULL
+                    THEN 'canceled' ELSE s.state END AS state,
+                  s.paid_until,s.changed,s.cancel_at_period_end,
                   c.session,c.created,COALESCE(u.name,'') AS telegram_name
            FROM wg_subscriptions s
+           LEFT JOIN wg_web_revocations r ON r.subscription=s.subscription
+           LEFT JOIN wg_web_dispute_blocks d ON d.uid=s.uid
            JOIN LATERAL (
               SELECT session,created FROM wg_checkouts
               WHERE subscription=s.subscription AND session IS NOT NULL
