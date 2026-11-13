@@ -1143,7 +1143,7 @@ function beginVideoPriority(expected){
    !$("viewer").classList.contains("hidden")&&
    S.items[S.viewer]?.id===expected.id;
  let requested=false;
- priorityText("Preparando este video con prioridad…");
+ priorityText("Cargando video · 0 %");
  const poll=async()=>{
   if(!unchanged())return;
   try{
@@ -1159,7 +1159,7 @@ function beginVideoPriority(expected){
     if(result.thumb)expected.thumb=result.thumb;
     stopVideoPriority();
     showViewerMedia();
-    priorityText("100 % · Video listo");
+    priorityText("Cargando video · 100 %");
     const readyGeneration=videoPriorityGeneration;
     setTimeout(()=>{
      if(readyGeneration===videoPriorityGeneration)priorityText("");
@@ -1171,26 +1171,18 @@ function beginVideoPriority(expected){
     return;
    }
    const state=result.priority_state||"queued";
-   if(state==="running"){
-    const percent=Number(result.progress_percent);
-    priorityText(result.progress_percent!==null&&result.progress_percent!==undefined&&
-      Number.isFinite(percent)?
-      "Cargando video · "+Math.max(0,Math.min(99,Math.floor(percent)))+" %":
-      "Cargando video desde Telegram…");
-   }else if(state==="waiting"){
-    priorityText("Esperando una cuenta Telegram disponible…");
-   }else if(state==="queued"){
-    const position=Number(result.queue_position);
-    const total=Number(result.queue_total);
-    priorityText(Number.isFinite(position)&&position>0&&Number.isFinite(total)&&total>0?
-      "En cola · posición aproximada "+position+" de "+total:
-      "Tu video está en la cola prioritaria…");
-   }else priorityText("Preparando el video seleccionado…");
+   // While waiting, 0% is factual: no bytes have been received yet.
+   // During transfer show ONLY the server's measured byte percentage.
+   // Never invent 1–99% or display the internal queue position.
+   const reported=Number(result.progress_percent);
+   const percent=state==="running"&&result.progress_percent!=null&&
+     Number.isFinite(reported)?
+     Math.max(0,Math.min(99,Math.floor(reported))):0;
+   priorityText("Cargando video · "+percent+" %");
    // A large video or 250-user backlog can take longer than five minutes.
    // Continue only while this exact viewer is open; no background polling.
    if(state==="idle"){
     requested=false;
-    priorityText("Reactivando la solicitud de este video…");
    }
    // Queued viewers poll less often: 250 simultaneous users must not flood DB.
    const interval=state==="running"?2000:state==="waiting"?9000:
