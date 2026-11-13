@@ -21,7 +21,7 @@ test('long hold opens message menu; selection tap still works and scrolling canc
   preventDefault(){},stopPropagation(){},stopImmediatePropagation(){this.stopped=true;}};
  a.events.pointerdown(event);
  assert.equal(typeof scheduled,'function');scheduled();a.events.pointerup();
- assert.deepEqual(menus,[1]);assert.equal(s.$('batch-count').textContent,'0 seleccionados');
+ assert.deepEqual(menus,[1]);s.context.updateBatch();assert.equal(s.$('batch-count').textContent,'0 seleccionados');
  const tap={...event,stopped:false};a.events.click(tap);assert.equal(tap.stopped,true);
  assert.equal(opened,0);
  s.$('batch-select').onclick();
