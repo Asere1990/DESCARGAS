@@ -27,7 +27,8 @@ function scenario(){
   S:state,$:name=>nodes[name],Number,Promise,
   setTimeout:callback=>{timers.push(callback);return timers.length;},
   clearTimeout:()=>{},
-  priorityText:text=>notices.push(text)
+  priorityText:text=>notices.push(text),
+  markFailedVideo:item=>notices.push("failed:"+item.id)
  };
  vm.createContext(ctx);
  vm.runInContext(js.slice(start,end),ctx);
@@ -42,7 +43,7 @@ test("iPhone and Android start with authorized same-origin streaming, not R2 red
  assert.equal(s.ctx.videoStreamUrl(s.item.view),s.item.view+"&stream=1");
  assert.ok(js.includes('video.src=viewerDirectModeId===m.id?m.view:videoStreamUrl(m.view)'));
  assert.ok(!js.includes("navigator.userAgent"));
- assert.ok(html.includes("app.js?v=playback-range-android-ios-20261113-v2"));
+ assert.ok(html.includes("app.js?v=failed-play-icon-20261113-v1"));
 });
 
 test("10-second stalled video retries direct R2 once on both operating systems",()=>{
@@ -70,7 +71,7 @@ test("after one retry a second error is shown rather than looping",()=>{
  s.video.onerror();
  assert.equal(s.video.src,s.item.view);
  s.video.onerror();
- assert.ok(s.notices.some(x=>x.includes("guardarlo")));
+ assert.ok(s.notices.includes("failed:55"));
 });
 
 test("pause and closing viewer don't restart or change a video",()=>{
