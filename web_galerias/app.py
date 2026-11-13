@@ -233,6 +233,24 @@ def mount(app,service):
         return await admin.asset(g,request)
     async def public_promo(request):
         return await intro_video.public_promo_status(g,request)
+    async def public_gallery_link(request):
+        # This endpoint exposes only a public t.me link, never the token.
+        public=getattr(service,"public_entry",None)
+        details=await public.details(
+            getattr(service,"token",""),
+            os.getenv("GALERIAS_BOT_TOKENS",""),
+        ) if public else {"configured":False,"ready":False,"url":None}
+        return web.json_response(details,headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
+    async def public_gallery_redirect(request):
+        public=getattr(service,"public_entry",None)
+        link=await public.link(
+            getattr(service,"token",""),
+            os.getenv("GALERIAS_BOT_TOKENS",""),
+        ) if public else None
+        if not link:raise web.HTTPServiceUnavailable(text="Entrada pública aún no configurada.")
+        # Stable external advertising link: existing posted links do not have
+        # to be reissued when the disposable Telegram bot is replaced.
+        raise web.HTTPFound(location=link,headers={"Cache-Control":"no-store"})
     async def intro_video_upload(request):
         try:
             result=await intro_video.upload(g,request)
@@ -275,6 +293,8 @@ def mount(app,service):
     app.router.add_get("/web-galerias/static/{name}",static)
     app.router.add_get("/web-galerias/assets/{key}",asset)
     app.router.add_get("/web-galerias/promo.json",public_promo)
+    app.router.add_get("/web-galerias/public-entry",public_gallery_link)
+    app.router.add_get("/web-galerias/abrir",public_gallery_redirect)
     app.router.add_post("/web-galerias/admin/intro-video",intro_video_upload)
     app.router.add_post("/web-galerias/admin/notice-upload",notices_upload)
     app.router.add_get("/web-galerias/notice-media/{notice}",notice_media)
