@@ -11,7 +11,7 @@ class TestPublicGalleryBot(unittest.IsolatedAsyncioTestCase):
         entry = PublicGalleryEntry("")
         self.assertEqual(entry.authorized_token(), "")
         self.assertIsNone(await entry.link())
-        self.assertEqual(await entry.details(), {"ready": False, "url": None})
+        self.assertEqual(await entry.details(), {"configured": False, "ready": False, "url": None})
 
     async def test_cannot_use_original_or_secondary_bots(self):
         entry = PublicGalleryEntry(TOKEN)
