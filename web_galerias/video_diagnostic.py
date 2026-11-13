@@ -21,7 +21,7 @@ def _summary(first,last):
     hits=sorted({tag.decode("ascii") for tag in CODEC_TAGS
                  if tag in first or tag in last})
     return {
-        "signature": "mp4" if is_mp4 else "matroska" if first.startswith(b"\\x1aE\\xdf\\xa3")
+        "signature": "mp4" if is_mp4 else "matroska" if first.startswith(bytes.fromhex("1a45dfa3"))
                      else "unknown",
         "brand":brand if brand.isascii() and brand.isprintable() else "",
         "moov_first":b"moov" in first,
