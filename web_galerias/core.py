@@ -324,27 +324,38 @@ class GalleryCore:
     async def entitled(self,uid):
         if is_admin(uid):return True
         if await self.free_granted(uid):
-            return not bool(await self.db().fetchval(
-                "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
+            if await self.db().fetchval(
+                    "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
+                return False
+            # A paid chargeback also withdraws any temporary free Web grant.
+            if await self.db().fetchval(
+                    "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid):
+                return False
+            return not bool(await self.db().fetchval("""
+                SELECT 1 FROM wg_subscriptions s
+                JOIN wg_web_revocations r ON r.subscription=s.subscription
+                WHERE s.uid=$1
+            """,uid))
         if (os.getenv("GALERIAS_PUBLIC","0")!="1"
             and not payment_test_user(uid)
             and not customer_bot_signed(uid)):
             return False
         # A public launch never grants free files: only a verified paid Stripe
         # subscription or explicit free authorization passes this check.
-        row=await self.db().fetchrow("""SELECT s.state,s.paid_until,s.subscription,
-                   COALESCE(b.blocked,FALSE) AS blocked
+        row=await self.db().fetchrow("""SELECT s.state,s.paid_until,
+                   COALESCE(b.blocked,FALSE) AS blocked,
+                   (r.subscription IS NOT NULL) AS revoked,
+                   (d.uid IS NOT NULL) AS risk_dispute
                    FROM wg_subscriptions s
                    LEFT JOIN wg_access_blocks b ON b.uid=s.uid
+                   LEFT JOIN wg_web_revocations r ON r.subscription=s.subscription
+                   LEFT JOIN wg_web_dispute_blocks d ON d.uid=s.uid
                    WHERE s.uid=$1""",uid)
         return bool(row and not row.get("blocked",False)
+                and not row.get("revoked",False)
+                and not row.get("risk_dispute",False)
                 and row["state"] in ("active","trialing")
-                and row["paid_until"]>time.time()
-                and not await self.db().fetchval(
-                    "SELECT 1 FROM wg_web_revocations WHERE subscription=$1",
-                    row["subscription"])
-                and not await self.db().fetchval(
-                    "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid))
+                and row["paid_until"]>time.time())
 
     async def permitted(self,uid,folder):
         if not await self.entitled(uid):return False
