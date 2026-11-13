@@ -86,6 +86,8 @@ ALTER TABLE wg_checkouts ADD COLUMN IF NOT EXISTS subscription TEXT;
 -- Billing state only; scheduling cancellation preserves paid access.
 ALTER TABLE wg_subscriptions
  ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE wg_subscriptions
+ ADD COLUMN IF NOT EXISTS subscription_started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
  subscription TEXT PRIMARY KEY,
  customer TEXT NOT NULL DEFAULT '',
@@ -96,6 +98,10 @@ CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
  changed DOUBLE PRECISION NOT NULL DEFAULT 0);
 ALTER TABLE wg_link_subscriptions
  ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE wg_link_subscriptions
+ ADD COLUMN IF NOT EXISTS subscription_started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+ALTER TABLE wg_link_subscriptions
+ ADD COLUMN IF NOT EXISTS last_invoice_paid_at DOUBLE PRECISION NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS wg_payment_events(id TEXT PRIMARY KEY,created DOUBLE PRECISION NOT NULL);
 CREATE TABLE IF NOT EXISTS wg_activity(
  id BIGSERIAL PRIMARY KEY,actor BIGINT NOT NULL,operation TEXT NOT NULL,at DOUBLE PRECISION NOT NULL);
@@ -117,6 +123,10 @@ SCHEMA += COVER_SCHEMA
 SCHEMA += USER_FEATURES_SCHEMA
 SCHEMA += COMMERCIAL_SCHEMA
 SCHEMA += download_plus.SCHEMA
+from .payment_risk import SCHEMA as PAYMENT_RISK_SCHEMA
+SCHEMA += PAYMENT_RISK_SCHEMA
+from .dupe_guard import SCHEMA as DEDUPE_SCHEMA
+SCHEMA += DEDUPE_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
  "title_image_height":120,"button_image_height":30,
@@ -183,6 +193,8 @@ class GalleryCore:
         self.priority_leader_ready=asyncio.Event()
         self.intro_poster_task=None
         self.customer_bridge_task=None
+        self.dedupe_task=None
+        self.risk_task=None
         self.moderation_task=None
         self.broadcast_task=None
         self.media_text_task=None
@@ -227,6 +239,9 @@ class GalleryCore:
                     from .customer_bridge import ready as bridge_ready,run as bridge_run
                     if bridge_ready():
                         self.customer_bridge_task=asyncio.create_task(bridge_run(self))
+                        from . import dupe_guard,payment_risk
+                        self.dedupe_task=asyncio.create_task(dupe_guard.run(self))
+                        self.risk_task=asyncio.create_task(payment_risk.run(self))
                     # A single independently verified Stripe receipt can
                     # repair a paid tester whose webhook failed before it was
                     # processed. A failure must never stop Web Galerías.
@@ -313,10 +328,27 @@ class GalleryCore:
         return free_access(uid)
 
     async def entitled(self,uid):
+        # A proven dispute suspends access, including admin/test grants,
+        # exactly as the central customer account restriction does.
+        if await self.db().fetchval(
+                "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid):
+            return False
         if is_admin(uid):return True
         if await self.free_granted(uid):
-            return not bool(await self.db().fetchval(
-                "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
+            if await self.db().fetchval(
+                    "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
+                return False
+            # A full Web refund blocks access until a genuinely NEW paid Web
+            # invoice, not merely a new Checkout attempt or an old invoice.
+            return not bool(await self.db().fetchval("""
+                SELECT 1 FROM wg_web_refund_blocks r
+                WHERE r.uid=$1 AND NOT EXISTS (
+                    SELECT 1 FROM wg_checkouts c
+                    JOIN wg_link_subscriptions p ON p.subscription=c.subscription
+                    WHERE c.uid=$1 AND c.session IS NOT NULL AND p.price_id=$2
+                      AND p.last_invoice_paid_at>r.event_created
+                )
+            """,uid,os.getenv("GALERIAS_STRIPE_PRICE_ID","")))
         if (os.getenv("GALERIAS_PUBLIC","0")!="1"
             and not payment_test_user(uid)
             and not customer_bot_signed(uid)):
@@ -324,11 +356,19 @@ class GalleryCore:
         # A public launch never grants free files: only a verified paid Stripe
         # subscription or explicit free authorization passes this check.
         row=await self.db().fetchrow("""SELECT s.state,s.paid_until,
-                   COALESCE(b.blocked,FALSE) AS blocked
+                   COALESCE(b.blocked,FALSE) AS blocked,
+                   (f.uid IS NOT NULL AND NOT EXISTS (
+                       SELECT 1 FROM wg_checkouts c
+                       JOIN wg_link_subscriptions p ON p.subscription=c.subscription
+                       WHERE c.uid=s.uid AND c.session IS NOT NULL
+                         AND p.price_id=$2 AND p.last_invoice_paid_at>f.event_created
+                   )) AS risk_refund
                    FROM wg_subscriptions s
                    LEFT JOIN wg_access_blocks b ON b.uid=s.uid
-                   WHERE s.uid=$1""",uid)
+                   LEFT JOIN wg_web_refund_blocks f ON f.uid=s.uid
+                   WHERE s.uid=$1""",uid,os.getenv("GALERIAS_STRIPE_PRICE_ID",""))
         return bool(row and not row.get("blocked",False)
+                and not row.get("risk_refund",False)
                 and row["state"] in ("active","trialing")
                 and row["paid_until"]>time.time())
 
@@ -427,7 +467,9 @@ class GalleryCore:
                          or os.getenv("GALERIAS_PUBLIC","0")=="1"
                          or customer_bot_signed(uid))
                          and not await self.db().fetchval(
-                            "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid))
+                            "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid)
+                         and not await self.db().fetchval(
+                            "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid))
         return {"admin":is_admin(uid),"allowed":allowed,
           "checkout_enabled":checkout_enabled,
           "checkout_ready":stripe_ready() if checkout_enabled else False,

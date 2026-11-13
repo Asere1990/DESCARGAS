@@ -177,8 +177,10 @@ class CubanitasBridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_paid_customer_bot_user_gets_verified_access(self):
         from web_galerias.core import _CUSTOMER_BOT_UID
         uid=7536216348
-        db=SimpleNamespace(fetchrow=AsyncMock(return_value={
-            "state":"active","paid_until":time.time()+900,"blocked":False}))
+        db=SimpleNamespace(fetchval=AsyncMock(return_value=False),
+                           fetchrow=AsyncMock(return_value={
+            "state":"active","paid_until":time.time()+900,"blocked":False,
+            "risk_refund":False}))
         g=SimpleNamespace(db=lambda:db,free_granted=AsyncMock(return_value=False))
         with patch.dict(os.environ,{"GALERIAS_PUBLIC":"0","GALERIAS_PAYMENT_TEST_UIDS":str(uid)}):
             token=_CUSTOMER_BOT_UID.set(0)

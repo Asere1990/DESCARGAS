@@ -87,8 +87,10 @@ class Gallery(GalleryCore):
                 uid,time.time(),view)
             return {"ok":True}
         if op=="checkout":
-            if await self.db().fetchval(
-                    "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
+            if (await self.db().fetchval(
+                    "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid)
+                or await self.db().fetchval(
+                    "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid)):
                 raise web.HTTPForbidden(
                     text="Cuenta restringida. Contacta con soporte.")
             return await payments.checkout(self,uid)
@@ -317,7 +319,8 @@ def mount(app,service):
     async def cleanup(_):
         g.closed=True
         tasks=(g.sync_task,g.priority_task,g.intro_poster_task,g.customer_bridge_task,
-               g.moderation_task,g.broadcast_task,g.media_text_task,g.ocr_task,g.video_diagnostic_task,g.task)
+               g.dedupe_task,g.risk_task,g.moderation_task,g.broadcast_task,
+               g.media_text_task,g.ocr_task,g.video_diagnostic_task,g.task)
         for task in tasks:
             if task:task.cancel()
         await asyncio.gather(*(t for t in tasks if t),return_exceptions=True)
