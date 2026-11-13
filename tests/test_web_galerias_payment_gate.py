@@ -123,7 +123,8 @@ class PaymentGateTests(unittest.IsolatedAsyncioTestCase):
     def test_payment_ui_preserves_existing_user_galleries_and_buttons(self):
         script=(ROOT/"app.js").read_text(encoding="utf-8")
         html=(ROOT/"index.html").read_text(encoding="utf-8")
-        self.assertIn('$("enter").textContent="COMPRAR MEMBRESÍA"',script)
+        self.assertIn('const buttonReady=renderEntryButtonLabel(',script)
+        self.assertNotIn('COMPRAR MEMBRESÍA',script)
         self.assertIn('S.me.checkout_enabled',script)
         self.assertIn('S.me.checkout_ready',script)
         self.assertIn('api("checkout")',script)
