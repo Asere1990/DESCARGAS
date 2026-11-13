@@ -14,9 +14,9 @@ class FakeClient(N):
         return await self.rpc(request)
 
 
-class ReportTests(PanelTests):
+class ReportTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        await super().asyncSetUp()
+        await PanelTests.asyncSetUp(self)
         self.client=FakeClient(**vars(self.client))
         self.client.rpc=AsyncMock()
         self.entity=types.Channel(
