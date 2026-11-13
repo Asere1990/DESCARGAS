@@ -617,6 +617,10 @@
   width:100%;height:100%;object-fit:cover;
   display:block;opacity:1;
 }
+/* Saved photo/video fit is correct on the very first poster frame. */
+#intro.has-intro-video.intro-fit-contain .intro-video-wrap .intro-hero-poster{
+ object-fit:contain;
+}
 #intro.has-intro-video .intro-video-wrap .intro-hero-poster[hidden]{
   display:none!important;
 }
