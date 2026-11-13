@@ -74,7 +74,7 @@ class DownloadPlusTests(unittest.IsolatedAsyncioTestCase):
         g.entitled.assert_awaited_once_with(123)
 
     async def test_nonce_checkout_url_does_not_contain_telegram_id(self):
-        db=N(execute=AsyncMock())
+        db=N(execute=AsyncMock(),fetchval=AsyncMock(return_value=False))
         g=N(entitled=AsyncMock(return_value=True),db=lambda:db)
         with patch.dict(os.environ,{
             "GALERIAS_PLUS_URL":"https://buy.stripe.com/aAbbCc0011",
@@ -90,6 +90,14 @@ class DownloadPlusTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("987654321",result["url"])
         self.assertIn("wg_plus_checkouts",db.execute.await_args.args[0])
         self.assertEqual(db.execute.await_args.args[2],987654321)
+
+    async def test_main_scheduled_cancel_blocks_new_paid_plus_after_current_access(self):
+        db=N(execute=AsyncMock(),fetchval=AsyncMock(return_value=True))
+        g=N(entitled=AsyncMock(return_value=True),db=lambda:db)
+        with self.assertRaisesRegex(web.HTTPForbidden,"cancelación programada"):
+            await download_plus.checkout(g,1234)
+        db.execute.assert_not_awaited()
+        self.assertIn("cancel_at_period_end",db.fetchval.await_args.args[0])
 
     async def test_wrong_checkout_link_or_amount_never_binds_user(self):
         conn=N(fetchrow=AsyncMock(),execute=AsyncMock())
