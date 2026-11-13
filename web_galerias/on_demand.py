@@ -353,11 +353,19 @@ async def _process(g, media):
 
 
 async def run(g):
-    """At most two urgent videos; leader + durable queue survive restarts."""
+    """Bounded streams, durable 500-slot queue, fair across active sources."""
     db = g.db()
     await db.execute(SCHEMA)
-    parallel = max(1, min(2, int(os.getenv("GALERIAS_PRIORITY_PARALLEL", "2"))))
+    try:
+        parallel = max(1, min(MAX_PARALLEL,
+            int(os.getenv("GALERIAS_PRIORITY_PARALLEL", str(DEFAULT_PARALLEL)))))
+    except (ValueError, TypeError):
+        parallel = DEFAULT_PARALLEL
     running = {}
+    # Reservations avoid waking several transfers on the same Telegram
+    # account at once. The original PostgreSQL lock remains authoritative.
+    g.priority_accounts_in_use = set()
+    g.priority_source_lock = asyncio.Lock()
     async with db.acquire() as leader:
         while not g.closed:
             if await leader.fetchval("SELECT pg_try_advisory_lock(784,22)"):
@@ -370,7 +378,10 @@ async def run(g):
                 UPDATE wg_media_priority SET state='queued',next_attempt=0
                 WHERE state='running'
             """)
-            log.warning("On-demand gallery video priority active; parallel=%d", parallel)
+            log.warning(
+                "On-demand gallery video priority active; parallel=%d capacity=%d",
+                parallel, MAX_GLOBAL_PENDING)
+            last_queue_report = 0.0
             while not g.closed:
                 if not g.storage.ready or os.getenv("GALERIAS_SYNC_ENABLED","0")!="1":
                     await asyncio.sleep(5)
@@ -385,23 +396,64 @@ async def run(g):
                     """, time.time()-JOB_TTL_SECONDS)
                     available = parallel-len(running)
                     if available > 0:
+                        # Respect a fixed account, or at most the number of
+                        # previously verified sources for an unpinned folder.
+                        # A burst of 250 clicks from one folder with one source
+                        # therefore creates just ONE active Telegram transfer.
+                        # First requests from different users are scheduled
+                        # before any user's second/third/fourth request.
                         due = await db.fetch("""
-                            WITH next AS (
-                              SELECT media FROM wg_media_priority
-                              WHERE state='queued' AND next_attempt<=$1
-                              ORDER BY requested_at DESC LIMIT $2
-                              FOR UPDATE SKIP LOCKED
+                            WITH eligible AS (
+                              SELECT q.media,q.requested_at,m.folder,
+                                CASE WHEN f.preferred_uid IS NOT NULL THEN 1
+                                ELSE LEAST($3::int,GREATEST(1,
+                                  (SELECT COUNT(*)::int FROM wg_discovery d
+                                   WHERE d.folder=m.folder AND d.works))) END
+                                  AS folder_capacity,
+                                ROW_NUMBER() OVER(
+                                  PARTITION BY m.folder
+                                  ORDER BY q.requested_at ASC,q.media) AS folder_rank,
+                                ROW_NUMBER() OVER(
+                                  PARTITION BY q.requester
+                                  ORDER BY q.requested_at ASC,q.media) AS user_round
+                              FROM wg_media_priority q
+                              JOIN wg_media m ON m.id=q.media
+                              JOIN wg_folders f ON f.id=m.folder
+                              WHERE q.state='queued' AND q.next_attempt<=$1
+                                AND m.state='preview' AND m.kind='video'
+                                AND f.active
+                            ), next AS (
+                              SELECT e.media FROM eligible e
+                              WHERE e.folder_rank <= GREATEST(0,e.folder_capacity-
+                                (SELECT COUNT(*)::int FROM wg_media_priority r
+                                 JOIN wg_media mr ON mr.id=r.media
+                                 WHERE r.state='running' AND mr.folder=e.folder))
+                              ORDER BY e.user_round,e.requested_at ASC
+                              LIMIT $2
                             )
-                            UPDATE wg_media_priority p SET state='running'
-                            FROM next WHERE p.media=next.media
+                            UPDATE wg_media_priority p SET
+                              state='running',received_bytes=0,
+                              progress_at=0,started_at=$1
+                            FROM next WHERE p.media=next.media AND p.state='queued'
                             RETURNING p.media
-                        """, time.time(), available)
+                        """, time.time(), available, parallel)
                         for record in due:
                             media=int(record["media"])
                             task=asyncio.create_task(_process(g,media))
                             running[media]=task
                             task.add_done_callback(
                                 lambda _task, mid=media: running.pop(mid, None))
+                    if time.monotonic()-last_queue_report>=120:
+                        snapshot=await db.fetchrow("""
+                            SELECT COUNT(*) FILTER(WHERE state='queued')::int AS queued,
+                                   COUNT(*) FILTER(WHERE state='running')::int AS running
+                            FROM wg_media_priority
+                        """)
+                        log.warning(
+                            "On-demand video capacity: queued=%d running=%d slots=%d max_queue=%d",
+                            int(snapshot["queued"] or 0),int(snapshot["running"] or 0),
+                            parallel,MAX_GLOBAL_PENDING)
+                        last_queue_report=time.monotonic()
                     await asyncio.sleep(1)
                 except asyncio.CancelledError:
                     raise
