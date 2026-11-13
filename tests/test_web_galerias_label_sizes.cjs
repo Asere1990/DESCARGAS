@@ -35,7 +35,7 @@ test("the title and button image sizes update independently in the editor",()=>{
  assert.equal(node("edit-button-image-preview").style.height,"48px");
 });
 
-test("size only scales the label image and checkout restores the text",()=>{
+test("size only scales the label image and explicit text fallback remains safe",()=>{
  const classes=new Set(),properties=new Map(),assets=[];
  const button={
   textContent:"",children:[],
@@ -70,13 +70,12 @@ test("size only scales the label image and checkout restores the text",()=>{
  assert.equal(button.children[0],assets[1]);
  assert.equal(button["aria-label"],"Abrir galerías");
 
- // A purchase is always explained in plain text, never overridden by a
- // previously delayed image request.
+ // Manual fallback cannot be overridden by a previously delayed image.
  S.me.design.button_image_height=48;
- ctx.renderEntryButtonLabel("COMPRAR MEMBRESÍA",true);
- assert.equal(button.textContent,"COMPRAR MEMBRESÍA");
+ ctx.renderEntryButtonLabel("Texto alternativo",true);
+ assert.equal(button.textContent,"Texto alternativo");
  assert.equal(classes.has("enter-image-label"),false);
  assets[1].onload();
- assert.equal(button.textContent,"COMPRAR MEMBRESÍA");
+ assert.equal(button.textContent,"Texto alternativo");
  assert.equal(classes.has("enter-image-label"),false);
 });
