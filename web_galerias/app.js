@@ -1360,7 +1360,8 @@ function closeViewer(){
  $("viewer").classList.add("hidden");
  document.body.classList.remove("gallery-viewer-open");
  $("view-video").pause();
- clearViewerPlayback();viewerStreamModeId=null;
+ if(typeof clearViewerPlayback==="function")clearViewerPlayback();
+ if(typeof viewerStreamModeId!=="undefined")viewerStreamModeId=null;
  if(S.folder?.favorites&&S.favoritesDirty){
   S.favoritesDirty=false;
   return loadItems(false).catch(()=>{});
