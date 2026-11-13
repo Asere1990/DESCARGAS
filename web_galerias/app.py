@@ -239,7 +239,7 @@ def mount(app,service):
         details=await public.details(
             getattr(service,"token",""),
             os.getenv("GALERIAS_BOT_TOKENS",""),
-        ) if public else {"ready":False,"url":None}
+        ) if public else {"configured":False,"ready":False,"url":None}
         return web.json_response(details,headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
     async def public_gallery_redirect(request):
         public=getattr(service,"public_entry",None)
