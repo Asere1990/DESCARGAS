@@ -123,15 +123,16 @@ async def status(g, uid, media):
                       expected_bytes,progress_at
                FROM wg_media_priority WHERE media=$1""", row["id"])
     result = _result(g, uid, row, job)
-    if job and job["state"] == "queued":
-        # A position is factual; no predicted completion time is invented.
+    requested_at = dict(job).get("requested_at") if job else None
+    if job and job["state"] == "queued" and requested_at is not None:
+        # A position is approximate when other users have multiple requests.
         stats = await g.db().fetchrow("""
             SELECT COUNT(*) FILTER(
                      WHERE state='queued' AND requested_at<=$1)::int AS position,
                    COUNT(*) FILTER(WHERE state='queued')::int AS total
             FROM wg_media_priority
-        """, job["requested_at"])
-        if stats:
+        """, requested_at)
+        if stats and "position" in dict(stats):
             result["queue_position"] = int(stats["position"] or 0)
             result["queue_total"] = int(stats["total"] or 0)
     return result
