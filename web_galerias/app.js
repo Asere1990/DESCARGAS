@@ -1159,7 +1159,8 @@ function beginVideoPriority(expected){
   if(target===displayed){showPercent();return;}
   const from=displayed,diff=target-from;
   const frames=Math.min(28,Math.max(1,Math.ceil(diff/3)));
-  const duration=complete?750:Math.min(420,Math.max(90,diff*18));
+  const duration=complete?Math.min(750,Math.max(100,diff*18)):
+    Math.min(420,Math.max(90,diff*18));
   const delay=Math.max(16,Math.ceil(duration/frames));
   let frame=0;
   const tick=()=>{
