@@ -22,7 +22,7 @@ class R2:
 
 class Check(unittest.IsolatedAsyncioTestCase):
     def test_reads_only_small_windows(self):
-        data=(b"\\x00\\x00\\x00\\x18ftypisom"+b"mdat"+b"0"*(1024*1024)
+        data=(bytes.fromhex("000000186674797069736f6d")+b"mdat"+b"0"*(1024*1024)
               +b"moov"+b"avc1")
         obj=R2(data)
         s=N(_client=lambda:obj,bucket="private",safe_key=lambda key:key)
