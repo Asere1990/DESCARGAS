@@ -29,6 +29,7 @@ class VideoFailureTests(unittest.IsolatedAsyncioTestCase):
 
     def test_running_or_busy_queue_never_counts_as_failed(self):
         row=media("preview")
+        row["thumb_key"]=None
         priority={
             "state":"running", "next_attempt":0,
             "received_bytes":1_000_000, "expected_bytes":500_000_000,
