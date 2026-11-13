@@ -94,8 +94,9 @@ class DownloadPlusTests(unittest.IsolatedAsyncioTestCase):
     async def test_main_scheduled_cancel_blocks_new_paid_plus_after_current_access(self):
         db=N(execute=AsyncMock(),fetchval=AsyncMock(return_value=True))
         g=N(entitled=AsyncMock(return_value=True),db=lambda:db)
-        with self.assertRaisesRegex(web.HTTPForbidden,"cancelación programada"):
+        with self.assertRaises(web.HTTPForbidden) as caught:
             await download_plus.checkout(g,1234)
+        self.assertIn("cancelación programada",caught.exception.text)
         db.execute.assert_not_awaited()
         self.assertIn("cancel_at_period_end",db.fetchval.await_args.args[0])
 
