@@ -14,7 +14,7 @@ function section(start,end){
 test("the pre-rendered title never gets cleared before its existing image has loaded",()=>{
  const code=section("function applyDesign(d){","async function api(op,data={}){");
  assert.ok(code.includes('headline.querySelector?.("img[data-fast-title]")'));
- assert.ok(code.includes("if(!reusable)headline.textContent=d.title;"));
+ assert.ok(code.includes("!headline.querySelector?.(\"img\")"));
  assert.ok(code.includes("if(reusable){"));
  assert.ok(code.includes('image.src="/web-galerias/assets/header-fast"'));
  assert.ok(css.includes("#intro.intro-loading.fast-identity .intro-bottom{"));
