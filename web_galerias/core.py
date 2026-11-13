@@ -261,6 +261,13 @@ class GalleryCore:
             return await authenticate_browser(self,request)
         if len(raw)>12000:raise web.HTTPUnauthorized(text="Datos Telegram inválidos.")
         tokens=[self.s.token]
+        # The disposable public bot signs its own Telegram initData. This
+        # adds acceptance only; existing paid access and protected bots remain.
+        public_entry=getattr(self.s,"public_entry",None)
+        if public_entry:
+            public_token=public_entry.authorized_token(
+                self.s.token,os.getenv("GALERIAS_BOT_TOKENS",""))
+            if public_token:tokens.append(public_token)
         # Tokens secundarios se utilizan solo para validar firmas; nunca toman sesiones.
         for token in os.getenv("GALERIAS_BOT_TOKENS","").split(","):
             token=token.strip()
