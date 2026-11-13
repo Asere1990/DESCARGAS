@@ -1121,11 +1121,13 @@ function showViewerMedia(){
 }
 // Requests for a selected video interrupt background copies on its source.
 // Only the viewer's polling is cancelled when moving away; the backup is durable.
-let videoPriorityTimer=null,videoPriorityGeneration=0;
+let videoPriorityTimer=null,videoPriorityPercentTimer=null,videoPriorityGeneration=0;
 function stopVideoPriority(){
  ++videoPriorityGeneration;
  if(videoPriorityTimer)clearTimeout(videoPriorityTimer);
+ if(videoPriorityPercentTimer)clearTimeout(videoPriorityPercentTimer);
  videoPriorityTimer=null;
+ videoPriorityPercentTimer=null;
  const indicator=$("viewer-priority-status");
  if(indicator)indicator.classList.add("hidden");
 }
@@ -1143,7 +1145,39 @@ function beginVideoPriority(expected){
    !$("viewer").classList.contains("hidden")&&
    S.items[S.viewer]?.id===expected.id;
  let requested=false;
- priorityText("Cargando video · 0 %");
+ let displayed=0;
+ const showPercent=()=>priorityText("Cargando video · "+displayed+" %");
+ // Never advance above the last REAL percentage reported by Telegram.
+ // For a very fast transfer, smoothly display the already-confirmed jump
+ // to 100 without slowing playback or claiming an estimated byte count.
+ const advance=(value,complete=false)=>{
+  const reported=Number(value);
+  const target=Math.max(displayed,Math.min(complete?100:99,
+    Number.isFinite(reported)?Math.max(0,Math.floor(reported)):0));
+  if(videoPriorityPercentTimer)clearTimeout(videoPriorityPercentTimer);
+  videoPriorityPercentTimer=null;
+  if(target===displayed){showPercent();return;}
+  const from=displayed,diff=target-from;
+  const frames=Math.min(28,Math.max(1,Math.ceil(diff/3)));
+  const duration=complete?Math.min(750,Math.max(100,diff*18)):
+    Math.min(420,Math.max(90,diff*18));
+  const delay=Math.max(16,Math.ceil(duration/frames));
+  let frame=0;
+  const tick=()=>{
+   if(!unchanged())return;
+   frame++;
+   displayed=Math.min(target,from+Math.ceil(diff*frame/frames));
+   showPercent();
+   if(frame<frames)videoPriorityPercentTimer=setTimeout(tick,delay);
+   else if(complete)videoPriorityPercentTimer=setTimeout(()=>{
+    if(unchanged())priorityText("");
+    videoPriorityPercentTimer=null;
+   },350);
+   else videoPriorityPercentTimer=null;
+  };
+  videoPriorityPercentTimer=setTimeout(tick,delay);
+ };
+ showPercent();
  const poll=async()=>{
   if(!unchanged())return;
   try{
@@ -1157,36 +1191,36 @@ function beginVideoPriority(expected){
     expected.kind=result.kind||expected.kind;
     expected.mime=result.mime||expected.mime;
     if(result.thumb)expected.thumb=result.thumb;
-    stopVideoPriority();
+    if(videoPriorityTimer)clearTimeout(videoPriorityTimer);
+    videoPriorityTimer=null;
     showViewerMedia();
-    priorityText("Cargando video · 100 %");
-    const readyGeneration=videoPriorityGeneration;
-    setTimeout(()=>{
-     if(readyGeneration===videoPriorityGeneration)priorityText("");
-    },900);
+    advance(100,true);
     const player=$("view-video");
     if(!player.hidden){
+     // Keep fast playback: the counter's brief visual catch-up is NOT a
+     // second download or a reason to delay the ready video.
      try{player.load();player.play().catch(()=>{});}catch(_){}
     }
     return;
    }
    const state=result.priority_state||"queued";
-   // While waiting, 0% is factual: no bytes have been received yet.
-   // During transfer show ONLY the server's measured byte percentage.
-   // Never invent 1–99% or display the internal queue position.
-   const reported=Number(result.progress_percent);
-   const percent=state==="running"&&result.progress_percent!=null&&
-     Number.isFinite(reported)?
-     Math.max(0,Math.min(99,Math.floor(reported))):0;
-   priorityText("Cargando video · "+percent+" %");
-   // A large video or 250-user backlog can take longer than five minutes.
-   // Continue only while this exact viewer is open; no background polling.
-   if(state==="idle"){
-    requested=false;
+   if(state==="running"&&result.progress_percent!=null){
+    advance(result.progress_percent);
+   }else if(state==="queued"||state==="waiting"){
+    // A retry restarts at zero rather than showing stale transferred bytes.
+    if(videoPriorityPercentTimer)clearTimeout(videoPriorityPercentTimer);
+    videoPriorityPercentTimer=null;
+    displayed=0;
+    showPercent();
    }
-   // Queued viewers poll less often: 250 simultaneous users must not flood DB.
-   const interval=state==="running"?2000:state==="waiting"?9000:
-     state==="idle"?12000:8000;
+   if(state==="idle")requested=false;
+   // Poll only the few videos about to start more often. With 250 queued
+   // viewers, the others retain a low request rate.
+   const position=Number(result.queue_position);
+   const nearFront=state==="queued"&&position>0&&position<=3;
+   const interval=state==="running"?550:
+      nearFront?800:state==="waiting"?7000:
+      state==="idle"?12000:8000;
    videoPriorityTimer=setTimeout(poll,interval);
   }catch(e){
    if(!unchanged())return;
@@ -1194,7 +1228,6 @@ function beginVideoPriority(expected){
     priorityText("No se pudo priorizar este video. Inténtalo de nuevo al abrirlo.");
     return;
    }
-   // Temporary connection problems must not abandon a queued video.
    videoPriorityTimer=setTimeout(poll,10000);
   }
  };
