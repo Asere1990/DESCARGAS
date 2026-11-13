@@ -41,8 +41,8 @@ async def cancel(g,uid,confirmation):
       FROM wg_plus_checkouts c
       JOIN wg_plus_subscriptions s ON s.subscription=c.subscription
       WHERE c.uid=$1 AND c.session IS NOT NULL
-        AND s.status IN ('active','trialing') AND s.paid_until>$2
-    """,uid,now)
+        AND s.status IN ('active','trialing','past_due')
+    """,uid)
     price=os.getenv("GALERIAS_PLUS_PRICE","")
     if len(rows)>10:
         raise web.HTTPServiceUnavailable(text="Consulta con soporte para cancelar los extras.")
