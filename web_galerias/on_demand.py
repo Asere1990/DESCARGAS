@@ -231,6 +231,16 @@ async def _select_source(g, folder):
         source = g.s if uid > 0 else getattr(g.s, "datos", None)
         if source is None or (uid < 0 and not getattr(source, "ready", False)):
             continue
+        if uid < 0:
+            # DESCARGAS and DATOS can contain the same Telegram UID.
+            # Their independent DB locks would not protect each other:
+            # never open that real account through both systems at once.
+            duplicate = await g.db().fetchval("""
+                SELECT EXISTS(SELECT 1 FROM descarga_accounts
+                              WHERE uid=$1 AND session IS NOT NULL)
+            """, -uid)
+            if duplicate:
+                continue
         if reserved is not None and uid in reserved:
             continue
         if not await sync.source_free(g, uid, folder["id"]):
