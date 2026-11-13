@@ -108,6 +108,7 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_fast_intro.py -v
           python -m unittest discover -s tests -p test_web_galerias_library_identity.py -v
           python -m unittest discover -s tests -p test_web_galerias_standalone.py -v
+          python -m unittest discover -s tests -p test_web_galerias_public_bot_rotation.py -v
           python -m unittest discover -s tests -p test_web_galerias_sync.py -v
           python -m unittest discover -s tests -p test_web_galerias_priority.py -v
           python -m unittest discover -s tests -p test_web_galerias_priority_scale.py -v
