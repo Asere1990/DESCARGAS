@@ -53,6 +53,7 @@ on:
       - 'tests/test_web_galerias_resume_offers.py'
       - 'tests/test_web_galerias_download_plus.py'
       - 'tests/test_web_galerias_billing_cancel.py'
+      - 'tests/test_web_galerias_billing_risk_dedupe.py'
       - 'tests/test_web_galerias_quota_support.cjs'
       - 'tests/test_web_galerias_resume_offers.cjs'
       - 'tests/test_web_galerias_cross_app_return.cjs'
@@ -149,4 +150,5 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_resume_offers.py -v
           python -m unittest discover -s tests -p test_web_galerias_download_plus.py -v
           python -m unittest discover -s tests -p test_web_galerias_billing_cancel.py -v
+          python -m unittest discover -s tests -p test_web_galerias_billing_risk_dedupe.py -v
           python -m unittest discover -s tests -p test_web_galerias_commercial.py -v
