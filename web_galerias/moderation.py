@@ -300,8 +300,8 @@ async def operation(g, uid, op, data):
             "paid":bool(r["paid"]),"blocked":bool(r["blocked"]),
             "free_access":bool(r["is_free"]) and not r["blocked"],
             "online":bool(r["online"]) and not r["blocked"],
-            "cancel_scheduled":bool(r["cancel_scheduled"]) and bool(r["paid"]),
-            "plus_bought":bool(r["plus_bought"]),
+            "cancel_scheduled":bool(dict(r).get("cancel_scheduled")) and bool(r["paid"]),
+            "plus_bought":bool(dict(r).get("plus_bought")),
             "last_seen":r["last_seen"],
         } for r in page],
             "next":{"seen":float(page[-1]["last_seen"]),"uid":int(page[-1]["uid"])}
