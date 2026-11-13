@@ -100,6 +100,13 @@ async def tier(g,uid):
 async def checkout(g,uid):
     if not await g.entitled(uid):
         raise web.HTTPForbidden(text="Necesitas una membresía Web activa.")
+    # A canceled Web renewal must never create a new recurring add-on that
+    # could keep charging AFTER the primary membership ends.
+    scheduled=await g.db().fetchval(
+        "SELECT cancel_at_period_end FROM wg_subscriptions WHERE uid=$1",uid)
+    if scheduled:
+        raise web.HTTPForbidden(
+            text="Tu membresía ya tiene cancelación programada; no se puede renovar el extra.")
     if not configured():
         raise web.HTTPServiceUnavailable(text="El extra ilimitado todavía no está preparado.")
     details=await tier(g,uid)
