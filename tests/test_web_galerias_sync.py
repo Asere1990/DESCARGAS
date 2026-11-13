@@ -50,7 +50,7 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.channel_id,771234567)
         client.iter_dialogs.assert_not_called()
 
-    async def test_remove_folder_never_starts_telegram_session(self):
+    async def test_missing_folder_never_starts_telegram_session(self):
         g,db=gallery()
         row={"id":7,"peer":-100998877,"source_uid":None}
         with patch("web_galerias.sync.folder_active",new=AsyncMock(return_value=False)):
@@ -58,7 +58,33 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
                 await sync_folder(g,row)
                 chooser.assert_not_awaited()
 
-    async def test_pause_guard_stops_if_folder_removed(self):
+    async def test_hidden_folder_is_eligible_for_continued_sync(self):
+        g,db=gallery()
+        db.fetchval.return_value=True
+        self.assertTrue(await folder_active(g,7,123456789))
+        sql,*args=db.fetchval.await_args.args
+        self.assertIn("preferred_uid=$2",sql)
+        self.assertNotIn("active",sql.lower())
+        self.assertEqual(args,[7,123456789])
+
+    def test_hidden_folder_is_selected_by_all_background_phases(self):
+        from pathlib import Path
+        text=(Path(__file__).resolve().parents[1]/"web_galerias"/"sync.py").read_text()
+        self.assertIn("SELECT * FROM wg_folders",text)
+        self.assertNotIn("SELECT * FROM wg_folders WHERE active",text)
+        self.assertIn("ORDER BY active DESC,last_check ASC,id ASC",text)
+        self.assertIn("WHERE f.source_uid IS NOT NULL",text)
+        self.assertNotIn("WHERE f.active AND f.source_uid",text)
+        self.assertIn("WHERE complete AND NOT reply_scan_complete",text)
+        self.assertNotIn("WHERE id=$1 AND active",text)
+
+    def test_private_folders_remain_invisible_in_customer_catalog(self):
+        from pathlib import Path
+        text=(Path(__file__).resolve().parents[1]/"web_galerias"/"core.py").read_text()
+        self.assertIn("WHERE f.id=$1 AND f.active AND",text)
+        self.assertIn("WHERE f.active AND",text)
+
+    async def test_pause_guard_stops_if_folder_record_is_missing(self):
         g,db=gallery()
         db.fetchval=AsyncMock(return_value=False)
         with patch.dict(os.environ,{"GALERIAS_SYNC_ENABLED":"1"}):
@@ -157,13 +183,15 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([x[1] for x in calls if x[0]=="part"],[8*1024*1024,1*1024*1024])
         self.assertEqual(len(calls[-1][1]),2)
 
-    async def test_admin_hide_pauses_without_r2_deletion(self):
+    async def test_admin_hide_only_changes_visibility_without_r2_deletion(self):
         g,db=gallery()
         with patch("web_galerias.admin.is_admin",return_value=True):
             result=await admin_op(g,7539025033,"admin-folder-remove",{"folder":7})
         self.assertTrue(result["ok"])
         sql=db.execute.await_args.args[0]
         self.assertIn("active=FALSE",sql)
+        self.assertNotIn("scan_cursor",sql)
+        self.assertNotIn("high_water",sql)
         self.assertNotIn("DELETE FROM wg_media",sql)
         self.assertFalse(hasattr(g.storage,"delete"))
 

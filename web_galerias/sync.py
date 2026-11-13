@@ -1,4 +1,4 @@
-"""Copia masiva progresiva, con pausa/reanudación por carpeta e idempotencia en R2.
+"""Copia masiva progresiva incluso para carpetas ocultas e idempotencia en R2.
 
 Solo CLOUDFLARE con GALERIAS_SYNC_ENABLED=1 ejecuta este motor.
 Carriles por cuenta con concurrencia limitada y lock compartido con DESCARGAS.
@@ -55,9 +55,9 @@ def media_kind(m):
 
 
 async def folder_active(g,folder,uid=None):
-    # El administrador puede cambiar la cuenta sin permitir que una sesión
-    # antigua continúe escribiendo cursores del historial incorrecto.
-    return bool(await g.db().fetchval("""SELECT active AND
+    # active solo controla la visibilidad a los clientes. Mantener la copia
+    # de una carpeta oculta, sin permitir que una cuenta antigua altere cursores.
+    return bool(await g.db().fetchval("""SELECT
        ($2::bigint IS NULL OR preferred_uid IS NULL OR preferred_uid=$2)
        FROM wg_folders WHERE id=$1""",folder,uid))
 
@@ -230,7 +230,7 @@ async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
     if not rows:
         if not source["complete"]:
             await g.db().execute(
-              "UPDATE wg_folders SET complete=TRUE WHERE id=$1 AND active",
+              "UPDATE wg_folders SET complete=TRUE WHERE id=$1",
                folder)
         return 0
     # Preserve only explicit replies, associating every album sibling even
@@ -260,12 +260,12 @@ async def catalog_batch(g,folder,client,entity,source,limit=90,uid=None):
     if not source["complete"]:
         await g.db().execute("""UPDATE wg_folders SET scan_cursor=$2,
           high_water=GREATEST(high_water,$3),scan_count=scan_count+$4
-          WHERE id=$1 AND active""",folder,min(x.id for x in rows),
+          WHERE id=$1""",folder,min(x.id for x in rows),
           max(x.id for x in rows),len(rows))
     else:
         await g.db().execute("""UPDATE wg_folders SET
           high_water=GREATEST(high_water,$2),
-          scan_count=scan_count+$3 WHERE id=$1 AND active""",
+          scan_count=scan_count+$3 WHERE id=$1""",
           folder,max(x.id for x in rows),len(rows))
     return len(rows)
 
@@ -279,7 +279,7 @@ async def reply_backfill_batch(g,folder,client,entity,guard,limit=70):
     db=g.db()
     state=await db.fetchrow("""
       SELECT reply_scan_cursor,reply_scan_complete,complete FROM wg_folders
-      WHERE id=$1 AND active
+      WHERE id=$1
     """,folder)
     if not state or state["reply_scan_complete"] or not state["complete"]:
         return 0
@@ -292,7 +292,7 @@ async def reply_backfill_batch(g,folder,client,entity,guard,limit=70):
     await guard()
     if not rows:
         await db.execute("""UPDATE wg_folders SET reply_scan_complete=TRUE
-          WHERE id=$1 AND active""",folder)
+          WHERE id=$1""",folder)
         return 0
     touched=set()
     for m in rows:
@@ -303,7 +303,7 @@ async def reply_backfill_batch(g,folder,client,entity,guard,limit=70):
         await media_text.enqueue(g,folder,touched)
     await guard()
     await db.execute("""
-      UPDATE wg_folders SET reply_scan_cursor=$2 WHERE id=$1 AND active
+      UPDATE wg_folders SET reply_scan_cursor=$2 WHERE id=$1
     """,folder,min(int(x.id) for x in rows))
     return len(rows)
 
@@ -424,7 +424,7 @@ async def refresh_telegram_counts(g,folder,client,entity,guard):
     # Reserva atómica para no consultar la misma carpeta en cada ronda.
     claim=await db.fetchval("""UPDATE wg_folders
        SET telegram_counts_next_attempt=$2
-       WHERE id=$1 AND active AND telegram_counts_next_attempt<=$3
+       WHERE id=$1 AND telegram_counts_next_attempt<=$3
        RETURNING id""",folder,now+300,now)
     if not claim:return False
     try:
@@ -448,7 +448,7 @@ async def refresh_telegram_counts(g,folder,client,entity,guard):
            telegram_photos_total=$2,telegram_videos_total=$3,
            telegram_counts_at=$4,telegram_counts_next_attempt=$5,
            telegram_counts_error=''
-           WHERE id=$1 AND active""",folder,photo_total,video_total,
+           WHERE id=$1""",folder,photo_total,video_total,
            refreshed,refreshed+ttl+(folder%180))
         return True
     except (PauseRequested,asyncio.CancelledError):
@@ -483,7 +483,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
         reason=("Cuenta de origen fijada no disponible: revisar conexión o espera"
                 if source.get("preferred_uid") else "Buscando otra cuenta disponible")
         await g.db().execute("""UPDATE wg_folders SET error=$2
-          WHERE id=$1 AND active""",folder,reason)
+          WHERE id=$1""",folder,reason)
         return
     if not await source_free(g,uid,folder):return
     # A source-specific service owns the correct encrypted session, API ID,
@@ -508,7 +508,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
                 return
             await mark_discovery(g,folder,uid,True)
             await g.db().execute("""UPDATE wg_folders SET
-              source_uid=$2,last_check=$3,error='' WHERE id=$1 AND active""",
+              source_uid=$2,last_check=$3,error='' WHERE id=$1""",
               folder,uid,time.time())
             if phase=="counts":
                 await refresh_telegram_counts(g,folder,client,entity,guard)
@@ -586,7 +586,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
         await mark_discovery(g,folder,uid,True,delay=per_account_cooldown)
         await g.db().execute("""UPDATE wg_folders
           SET error='Telegram pidió esperar; respaldo reprogramado sin afectar cuentas'
-          WHERE id=$1 AND active""",folder)
+          WHERE id=$1""",folder)
         log.warning("Gallery cooldown after rate limit: wait=%ds account_cooldown=%ds",
                     seconds,per_account_cooldown)
     except ValueError as exc:
@@ -606,7 +606,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
     except Exception as exc:
         log.warning("Gallery retry (%s)",type(exc).__name__)
         await g.db().execute("""UPDATE wg_folders SET error=$2
-          WHERE id=$1 AND active""",folder,type(exc).__name__)
+          WHERE id=$1""",folder,type(exc).__name__)
 
 
 async def catalog(g,folder,m):
@@ -873,8 +873,8 @@ async def run(g):
                         await asyncio.sleep(10)
                         continue
                     await checkpoint(g,phase="esperando_carpetas")
-                    folders=await db.fetch("""SELECT * FROM wg_folders WHERE active
-                      ORDER BY last_check ASC,id ASC""")
+                    folders=await db.fetch("""SELECT * FROM wg_folders
+                      ORDER BY active DESC,last_check ASC,id ASC""")
                     if not folders:
                         await asyncio.sleep(5)
                         continue
@@ -887,7 +887,7 @@ async def run(g):
                     # sesiones fuera de los carriles protegidos existentes.
                     due=await db.fetch("""SELECT f.* FROM wg_folders f
                       LEFT JOIN wg_account_cooldown c ON c.uid=f.source_uid
-                      WHERE f.active AND f.source_uid IS NOT NULL
+                      WHERE f.source_uid IS NOT NULL
                         AND f.telegram_counts_next_attempt<=$1
                         AND COALESCE(c.available_at,0)<=$1
                       ORDER BY f.telegram_counts_at ASC,f.id ASC LIMIT 3""",time.time())
@@ -915,7 +915,7 @@ async def run(g):
                         try:
                             historical=await db.fetch("""
                               SELECT * FROM wg_folders
-                              WHERE active AND complete AND NOT reply_scan_complete
+                              WHERE complete AND NOT reply_scan_complete
                               ORDER BY last_check ASC,id ASC LIMIT 1
                             """)
                             if historical:

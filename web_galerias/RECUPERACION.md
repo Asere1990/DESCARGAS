@@ -35,7 +35,7 @@
 - Configurar backups/snapshots periódicos de PostgreSQL (incluyendo tablas wg_* y assets).
 - Guardar y probar restauraciones de claves Render, bucket privado R2 y snapshots.
 - Verificar la replicación externa del catálogo antes de prometer recuperación total.
-- No borrar objetos R2 cuando se oculta una carpeta; ocultar la carpeta solo cambia wg_folders.active.
+- Ocultar una carpeta solo cambia wg_folders.active (visibilidad para clientes). No borra objetos R2 ni detiene la catalogación y el respaldo mientras GALERIAS_SYNC_ENABLED=1 y la cuenta de Telegram esté disponible.
 - En una cuenta con muchos usuarios no prometer cero impacto de Telegram: mantener ritmo bajo, locks y suspensión de copia si la cuenta está ocupada.
 
 ## Fase privada
