@@ -117,25 +117,30 @@ async def stage_subscription(connection,obj,event_time):
     return sub_id
 
 
-async def stage_paid_invoice(connection,obj):
+async def stage_paid_invoice(connection,obj,event_time=None):
     sub_id=subscription_id_from_invoice(obj)
     if not sub_id:return None
     price=os.environ["GALERIAS_STRIPE_PRICE_ID"]
     until=invoice_paid_period(obj,price)
     if until<=time.time():return None
     customer=str(obj.get("customer") or "")
+    paid_at=int(event_time or obj.get("status_transitions",{}).get("paid_at")
+                or obj.get("created") or 0)
     await connection.execute("""INSERT INTO wg_link_subscriptions(
-         subscription,customer,price_id,status,period_end,paid_until,changed)
-       VALUES($1,$2,$3,'active',$4,$4,0)
+         subscription,customer,price_id,status,period_end,paid_until,changed,
+         last_invoice_paid_at)
+       VALUES($1,$2,$3,'active',$4,$4,0,$5)
        ON CONFLICT(subscription) DO UPDATE SET
         paid_until=GREATEST(wg_link_subscriptions.paid_until,$4),
         period_end=GREATEST(wg_link_subscriptions.period_end,$4),
+        last_invoice_paid_at=GREATEST(
+             wg_link_subscriptions.last_invoice_paid_at,EXCLUDED.last_invoice_paid_at),
         customer=CASE WHEN wg_link_subscriptions.customer=''
           THEN excluded.customer ELSE wg_link_subscriptions.customer END,
         price_id=$3,
         status=CASE WHEN wg_link_subscriptions.status IN ('canceled','unpaid')
           THEN wg_link_subscriptions.status ELSE 'active' END""",
-        sub_id,customer,price,until)
+        sub_id,customer,price,until,paid_at)
     return sub_id
 
 
@@ -338,7 +343,8 @@ async def webhook(g,request):
                         "checkout.session.async_payment_succeeded"):
                 affected=await bind_paid_checkout(conn,obj)
             elif kind=="invoice.paid":
-                affected=await stage_paid_invoice(conn,obj)
+                affected=await stage_paid_invoice(
+                    conn,obj,int(event.get("created") or 0))
             elif kind in ("customer.subscription.created",
                           "customer.subscription.updated",
                           "customer.subscription.deleted"):
