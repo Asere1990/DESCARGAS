@@ -35,7 +35,7 @@ class IntegrityTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_one_kib_mp4_without_moov_is_never_published(self):
         store,r2=self.store()
         async def chunks():
-            yield b"\\x00\\x00\\x00\\x18ftypmp42"+b"mdat"+b"x"*1008
+            yield bytes.fromhex("00000018667479706d703432")+b"mdat"+b"x"*1008
         with self.assertRaisesRegex(ValueError,"metadatos"):
             await store.upload_stream(chunks(),"folders/7/5/original.mp4","video/mp4")
         self.assertIn("abort",r2.calls)
@@ -77,9 +77,9 @@ class IntegrityTests(unittest.IsolatedAsyncioTestCase):
               "sample":{"signature":"mp4","brand":"mp42",
                         "moov_first":False,"moov_last":False,
                         "mdat_first":True,"mdat_last":True,"codecs_sampled":[]}}
-        with patch.object(video_diagnostic.asyncio,"sleep",new=AsyncMock()), \\
-             patch.object(video_diagnostic,"_head_and_windows",return_value=info), \\
-             patch("web_galerias.on_demand.active",return_value=True):
+        with (patch.object(video_diagnostic.asyncio,"sleep",new=AsyncMock()),
+              patch.object(video_diagnostic,"_head_and_windows",return_value=info),
+              patch("web_galerias.on_demand.active",return_value=True)):
             await video_diagnostic.run(g)
         statements=[call.args[0] for call in db.execute.await_args_list]
         self.assertEqual(len(statements),2)
