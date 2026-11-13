@@ -81,6 +81,7 @@ def _result(g, uid, row, priority=None):
     available = row["state"] == "ready" and bool(row["file_key"])
     result = {
         "media": mid, "kind": row["kind"], "mime": row["mime"],
+        "size": int(row.get("size") or 0),
         "available": bool(available),
         "view": (
             f"/web-galerias/media/{mid}/view?t="
@@ -97,6 +98,7 @@ def _result(g, uid, row, priority=None):
         "expected_bytes": 0,
         "queue_position": None,
         "queue_total": None,
+        "priority_failed": False,
     }
     if not available and priority:
         priority = dict(priority)
@@ -108,6 +110,11 @@ def _result(g, uid, row, priority=None):
         expected = max(0, int(priority.get("expected_bytes") or 0))
         result["received_bytes"] = received
         result["expected_bytes"] = expected
+        # Only a proven incomplete original is a playback failure. Busy
+        # accounts, ordinary buffering and queues never hide the play icon.
+        result["priority_failed"] = bool(
+            priority.get("last_error") == "invalid_or_incomplete_original"
+            and int(priority.get("attempts") or 0) >= 1)
         if priority["state"] == "running" and expected > 0:
             # 100% is reserved for the verified, published R2 object.
             result["progress_percent"] = min(99, received * 100 // expected)
@@ -120,7 +127,7 @@ async def status(g, uid, media):
     if row["state"] != "ready" and active(g):
         job = await g.db().fetchrow(
             """SELECT state,next_attempt,requested_at,received_bytes,
-                      expected_bytes,progress_at
+                      expected_bytes,progress_at,attempts,last_error
                FROM wg_media_priority WHERE media=$1""", row["id"])
     result = _result(g, uid, row, job)
     requested_at = dict(job).get("requested_at") if job else None
