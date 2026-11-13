@@ -259,7 +259,16 @@ async def operation(g, uid, op, data):
                  COALESCE(s.state IN ('active','trialing') AND s.paid_until>$1,FALSE) AS paid,
                  COALESCE(b.blocked,FALSE) AS blocked,
                  COALESCE(p.updated>$2 AND p.view IN ('library','album','viewer'),FALSE) AS online,
-                 COALESCE(gr.enabled,u.uid=ANY($7::bigint[])) AS is_free
+                 COALESCE(gr.enabled,u.uid=ANY($7::bigint[])) AS is_free,
+                 COALESCE(s.cancel_at_period_end,FALSE) AS cancel_scheduled,
+                 EXISTS(
+                   SELECT 1 FROM wg_plus_checkouts xc
+                   JOIN wg_plus_subscriptions xs ON xs.subscription=xc.subscription
+                   WHERE xc.uid=u.uid AND xc.session IS NOT NULL
+                     AND xs.price_id=$10
+                     AND xs.status IN ('active','trialing')
+                     AND xs.paid_until>$1
+                 ) AS plus_bought
           FROM wg_users u
           LEFT JOIN wg_subscriptions s ON s.uid=u.uid
           LEFT JOIN wg_access_blocks b ON b.uid=u.uid
@@ -283,13 +292,16 @@ async def operation(g, uid, op, data):
             )
             AND ($8::int=0 OR u.last_seen>=$1-($8::int*3600))
           ORDER BY u.last_seen DESC,u.uid DESC LIMIT 41
-        """,now,now-75,query,last_seen,after_uid,scope,free_ids,hours,admins)
+        """,now,now-75,query,last_seen,after_uid,scope,free_ids,hours,admins,
+            os.getenv("GALERIAS_PLUS_PRICE",""))
         page=rows[:40]
         return {"users":[{
             "telegram_id":int(r["uid"]),"name":str(r["name"] or "Usuario"),
             "paid":bool(r["paid"]),"blocked":bool(r["blocked"]),
             "free_access":bool(r["is_free"]) and not r["blocked"],
             "online":bool(r["online"]) and not r["blocked"],
+            "cancel_scheduled":bool(r["cancel_scheduled"]) and bool(r["paid"]),
+            "plus_bought":bool(r["plus_bought"]),
             "last_seen":r["last_seen"],
         } for r in page],
             "next":{"seen":float(page[-1]["last_seen"]),"uid":int(page[-1]["uid"])}
@@ -300,11 +312,19 @@ async def operation(g, uid, op, data):
         row=await db.fetchrow("""
             SELECT u.uid,u.name,u.first_seen,u.last_seen,
               s.state,s.paid_until,COALESCE(b.blocked,FALSE) AS blocked,
-              gr.enabled AS free_override
+              gr.enabled AS free_override,
+              COALESCE(s.cancel_at_period_end,FALSE) AS cancel_scheduled,
+              EXISTS(
+                SELECT 1 FROM wg_plus_checkouts xc
+                JOIN wg_plus_subscriptions xs ON xs.subscription=xc.subscription
+                WHERE xc.uid=u.uid AND xc.session IS NOT NULL
+                AND xs.price_id=$2 AND xs.status IN ('active','trialing')
+                AND xs.paid_until>$3
+              ) AS plus_bought
             FROM wg_users u LEFT JOIN wg_subscriptions s ON s.uid=u.uid
             LEFT JOIN wg_access_blocks b ON b.uid=u.uid
             LEFT JOIN wg_free_access gr ON gr.uid=u.uid
-            WHERE u.uid=$1""",target)
+            WHERE u.uid=$1""",target,os.getenv("GALERIAS_PLUS_PRICE",""),time.time())
         if not row:raise web.HTTPNotFound(text="Usuario no registrado.")
         override=row["free_override"]
         return {**dict(row),"telegram_id":target,
