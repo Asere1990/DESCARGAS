@@ -49,7 +49,10 @@ HEADERS={
 
 def intro_page_headers(source):
     """Allow precisely the trusted first-paint button color; never unsafe-inline."""
-    match=re.search(r'<html lang="es" style="(--button:#[0-9a-fA-F]{6})"><head>',source)
+    # A strict allowlisted set of current public colors; never admit arbitrary
+    # operator CSS or weaken the policy with unsafe-inline.
+    colors=r"--button:#[0-9a-fA-F]{6};--accent:#[0-9a-fA-F]{6};--bg:#[0-9a-fA-F]{6};--text:#[0-9a-fA-F]{6}"
+    match=re.search(r'<html lang="es" style="('+colors+r')"><head>',source)
     if not match:return HEADERS
     digest=base64.b64encode(hashlib.sha256(match.group(1).encode("ascii")).digest()).decode("ascii")
     headers=dict(HEADERS)
