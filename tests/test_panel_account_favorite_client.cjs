@@ -38,7 +38,7 @@ test("star is a separate golden control beside each account, not inside its open
   el:node,avatar:name=>node("div",name),accountCards:cards,
   profileObserver:{observe(){}},
   updateAccountCard(){},verifyAccount(){},selectAccount(){},notice(){},
-  toggleAccountFavorite(){},
+  toggleAccountFavorite(){},epoch:0,
  };
  vm.createContext(context);
  vm.runInContext(block("function createAccountCard(","// Short-lived, administrator-only"),context);
