@@ -174,6 +174,8 @@ class GalleryCore:
         self.task=None
         self.sync_task=None
         self.priority_task=None
+        # Set only after this CLOUDFLARE instance owns the priority lock.
+        self.priority_leader_ready=asyncio.Event()
         self.intro_poster_task=None
         self.customer_bridge_task=None
         self.moderation_task=None
