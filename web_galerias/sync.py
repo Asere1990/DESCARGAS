@@ -683,8 +683,12 @@ async def backup_one(g,folder,item,message,client,guard,progress=None):
     document=getattr(message,"document",None)
     telegram_size=max(0,int(getattr(document,"size",0) or
                             getattr(getattr(message,"file",None),"size",0) or 0))
+    if kind=="video" and not telegram_size:
+        # The DB may contain a stale 1-KiB value from a former bad backup.
+        # Never treat that as authoritative or publish an unverified video.
+        raise ValueError("No se pudo verificar el tamaño real del video en Telegram.")
     original_valid=original_size is not None and original_size>0 and (
-        (original_size==telegram_size) if kind=="video" and telegram_size
+        original_size==telegram_size if kind=="video"
         else (known_size==0 or original_size==known_size))
     if (kind=="video" and telegram_size and original_size is not None
             and original_size!=telegram_size):
@@ -727,9 +731,7 @@ async def backup_one(g,folder,item,message,client,guard,progress=None):
             source=document or getattr(message,"media",None)
             parts=client.iter_download(source,request_size=512*1024,
                                        file_size=telegram_size or None)
-            kwargs={"check":guard}
-            if telegram_size:
-                kwargs["expected_size"]=telegram_size
+            kwargs={"check":guard,"expected_size":telegram_size}
             if progress is not None:
                 kwargs["progress"]=progress
             original_size=await g.storage.upload_stream(parts,key,mime,**kwargs)
