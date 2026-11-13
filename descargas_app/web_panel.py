@@ -438,11 +438,14 @@ class TelegramPanel:
                 return web.json_response(result,headers=HEADERS)
             if op=='favorites' and request.method=='GET':
                 return web.json_response(await self.favorites.listing(actor),headers=HEADERS)
-            if post and op in ('favorite-toggle','favorite-remove'):
+            if post and op in ('favorite-toggle','favorite-remove',
+                               'favorite-account-toggle'):
                 data=await request.json()
                 if not isinstance(data,dict):raise ValueError('Favorito no válido.')
                 if op=='favorite-toggle':
                     result=await self.favorites.toggle(actor,data)
+                elif op=='favorite-account-toggle':
+                    result=await self.favorites.toggle_account(actor,data)
                 else:
                     result=await self.favorites.remove(actor,
                         integer(data.get('account')),int(data.get('source')))
