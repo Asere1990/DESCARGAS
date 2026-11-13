@@ -6,6 +6,7 @@ Remove this diagnostic after the recorded cause is identified.
 """
 import asyncio
 import logging
+import time
 
 log=logging.getLogger("web-galerias-video-diagnostic")
 SAMPLE=256*1024
@@ -89,6 +90,15 @@ async def run(g):
                         WHERE id=$1 AND state='ready'
                           AND kind='video' AND size=1024
                     """,row["id"])
+                    # Repairs use the same bounded, durable priority queue
+                    # as a user tap. A synthetic maintenance requester never
+                    # consumes anyone's download quota or opens another bot.
+                    from . import on_demand
+                    if on_demand.active(g):
+                        await g.db().execute("""
+                            INSERT INTO wg_media_priority(media,requester,requested_at)
+                            VALUES($1,0,$2) ON CONFLICT(media) DO NOTHING
+                        """,row["id"],time.time())
                     log.warning("Video original invalid; requeued id=%s",row["id"])
             except Exception as exc:
                 log.warning("Video inspection id=%s unavailable (%s)",
