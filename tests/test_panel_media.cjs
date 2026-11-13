@@ -49,3 +49,31 @@ test('view in chat requests the exact current message in chat context, even from
  const state=setup();state.context.openMedia(state.context.messages.get(2));await state.$('media-to-chat').onclick();
  assert.deepEqual([...state.context.jump],[2,true]);assert.equal(state.context.modal,false);assert.equal(state.$('message-search').hidden,true);
 });
+
+test('holding an open image shows the same message options without changing pages',()=>{
+ const s=setup();let scheduled=null;const opened=[];
+ s.context.setTimeout=fn=>{scheduled=fn;return 1;};
+ s.context.clearTimeout=()=>{scheduled=null;};
+ s.context.messageOptions=m=>opened.push(m.id);
+ s.context.openMedia(s.context.messages.get(3));
+ const area=s.$('media-content');
+ area.listeners.pointerdown({button:0,pointerType:'touch',clientX:70,clientY:80});
+ assert.equal(typeof scheduled,'function');
+ scheduled();
+ assert.deepEqual(opened,[3]);
+ assert.equal(s.$('media-dialog').open,false);
+});
+test('viewer scrolling cancels the hold and ordinary swipe remains available',()=>{
+ const s=setup();let scheduled=null;const opened=[];
+ s.context.setTimeout=fn=>{scheduled=fn;return 1;};
+ s.context.clearTimeout=()=>{scheduled=null;};
+ s.context.messageOptions=m=>opened.push(m.id);
+ s.context.openMedia(s.context.messages.get(3));
+ const area=s.$('media-content');
+ area.listeners.pointerdown({button:0,pointerType:'touch',clientX:100,clientY:100});
+ area.listeners.pointermove({clientX:100,clientY:135});
+ assert.equal(scheduled,null);
+ s.swipe(-100);
+ assert.equal(s.$('media-name').textContent,'2.jpg');
+ assert.deepEqual(opened,[]);
+});
