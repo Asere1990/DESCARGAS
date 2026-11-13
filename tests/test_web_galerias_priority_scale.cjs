@@ -62,6 +62,7 @@ async function fire(v,predicate){
 }
 async function flushPercentageTicks(v,limit=80){
  for(let count=0;count<limit;count++){
+  if(v.indicator.textContent==="Cargando video · 100 %")return;
   if(!v.timers.some(t=>t.active&&t.ms<500))return;
   await fire(v,t=>t.ms<500);
  }
