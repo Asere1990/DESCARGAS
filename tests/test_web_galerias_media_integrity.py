@@ -68,6 +68,21 @@ class IntegrityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("state='ready'",db.execute.await_args.args[0])
         self.assertEqual(db.execute.await_args.args[-1],8192)
 
+    async def test_missing_telegram_size_is_not_replaced_by_old_1kb_database_value(self):
+        db=N(execute=AsyncMock())
+        storage=N(object_size=AsyncMock(side_effect=[1024,100]),
+                  upload_stream=AsyncMock())
+        g=N(storage=storage,db=lambda:db)
+        # A metadata-less message cannot certify how much media was fetched.
+        message=N(id=5,document=None,media=N(),file=None)
+        client=N(iter_download=MagicMock(),download_media=AsyncMock())
+        item={"kind":"video","mime":"video/mp4","size":1024,"message":5}
+        with self.assertRaisesRegex(ValueError,"tamaño real"):
+            await backup_one(g,7,item,message,client,AsyncMock())
+        client.iter_download.assert_not_called()
+        storage.upload_stream.assert_not_awaited()
+        db.execute.assert_not_awaited()
+
     async def test_only_two_proven_invalid_mp4_are_requeued_without_r2_delete(self):
         rows=[{"id":132224,"kind":"video","mime":"video/mp4",
                "size":1024,"state":"ready","file_key":"folders/7/5/original.mp4"}]
