@@ -18,6 +18,30 @@ class TestPublicGalleryBot(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry.authorized_token(TOKEN), "")
         self.assertEqual(entry.authorized_token("another", TOKEN), "")
 
+    async def test_public_bot_signature_uses_original_telegram_verifier(self):
+        """Only a real, signed Telegram user may access paid galleries."""
+        import os
+        from types import SimpleNamespace
+        from descargas_app import security
+        from web_galerias.core import GalleryCore
+
+        protected = "98765:" + ("z" * 35)
+        gallery = SimpleNamespace(s=SimpleNamespace(
+            token=protected, public_entry=PublicGalleryEntry(TOKEN)))
+        request = SimpleNamespace(headers={"X-Telegram-Init-Data": "signed"})
+        attempted = []
+
+        def verify(raw, token):
+            attempted.append(token)
+            if token == TOKEN and raw == "signed":
+                return 7536216348
+            raise ValueError("invalid for this bot")
+
+        with patch.dict(os.environ, {"GALERIAS_BOT_TOKENS": ""}):
+            with patch.object(security, "validate_init_data", side_effect=verify):
+                self.assertEqual(await GalleryCore.auth(gallery, request), 7536216348)
+        self.assertEqual(attempted, [protected, TOKEN])
+
     async def test_requires_botfather_main_miniapp(self):
         class Response:
             async def __aenter__(self): return self
