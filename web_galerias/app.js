@@ -906,15 +906,43 @@ function onMediaTileClick(item,index,event){
  },275)};
 }
 
+// Only a confirmed failed playback temporarily changes the tile to a photo.
+// A size threshold lengthens the retry window; size alone never marks failure.
+// Playback and source accounts stay on their existing, bounded work lanes.
+const failedVideoUntil=new Map();
+function videoTemporarilyFailed(item){
+ const deadline=failedVideoUntil.get(item?.id)||0;
+ if(deadline&&Date.now()<deadline)return true;
+ if(deadline)failedVideoUntil.delete(item.id);
+ return false;
+}
+function markVideoTemporarilyFailed(item){
+ if(!item||videoTemporarilyFailed(item))return;
+ const large=Number(item.size||0)>=100*1024*1024;
+ const holdMs=large?180000:90000;
+ const deadline=Date.now()+holdMs;
+ failedVideoUntil.set(item.id,deadline);
+ // This authenticated report uses the SAME priority queue, only if the
+ // server verifies R2 corruption. No new Telegram connections are opened.
+ void api("media-playback-failed",{media:item.id}).catch(()=>{});
+ renderItems();
+ if(S.items[S.viewer]?.id===item.id)showViewerMedia();
+ setTimeout(()=>{
+  if(failedVideoUntil.get(item.id)!==deadline)return;
+  failedVideoUntil.delete(item.id);
+  // A temporary client failure can recover in minutes. It is not a ban.
+  renderItems();
+ },holdMs);
+}
 function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
   const b=document.createElement("button");b.className="media-tile"+(S.selected.has(m.id)?" selected":"");
   b.type="button";b.dataset.mediaId=String(m.id);b.draggable=!!window.matchMedia?.("(pointer:fine)")?.matches;
-  b.setAttribute("aria-label",m.kind==="video"?"Abrir video":"Abrir foto");
+  b.setAttribute("aria-label",m.kind==="video"&&!videoTemporarilyFailed(m)?"Abrir video":"Abrir foto");
   if(m.thumb){const img=document.createElement("img");img.src=m.thumb;img.loading="lazy";img.decoding="async";img.alt="";
    img.onerror=()=>{img.remove();fallback(b,m);};b.append(img);}else fallback(b,m);
-  if(m.kind==="video"){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
+  if(m.kind==="video"&&!videoTemporarilyFailed(m)){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
   if(m.favorite){
    const heart=document.createElement("span");heart.className="favorite-mark";
    heart.textContent="♥";heart.setAttribute("aria-hidden","true");b.append(heart);
@@ -1130,8 +1158,10 @@ function prepareViewerPlayback(m){
   if(viewerPlaybackTimer)clearTimeout(viewerPlaybackTimer);
   viewerPlaybackTimer=null;
  };
- const cannotPlay=()=>priorityText(
-   "No se pudo reproducir este video. Puede ser incompatible con el reproductor; prueba a guardarlo.");
+ const cannotPlay=()=>{
+  priorityText("Video en preparación. Se comprobará de nuevo automáticamente.");
+  markVideoTemporarilyFailed(m);
+ };
  const fallback=()=>{
   cancel();
   if(!active())return;
@@ -1152,10 +1182,10 @@ function prepareViewerPlayback(m){
   const at=Number(player.currentTime)||0;
   viewerPlaybackTimer=setTimeout(()=>{
    if(!active()||player.paused)return;
-   // Ignore a short buffering pause when real frames are advancing.
+   // Ignore buffering while a large video makes slow progress.
    if((Number(player.currentTime)||0)>at+0.15)return;
    fallback();
-  },10000);
+  },Number(m.size||0)>=100*1024*1024?30000:12000);
  };
  player.onplay=schedule;
  player.onplaying=schedule;
@@ -1178,20 +1208,23 @@ function showViewerMedia(){
   clearViewerPlayback();
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
-  if(m.kind==="video"&&full&&m.mime!=="image/gif"){
+  if(m.kind==="video"&&full&&m.mime!=="image/gif"&&!videoTemporarilyFailed(m)){
     img.hidden=true;video.hidden=false;
     video.src=viewerDirectModeId===m.id?m.view:videoStreamUrl(m.view);
     prepareViewerPlayback(m);
   }else{
     video.hidden=true;img.hidden=false;
-    if(full||m.thumb)img.src=full?m.view:m.thumb;
+    if(videoTemporarilyFailed(m)){
+      if(m.thumb)img.src=m.thumb;
+      else img.removeAttribute("src");
+    }else if(full||m.thumb)img.src=full?m.view:m.thumb;
     else img.removeAttribute("src");
     img.alt=full?"Vista completa":"Vista previa; original en preparación";
   }
   const canCover=!!(S.folder?.personal&&m.kind==="photo"&&m.thumb);
   $("viewer-set-cover").classList.toggle("hidden",!canCover);
   document.querySelector("#viewer .viewer-bottom").classList.toggle("with-cover",canCover);
-  $("viewer-download").disabled=!full;
+  $("viewer-download").disabled=!full||videoTemporarilyFailed(m);
   $("viewer-download").title=full?"Guardar archivo":"Original en preparación";
   $("viewer-admin-delete").classList.toggle("hidden",!(S.me?.admin||S.me?.admin_controls));
   $("viewer-admin-original")?.classList.toggle("hidden",
@@ -1350,7 +1383,7 @@ function openViewer(index){
  if(ADMIN_ACCOUNT_VIEW){
   void refreshAdminViewerMedia(index,S.items[index]);
  }
- beginVideoPriority(S.items[index]);
+ if(!videoTemporarilyFailed(S.items[index]))beginVideoPriority(S.items[index]);
  if(S.items[index].kind!=="video"&&!S.items[index].available)
   notice("El original se está preparando; la miniatura se muestra si está disponible.");
 }
@@ -1388,7 +1421,7 @@ function moveViewer(delta){
  stopVideoPriority();viewerDirectModeId=null;
  S.viewer=i;showViewerMedia();
  if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i]);
- beginVideoPriority(S.items[i]);
+ if(!videoTemporarilyFailed(S.items[i]))beginVideoPriority(S.items[i]);
 }
 function nativeDownload(data){
  const url=location.origin+data.url;
