@@ -52,6 +52,34 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(args[-1],[-111,-222])
         self.assertEqual(args[:4],[7,args[1],None,None])
 
+    async def test_explicit_datos_source_is_not_suppressed_by_same_uid_in_descargas(self):
+        """An admin-pinned DATOS account must be queried, not discarded.
+
+        This is the exact failure mode: a positive UID in DESCARGAS and the
+        same UID prefixed DATOS: in Web Galerías. Do not touch either session.
+        """
+        db=N(fetchrow=AsyncMock(return_value={"uid":-222}))
+        datos=N(ready=True,account_keys=AsyncMock(return_value=[-222]))
+        gallery=N(s=N(datos=datos),db=lambda:db)
+        folder={"id":7,"source_uid":-222,"preferred_uid":-222}
+        self.assertEqual(await choose_account(gallery,folder),-222)
+        sql,*args=db.fetchrow.await_args.args
+        self.assertIn("d.uid=$4 OR NOT EXISTS",sql)
+        self.assertIn("a0.uid=-d.uid AND a0.session IS NOT NULL",sql)
+        self.assertIn("($4::bigint IS NULL OR a.uid=$4)",sql)
+        self.assertEqual(args[-1],[-222])
+        self.assertEqual(args[3],-222)
+
+    async def test_unpinned_datos_duplicate_remains_deduplicated(self):
+        db=N(fetchrow=AsyncMock(return_value={"uid":222}))
+        datos=N(ready=True,account_keys=AsyncMock(return_value=[-222]))
+        gallery=N(s=N(datos=datos),db=lambda:db)
+        folder={"id":8,"source_uid":None,"preferred_uid":None}
+        self.assertEqual(await choose_account(gallery,folder),222)
+        sql,*args=db.fetchrow.await_args.args
+        self.assertIn("d.uid=$4 OR NOT EXISTS",sql)
+        self.assertIsNone(args[3])
+
     async def test_missing_datos_source_preserves_primary_selection(self):
         db=N(fetchrow=AsyncMock(return_value={"uid":123}))
         gallery=N(s=N(),db=lambda:db)

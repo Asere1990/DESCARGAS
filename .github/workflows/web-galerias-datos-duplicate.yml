@@ -1,0 +1,42 @@
+name: Web Galerías — DATOS duplicado (PostgreSQL)
+on:
+  push:
+    branches: [fix/web-galerias-explicit-datos-duplicate-20261113]
+  pull_request:
+    paths:
+      - 'web_galerias/sync.py'
+      - 'tests/test_web_galerias_datos_source.py'
+      - 'tests/test_web_galerias_datos_collision_pg.py'
+      - '.github/workflows/web-galerias-datos-duplicate.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: local_test_only
+          POSTGRES_DB: descargas_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test -d descargas_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://test:local_test_only@localhost:5432/descargas_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install -e .
+      - name: Verify Python syntax
+        run: python -m compileall -q web_galerias/sync.py tests/test_web_galerias_datos_source.py tests/test_web_galerias_datos_collision_pg.py
+      - name: Verify exact SQL behavior and previous DATOS regressions
+        run: python -m unittest tests.test_web_galerias_datos_collision_pg tests.test_web_galerias_datos_source -v
