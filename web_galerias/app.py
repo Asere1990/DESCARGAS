@@ -164,6 +164,9 @@ class Gallery(GalleryCore):
         if op=="media-playback-failed":
             from . import on_demand
             return await on_demand.report_playback_failure(self,uid,data.get("media"))
+        if op=="billing-cancel":
+            from . import billing_cancel
+            return await billing_cancel.cancel(self,uid,data.get("confirm"))
         if op=="quota-plus-checkout":return await download_plus.checkout(self,uid)
         if op=="reserve":return await downloads.reserve(self,uid,data.get("ids"))
         raise web.HTTPNotFound()
