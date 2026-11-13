@@ -73,7 +73,7 @@ class PrivateStorage:
     async def exists(self, key):
         return await self.object_size(key) is not None
 
-    async def upload_stream(self, chunks, key, mime, check=None, progress=None):
+    async def upload_stream(self, chunks, key, mime, check=None, progress=None, expected_size=None):
         """Vídeo Telegram -> R2 con lectura anticipada acotada y verificación completa.
 
         Una única descarga Telegram. Mientras R2 sube una parte, una cola
@@ -126,6 +126,12 @@ class PrivateStorage:
                         UploadId=upload_id, PartNumber=number, Body=body)
                     parts.append({"ETag": result["ETag"], "PartNumber": number})
                     number += 1
+            # A real MP4 needs its movie metadata. A 1024-byte fragment
+            # containing only ftyp/mdat must never be published as playable.
+            if mime=="video/mp4" and 0<total<=4096 and b"moov" not in buffer:
+                raise ValueError("MP4 incompleto: faltan metadatos.")
+            if expected_size is not None and int(expected_size)>0 and total!=int(expected_size):
+                raise ValueError("Video Telegram incompleto: tamaño no coincide.")
             if buffer:
                 if check is not None:
                     await check()
@@ -135,6 +141,10 @@ class PrivateStorage:
                 parts.append({"ETag": result["ETag"], "PartNumber": number})
             if not parts:
                 raise ValueError("El video llegó vacío desde Telegram.")
+            # A media object must NEVER be published from a short Telegram
+            # response. An earlier 1024-byte MP4 was incorrectly marked ready.
+            if expected_size is not None and int(expected_size)>0 and total!=int(expected_size):
+                raise ValueError("Video Telegram incompleto: tamaño no coincide.")
             if check is not None:
                 await check()
             await asyncio.to_thread(

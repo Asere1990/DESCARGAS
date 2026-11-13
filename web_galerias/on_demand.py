@@ -349,8 +349,15 @@ async def _process(g, media):
             """, uid, time.time()+cooldown)
         await _defer(g, media, "FloodWaitError", cooldown)
         log.warning("Priority video Telegram cooldown=%ds", cooldown)
-    except (sync.PauseRequested, ValueError) as exc:
+    except sync.PauseRequested as exc:
         await _defer(g, media, type(exc).__name__, 8)
+    except ValueError:
+        # Invalid/short Telegram data is not a busy account. Exponential
+        # backoff avoids repeated 1-KiB retries and unnecessary API load.
+        attempts=await g.db().fetchval(
+            "SELECT attempts FROM wg_media_priority WHERE media=$1",media)
+        await _defer(g, media, "invalid_or_incomplete_original",
+                     min(600,60*2**min(4,int(attempts or 0))))
     except Exception as exc:
         count = await g.db().fetchval(
             "SELECT attempts FROM wg_media_priority WHERE media=$1", media)
