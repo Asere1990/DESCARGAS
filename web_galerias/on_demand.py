@@ -396,6 +396,7 @@ async def run(g):
                 UPDATE wg_media_priority SET state='queued',next_attempt=0
                 WHERE state='running'
             """)
+            g.priority_leader_ready.set()
             log.warning(
                 "On-demand gallery video priority active; parallel=%d capacity=%d",
                 parallel, MAX_GLOBAL_PENDING)
@@ -479,6 +480,7 @@ async def run(g):
                     log.warning("Priority supervisor retry (%s)", type(exc).__name__)
                     await asyncio.sleep(8)
         finally:
+            g.priority_leader_ready.clear()
             for task in tuple(running.values()):
                 task.cancel()
             if running:

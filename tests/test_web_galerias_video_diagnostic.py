@@ -39,10 +39,11 @@ class Check(unittest.IsolatedAsyncioTestCase):
 
     async def test_logs_two_ids_only_and_catches_R2_errors(self):
         db=N(fetch=AsyncMock(return_value=[]))
-        g=N(db=lambda:db)
+        g=N(db=lambda:db,priority_leader_ready=N(wait=AsyncMock()))
         with patch.object(d.asyncio,"sleep",new=AsyncMock()):
             await d.run(g)
         db.fetch.assert_awaited_once()
+        g.priority_leader_ready.wait.assert_awaited_once()
         self.assertEqual(d.IDS,(132224,132225))
 
 

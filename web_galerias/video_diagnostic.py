@@ -51,8 +51,12 @@ def _head_and_windows(storage,key):
 
 
 async def run(g):
-    # Do not interfere with the user's initial gallery load.
+    # Old Render instances may still own the priority lock. They must not
+    # race us and mark an invalid object ready using pre-fix logic.
+    # This task is cancellable and does not block web startup.
     await asyncio.sleep(10)
+    await g.priority_leader_ready.wait()
+    log.warning("Video recovery check: current priority leader acquired")
     try:
         rows=await g.db().fetch(
             "SELECT id,state,kind,mime,size,file_key FROM wg_media WHERE id=ANY($1::bigint[])",

@@ -87,7 +87,7 @@ class IntegrityTests(unittest.IsolatedAsyncioTestCase):
         rows=[{"id":132224,"kind":"video","mime":"video/mp4",
                "size":1024,"state":"ready","file_key":"folders/7/5/original.mp4"}]
         db=N(fetch=AsyncMock(return_value=rows),execute=AsyncMock())
-        g=N(db=lambda:db,storage=N())
+        g=N(db=lambda:db,storage=N(),priority_leader_ready=N(wait=AsyncMock()))
         info={"r2_bytes":1024,"r2_mime":"video/mp4",
               "sample":{"signature":"mp4","brand":"mp42",
                         "moov_first":False,"moov_last":False,
