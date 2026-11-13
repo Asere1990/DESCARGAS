@@ -28,15 +28,90 @@ async def media(g,request):
     p=validate_link(g,request.query.get("t"),kind)
     uid=identifier(p["uid"]);item=identifier(request.match_info["item"])
     if item!=p["item"]:raise web.HTTPForbidden()
-    row=await g.db().fetchrow("""SELECT folder,thumb_key,file_key
+    row=await g.db().fetchrow("""SELECT folder,thumb_key,file_key,kind,mime
        FROM wg_media WHERE id=$1 AND
         (state='ready' OR ($2='thumb' AND state='preview'))""",item,kind)
     if not row or not await g.permitted(uid,row["folder"]):raise web.HTTPForbidden()
     key=row["thumb_key"] if kind=="thumb" else row["file_key"]
     if not key:raise web.HTTPNotFound()
+    # Only an explicitly requested video fallback uses Render bandwidth.
+    # Ordinary views, thumbnails, downloads and R2 backups remain unchanged.
+    if kind=="view" and request.query.get("stream")=="1" and row["kind"]=="video":
+        return await stream_playback(g,request,key,row["mime"])
     try:raise web.HTTPFound(g.storage.signed_get(key,duration=180))
     except NotConfigured:raise web.HTTPServiceUnavailable(text="Almacenamiento no configurado.")
 
+
+
+async def stream_playback(g,request,key,mime):
+    """Authorized same-origin HTTP range fallback for Safari/Telegram WebViews.
+
+    Never buffers an entire video, writes to R2, or consumes a download ticket.
+    Supports iOS's initial bytes=0-1 probe and subsequent seeking requests.
+    """
+    from botocore.exceptions import ClientError
+
+    if not g.storage.ready:
+        raise web.HTTPServiceUnavailable(text="Video temporalmente no disponible.")
+    requested_range=request.headers.get("Range","")
+    if requested_range and not re.fullmatch(
+            r"bytes=(?:[0-9]+-[0-9]*|-[0-9]+)",requested_range):
+        raise web.HTTPRequestRangeNotSatisfiable()
+    key=g.storage.safe_key(key)
+    client=g.storage._client()
+    args={"Bucket":g.storage.bucket,"Key":key}
+    headers={"Cache-Control":"private, no-store",
+             "Accept-Ranges":"bytes",
+             "X-Content-Type-Options":"nosniff"}
+    if request.method=="HEAD":
+        try:
+            obj=await asyncio.to_thread(lambda:client.head_object(**args))
+        except ClientError:
+            raise web.HTTPServiceUnavailable(
+                text="No se pudo consultar este video.") from None
+        size=obj.get("ContentLength")
+        if size is not None:headers["Content-Length"]=str(int(size))
+        headers["Content-Type"]=mime if str(mime).startswith("video/") else "application/octet-stream"
+        return web.Response(status=200,headers=headers,body=None)
+    if requested_range:args["Range"]=requested_range
+    try:
+        obj=await asyncio.to_thread(lambda:client.get_object(**args))
+    except ClientError as exc:
+        code=str(exc.response.get("Error",{}).get("Code",""))
+        if code in ("InvalidRange","416","RequestedRangeNotSatisfiable"):
+            size=await g.storage.object_size(key)
+            raise web.HTTPRequestRangeNotSatisfiable(
+                headers={"Content-Range":f"bytes */{size if size is not None else '*'}"}) from None
+        if code in ("404","NoSuchKey","NotFound"):
+            raise web.HTTPNotFound(text="Video no disponible.") from None
+        raise web.HTTPServiceUnavailable(text="No se pudo obtener este video.") from None
+    body=obj["Body"]
+    status=int(obj.get("ResponseMetadata",{}).get("HTTPStatusCode") or
+               (206 if obj.get("ContentRange") else 200))
+    if requested_range and (status!=206 or not obj.get("ContentRange")):
+        await asyncio.to_thread(body.close)
+        raise web.HTTPServiceUnavailable(text="R2 no confirmó el rango solicitado.")
+    if status not in (200,206):
+        await asyncio.to_thread(body.close)
+        raise web.HTTPServiceUnavailable(text="Respuesta del video inválida.")
+    if status==206:
+        headers["Content-Range"]=str(obj["ContentRange"])
+    response=web.StreamResponse(status=status,headers=headers)
+    response.content_type=mime if str(mime).startswith("video/") else "application/octet-stream"
+    if obj.get("ContentLength") is not None:
+        response.content_length=int(obj["ContentLength"])
+    try:
+        await response.prepare(request)
+        while True:
+            chunk=await asyncio.to_thread(body.read,512*1024)
+            if not chunk:break
+            await response.write(chunk)
+        await response.write_eof()
+    except (ConnectionResetError,BrokenPipeError):
+        logging.getLogger("web-galerias").info("Video viewer closed a range stream")
+    finally:
+        await asyncio.to_thread(body.close)
+    return response
 
 def safe_filename(value,mime=""):
     name=re.sub(r"[^A-Za-z0-9._-]","_",str(value or ""))[:100].strip("._")

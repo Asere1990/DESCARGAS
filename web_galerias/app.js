@@ -1105,15 +1105,83 @@ function toggleSelection(id){
  else return notice("Puedes seleccionar hasta "+selectionLimit()+" archivos por operación.");
  updateSelection();renderItems();
 }
+// Prefer direct R2 playback. If WebKit stalls, retry only that video using
+// authorized same-origin Range requests; other media and downloads stay as-is.
+let viewerPlaybackTimer=null,viewerPlaybackEpoch=0,viewerStreamModeId=null;
+function clearViewerPlayback(){
+ ++viewerPlaybackEpoch;
+ if(viewerPlaybackTimer)clearTimeout(viewerPlaybackTimer);
+ viewerPlaybackTimer=null;
+ const player=$("view-video");
+ player.onplay=player.onplaying=player.onwaiting=player.onstalled=
+  player.ontimeupdate=player.onerror=null;
+}
+function videoStreamFallbackUrl(url){
+ return url+(url.includes("?")?"&":"?")+"stream=1";
+}
+function prepareViewerPlayback(m){
+ const player=$("view-video");
+ const epoch=viewerPlaybackEpoch;
+ let usingStream=viewerStreamModeId===m.id;
+ let lastProgress=-1;
+ const active=()=>epoch===viewerPlaybackEpoch&&
+   !$("viewer").classList.contains("hidden")&&S.items[S.viewer]?.id===m.id;
+ const cancel=()=>{
+  if(viewerPlaybackTimer)clearTimeout(viewerPlaybackTimer);
+  viewerPlaybackTimer=null;
+ };
+ const cannotPlay=()=>priorityText(
+   "No se pudo reproducir este video. Puedes guardarlo y abrirlo en tu dispositivo.");
+ const fallback=()=>{
+  cancel();
+  if(!active())return;
+  if(usingStream){cannotPlay();return;}
+  usingStream=true;viewerStreamModeId=m.id;
+  const at=Number.isFinite(player.currentTime)?player.currentTime:0;
+  const wasPlaying=!player.paused;
+  priorityText("Recuperando reproducción del video…");
+  player.src=videoStreamFallbackUrl(m.view);
+  try{player.load();}catch(_){}
+  if(at>0)try{player.currentTime=at;}catch(_){}
+  if(wasPlaying)try{player.play().catch(()=>{});}catch(_){}
+  schedule();
+ };
+ const schedule=()=>{
+  cancel();
+  if(!active()||player.paused)return;
+  const at=Number(player.currentTime)||0;
+  viewerPlaybackTimer=setTimeout(()=>{
+   if(!active()||player.paused)return;
+   // Ignore a short buffering pause when real frames are advancing.
+   if((Number(player.currentTime)||0)>at+0.15)return;
+   fallback();
+  },10000);
+ };
+ player.onplay=schedule;
+ player.onplaying=schedule;
+ player.onwaiting=schedule;
+ player.onstalled=schedule;
+ player.ontimeupdate=()=>{
+  const now=Number(player.currentTime)||0;
+  if(now>lastProgress+0.15){
+   lastProgress=now;cancel();
+   if(active()&&usingStream)priorityText("");
+  }
+ };
+ player.onerror=fallback;
+}
 function showViewerMedia(){
   if(!S.items.length)return;
   const m=S.items[S.viewer];$("viewer-counter").textContent=(S.viewer+1)+" / "+S.items.length;
   renderViewerWatermark();
   const img=$("view-image"),video=$("view-video");
+  clearViewerPlayback();
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
   if(m.kind==="video"&&full&&m.mime!=="image/gif"){
-    img.hidden=true;video.hidden=false;video.src=m.view;
+    img.hidden=true;video.hidden=false;
+    video.src=viewerStreamModeId===m.id?videoStreamFallbackUrl(m.view):m.view;
+    prepareViewerPlayback(m);
   }else{
     video.hidden=true;img.hidden=false;
     if(full||m.thumb)img.src=full?m.view:m.thumb;
@@ -1276,6 +1344,7 @@ async function refreshAdminViewerMedia(index,expected){
  }
 }
 function openViewer(index){
+ viewerStreamModeId=null;
  S.viewer=index;showViewerMedia();$("viewer").classList.remove("hidden");
  document.body.classList.add("gallery-viewer-open");setDropMenuOpen(false);lastPresence=0;galleryPresence();
  if(ADMIN_ACCOUNT_VIEW){
@@ -1291,6 +1360,8 @@ function closeViewer(){
  $("viewer").classList.add("hidden");
  document.body.classList.remove("gallery-viewer-open");
  $("view-video").pause();
+ if(typeof clearViewerPlayback==="function")clearViewerPlayback();
+ if(typeof viewerStreamModeId!=="undefined")viewerStreamModeId=null;
  if(S.folder?.favorites&&S.favoritesDirty){
   S.favoritesDirty=false;
   return loadItems(false).catch(()=>{});
@@ -1314,7 +1385,7 @@ function backToViewedMedia(){
 }
 function moveViewer(delta){
  const i=S.viewer+delta;if(i<0||i>=S.items.length)return;
- stopVideoPriority();
+ stopVideoPriority();viewerStreamModeId=null;
  S.viewer=i;showViewerMedia();
  if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i]);
  beginVideoPriority(S.items[i]);
