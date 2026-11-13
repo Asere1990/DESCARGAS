@@ -161,6 +161,9 @@ class Gallery(GalleryCore):
             if op=="media-priority":
                 return await on_demand.request(self,uid,data.get("media"))
             return await on_demand.status(self,uid,data.get("media"))
+        if op=="media-playback-failed":
+            from . import on_demand
+            return await on_demand.report_playback_failure(self,uid,data.get("media"))
         if op=="quota-plus-checkout":return await download_plus.checkout(self,uid)
         if op=="reserve":return await downloads.reserve(self,uid,data.get("ids"))
         raise web.HTTPNotFound()

@@ -906,15 +906,67 @@ function onMediaTileClick(item,index,event){
  },275)};
 }
 
+// Only a confirmed failed playback temporarily changes the tile to a photo.
+// A size threshold lengthens the retry window; size alone never marks failure.
+// Playback and source accounts stay on their existing, bounded work lanes.
+const failedVideoUntil=new Map();
+function videoTemporarilyFailed(item){
+ return !!item&&failedVideoUntil.has(item.id);
+}
+async function recheckFailedVideo(id,record){
+ if(failedVideoUntil.get(id)!==record)return;
+ const item=S.items.find(m=>m.id===id);
+ if(!item){failedVideoUntil.delete(id);return;}
+ try{
+  // Read-only DB status; existing CLOUDFLARE worker does any actual repair.
+  const result=await api("media-status",{media:id});
+  if(failedVideoUntil.get(id)!==record)return;
+  if(result){
+   item.available=!!result.available;
+   item.view=result.view||null;
+   if(result.thumb)item.thumb=result.thumb;
+   if(Number(result.expected_bytes)>Number(item.size||0))
+    item.size=Number(result.expected_bytes);
+  }
+  // Never show a play icon for a previously failed, still-pending video.
+  // A verified-ready original can be retried after the brief hold.
+  if(result?.available&&result?.view){
+   failedVideoUntil.delete(id);
+   if(S.items[S.viewer]?.id===id)viewerDirectModeId=null;
+   renderItems();
+   if(S.items[S.viewer]?.id===id
+       &&!$("viewer").classList.contains("hidden"))showViewerMedia();
+   return;
+  }
+ }catch(_){/* transient status failure is not proof of a bad original */}
+ record.timer=setTimeout(()=>recheckFailedVideo(id,record),30000);
+}
+function markVideoTemporarilyFailed(item,report=true){
+ if(!item||videoTemporarilyFailed(item))return;
+ // Size changes the retry interval, NOT whether a slow video has failed.
+ const large=Number(item.size||0)>=100*1024*1024;
+ const record={timer:null};
+ if(failedVideoUntil.size>=100)failedVideoUntil.delete(failedVideoUntil.keys().next().value);
+ failedVideoUntil.set(item.id,record);
+ if(report){
+  // One authenticated R2 HEAD; only a provably incomplete copy joins the
+  // existing priority queue. Never open another Telegram account connection.
+  void api("media-playback-failed",{media:item.id}).catch(()=>{});
+ }
+ renderItems();
+ if(S.items[S.viewer]?.id===item.id)showViewerMedia();
+ record.timer=setTimeout(()=>recheckFailedVideo(item.id,record),
+                         large?180000:90000);
+}
 function renderItems(){
  const grid=$("album-grid");grid.replaceChildren();
  S.items.forEach((m,index)=>{
   const b=document.createElement("button");b.className="media-tile"+(S.selected.has(m.id)?" selected":"");
   b.type="button";b.dataset.mediaId=String(m.id);b.draggable=!!window.matchMedia?.("(pointer:fine)")?.matches;
-  b.setAttribute("aria-label",m.kind==="video"?"Abrir video":"Abrir foto");
+  b.setAttribute("aria-label",m.kind==="video"&&!videoTemporarilyFailed(m)?"Abrir video":"Abrir foto");
   if(m.thumb){const img=document.createElement("img");img.src=m.thumb;img.loading="lazy";img.decoding="async";img.alt="";
    img.onerror=()=>{img.remove();fallback(b,m);};b.append(img);}else fallback(b,m);
-  if(m.kind==="video"){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
+  if(m.kind==="video"&&!videoTemporarilyFailed(m)){const mark=document.createElement("span");mark.className="video-mark";mark.textContent="▶";b.append(mark);}
   if(m.favorite){
    const heart=document.createElement("span");heart.className="favorite-mark";
    heart.textContent="♥";heart.setAttribute("aria-hidden","true");b.append(heart);
@@ -1076,7 +1128,7 @@ function attachLongPress(b,m,index){
  });
  b.addEventListener("pointerleave",()=>{if(!held)clear();});
 }
-function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"?"▶":"▧";b.prepend(p);}
+function fallback(b,m){const p=document.createElement("div");p.className="fallback";p.textContent=m.kind==="video"&&!videoTemporarilyFailed(m)?"▶":"▧";b.prepend(p);}
 function updateSelection(){
  $("selection-bar").classList.toggle("hidden",!S.selection);
  $("album-actions").classList.toggle("hidden",S.selection);
@@ -1130,8 +1182,10 @@ function prepareViewerPlayback(m){
   if(viewerPlaybackTimer)clearTimeout(viewerPlaybackTimer);
   viewerPlaybackTimer=null;
  };
- const cannotPlay=()=>priorityText(
-   "No se pudo reproducir este video. Puede ser incompatible con el reproductor; prueba a guardarlo.");
+ const cannotPlay=()=>{
+  priorityText("Video en preparación. Se comprobará de nuevo automáticamente.");
+  markVideoTemporarilyFailed(m);
+ };
  const fallback=()=>{
   cancel();
   if(!active())return;
@@ -1152,10 +1206,10 @@ function prepareViewerPlayback(m){
   const at=Number(player.currentTime)||0;
   viewerPlaybackTimer=setTimeout(()=>{
    if(!active()||player.paused)return;
-   // Ignore a short buffering pause when real frames are advancing.
+   // Ignore buffering while a large video makes slow progress.
    if((Number(player.currentTime)||0)>at+0.15)return;
    fallback();
-  },10000);
+  },Number(m.size||0)>=100*1024*1024?30000:12000);
  };
  player.onplay=schedule;
  player.onplaying=schedule;
@@ -1178,13 +1232,16 @@ function showViewerMedia(){
   clearViewerPlayback();
   video.pause();video.removeAttribute("src");img.style.transform="scale(1)";
   const full=!!m.available&&!!m.view;
-  if(m.kind==="video"&&full&&m.mime!=="image/gif"){
+  if(m.kind==="video"&&full&&m.mime!=="image/gif"&&!videoTemporarilyFailed(m)){
     img.hidden=true;video.hidden=false;
     video.src=viewerDirectModeId===m.id?m.view:videoStreamUrl(m.view);
     prepareViewerPlayback(m);
   }else{
     video.hidden=true;img.hidden=false;
-    if(full||m.thumb)img.src=full?m.view:m.thumb;
+    if(videoTemporarilyFailed(m)){
+      if(m.thumb)img.src=m.thumb;
+      else img.removeAttribute("src");
+    }else if(full||m.thumb)img.src=full?m.view:m.thumb;
     else img.removeAttribute("src");
     img.alt=full?"Vista completa":"Vista previa; original en preparación";
   }
@@ -1285,6 +1342,14 @@ function beginVideoPriority(expected){
     return;
    }
    const state=result.priority_state||"queued";
+   if(Number(result.expected_bytes)>Number(expected.size||0))
+    expected.size=Number(result.expected_bytes);
+   // Only a confirmed failed attempt, never simple waiting or slow progress.
+   if(state==="waiting"&&result.priority_failure){
+    stopVideoPriority();
+    markVideoTemporarilyFailed(expected,false);
+    return;
+   }
    if(state==="running"&&result.progress_percent!=null){
     advance(result.progress_percent);
    }else if(state==="queued"||state==="waiting"){
@@ -1350,7 +1415,7 @@ function openViewer(index){
  if(ADMIN_ACCOUNT_VIEW){
   void refreshAdminViewerMedia(index,S.items[index]);
  }
- beginVideoPriority(S.items[index]);
+ if(!videoTemporarilyFailed(S.items[index]))beginVideoPriority(S.items[index]);
  if(S.items[index].kind!=="video"&&!S.items[index].available)
   notice("El original se está preparando; la miniatura se muestra si está disponible.");
 }
@@ -1388,7 +1453,7 @@ function moveViewer(delta){
  stopVideoPriority();viewerDirectModeId=null;
  S.viewer=i;showViewerMedia();
  if(ADMIN_ACCOUNT_VIEW)void refreshAdminViewerMedia(i,S.items[i]);
- beginVideoPriority(S.items[i]);
+ if(!videoTemporarilyFailed(S.items[i]))beginVideoPriority(S.items[i]);
 }
 function nativeDownload(data){
  const url=location.origin+data.url;

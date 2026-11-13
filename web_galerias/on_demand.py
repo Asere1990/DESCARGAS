@@ -97,6 +97,7 @@ def _result(g, uid, row, priority=None):
         "expected_bytes": 0,
         "queue_position": None,
         "queue_total": None,
+        "priority_failure": False,
     }
     if not available and priority:
         priority = dict(priority)
@@ -104,6 +105,17 @@ def _result(g, uid, row, priority=None):
         result["priority_state"] = (
             "waiting" if wait else str(priority["state"]))
         result["retry_after"] = wait
+        # Only report actual failed transfer attempts, not routine waiting,
+        # downloading, account busy, or a user's slow internet connection.
+        result["priority_failure"] = bool(
+            wait and str(priority.get("last_error") or "") in (
+                "invalid_or_incomplete_original",
+                "source_has_no_access",
+                "FileReferenceExpiredError",
+                "TimeoutError",
+                "MediaInvalidError",
+            )
+        )
         received = max(0, int(priority.get("received_bytes") or 0))
         expected = max(0, int(priority.get("expected_bytes") or 0))
         result["received_bytes"] = received
@@ -120,7 +132,7 @@ async def status(g, uid, media):
     if row["state"] != "ready" and active(g):
         job = await g.db().fetchrow(
             """SELECT state,next_attempt,requested_at,received_bytes,
-                      expected_bytes,progress_at
+                      expected_bytes,progress_at,last_error
                FROM wg_media_priority WHERE media=$1""", row["id"])
     result = _result(g, uid, row, job)
     requested_at = dict(job).get("requested_at") if job else None
@@ -202,6 +214,48 @@ async def _defer(g, media, error, seconds):
         last_error=$3,received_bytes=0,progress_at=0,started_at=0
       WHERE media=$1
     """, media, time.time()+max(2, float(seconds)), str(error)[:90])
+
+
+async def report_playback_failure(g, uid, media):
+    """One diagnosed playback failure, never an extra Telegram connection.
+
+    Pending originals use the existing queue. For a file marked ready, inspect
+    its R2 size (HEAD only). Requeue it only if integrity is demonstrably bad.
+    A device-specific decode or transient buffering error cannot invalidate a
+    valid original or force another 1-GB Telegram download.
+    """
+    row=await _authorized_media(g,uid,media)
+    if row["kind"]!="video":
+        raise web.HTTPBadRequest(text="Solo videos.")
+    if row["state"]=="preview":
+        result=await request(g,uid,media)
+        return {"ok":True,"requeued":not result.get("available",False)}
+    original=row.get("file_key")
+    if not original:
+        return {"ok":True,"requeued":False}
+    try:
+        size=await g.storage.object_size(original)
+    except Exception:
+        # An R2 outage is not proof the original is corrupt.
+        log.warning("Video playback check pending (%s)",row["id"])
+        return {"ok":True,"requeued":False}
+    indexed=int(row.get("size") or 0)
+    damaged=(size is None or size<=4096 or (indexed>0 and size!=indexed))
+    if not damaged:
+        log.info("Video playback client error: R2 verified media=%s bytes=%s",
+                 row["id"],size)
+        return {"ok":True,"requeued":False}
+    # Only provably invalid copies are sent back through the existing
+    # priority worker; its source selection, locks and parallelism are intact.
+    changed=await g.db().fetchval("""
+      UPDATE wg_media SET state='preview',error='playback_integrity_failed',
+        available=0 WHERE id=$1 AND state='ready' AND kind='video'
+      RETURNING id
+    """,row["id"])
+    if changed:
+        log.warning("Video original requeued after failed integrity media=%s",row["id"])
+    result=await request(g,uid,media)
+    return {"ok":True,"requeued":not result.get("available",False)}
 
 
 async def _select_source(g, folder):
