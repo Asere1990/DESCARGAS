@@ -87,8 +87,10 @@ class Gallery(GalleryCore):
                 uid,time.time(),view)
             return {"ok":True}
         if op=="checkout":
-            if await self.db().fetchval(
-                    "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid):
+            if (await self.db().fetchval(
+                    "SELECT blocked FROM wg_access_blocks WHERE uid=$1",uid)
+                or await self.db().fetchval(
+                    "SELECT 1 FROM wg_web_dispute_blocks WHERE uid=$1",uid)):
                 raise web.HTTPForbidden(
                     text="Cuenta restringida. Contacta con soporte.")
             return await payments.checkout(self,uid)
