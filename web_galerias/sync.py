@@ -678,8 +678,18 @@ async def backup_one(g,folder,item,message,client,guard,progress=None):
     original_size=await g.storage.object_size(key)
     thumb_size=await g.storage.object_size(thumb_key)
     known_size=int(item["size"] or 0)
+    # The Telegram document, not a previous (possibly corrupt) R2 upload,
+    # is authoritative for the original video length.
+    document=getattr(message,"document",None)
+    telegram_size=max(0,int(getattr(document,"size",0) or
+                            getattr(getattr(message,"file",None),"size",0) or 0))
     original_valid=original_size is not None and original_size>0 and (
-        known_size==0 or original_size==known_size)
+        (original_size==telegram_size) if kind=="video" and telegram_size
+        else (known_size==0 or original_size==known_size))
+    if (kind=="video" and telegram_size and original_size is not None
+            and original_size!=telegram_size):
+        log.warning("R2 incomplete video: folder=%s message=%s bytes=%s expected=%s",
+                    folder,message.id,original_size,telegram_size)
     if original_valid and thumb_size:
         await g.db().execute("""UPDATE wg_media SET state='ready',
           file_key=$3,thumb_key=$4,size=$5,error='',source_checks=0
@@ -712,9 +722,14 @@ async def backup_one(g,folder,item,message,client,guard,progress=None):
             await g.storage.upload(image_path,key,mime)
             original_size=image_path.stat().st_size
         elif kind=="video" and not original_valid:
-            # Los videos se transmiten a R2 por partes sin cargar todo en RAM.
-            parts=client.iter_download(message.media,request_size=512*1024)
+            # Let Telethon know the exact DOCUMENT size; otherwise it can
+            # terminate a media iterator early and publish a 1024-byte MP4.
+            source=document or getattr(message,"media",None)
+            parts=client.iter_download(source,request_size=512*1024,
+                                       file_size=telegram_size or None)
             kwargs={"check":guard}
+            if telegram_size:
+                kwargs["expected_size"]=telegram_size
             if progress is not None:
                 kwargs["progress"]=progress
             original_size=await g.storage.upload_stream(parts,key,mime,**kwargs)
