@@ -232,7 +232,8 @@
    const b=document.createElement("button");b.type="button";
    b.className="admin-user-list-row";
    b.setAttribute("role","listitem");
-   b.setAttribute("aria-label",u.name+(u.paid?" · Activo":"")+(u.online?" · En línea":""));
+   b.setAttribute("aria-label",u.name+(u.paid?(u.cancel_scheduled?" · Activo con cancelación programada":" · Activo"):"")+
+      (u.plus_bought?" · Extra de descargas ilimitadas":"")+(u.online?" · En línea":""));
    const name=document.createElement("span");name.className="admin-user-list-name";
    name.textContent=u.name||"Usuario";
    const right=document.createElement("span");right.className="admin-user-indicators";
@@ -244,8 +245,17 @@
     badge.textContent="★";badge.title="Acceso gratuito · descargas ilimitadas";
     badge.setAttribute("aria-label","Acceso gratuito");right.append(badge);
    }else if(u.paid){
-    const badge=document.createElement("small");badge.className="admin-user-active";
-    badge.textContent="Activo";right.append(badge);
+    const badge=document.createElement("small");
+    badge.className=u.cancel_scheduled?"admin-user-active admin-user-cancel-scheduled":"admin-user-active";
+    badge.textContent="Activo";
+    badge.title=u.cancel_scheduled?"Cancelación programada: activo hasta vencimiento":"Membresía vigente";
+    right.append(badge);
+   }
+   if(u.plus_bought&&!u.blocked){
+    const dot=document.createElement("i");dot.className="admin-user-plus";
+    dot.title="Compró descargas ilimitadas · extra mensual";
+    dot.setAttribute("aria-label","Compró descargas ilimitadas");
+    right.append(dot);
    }
    if(u.online&&!u.blocked){
     const dot=document.createElement("i");dot.className="admin-user-online";
@@ -425,7 +435,14 @@
    rowDatum(root,"Nombre de Telegram",local.name||"Usuario");
    rowDatum(root,"Telegram ID",uid);
    rowDatum(root,"Membresía pagada",
-     ["active","trialing"].includes(local.state)&&local.paid_until>Date.now()/1000?"Activo":"Sin pago vigente");
+     ["active","trialing"].includes(local.state)&&local.paid_until>Date.now()/1000
+       ?local.cancel_scheduled?"Activo · cancelación programada":"Activo"
+       :"Sin pago vigente");
+   if(local.cancel_scheduled&&local.paid_until>Date.now()/1000)
+    rowDatum(root,"Cancelación programada para",
+      new Date(Number(local.paid_until)*1000).toLocaleDateString("es-US"));
+   rowDatum(root,"Descargas ilimitadas (compra)",
+     local.plus_bought?"🟡 Extra mensual comprado":"No");
    rowDatum(root,"Acceso gratuito",
      local.free_access?"★ acceso.txt · descargas ilimitadas":"No");
    rowDatum(root,"Estado en la web",local.blocked?"Retirado del sistema":"Autorización según membresía");
