@@ -541,7 +541,7 @@ async function refresh(lite=false){
  $("stat-photos").textContent=pretty(S.me.photos);
  $("stat-videos").textContent=pretty(S.me.videos);
  updateQuotaStatus();
- renderSubscriptionManage();
+ if(typeof renderSubscriptionManage==="function")renderSubscriptionManage();
  // One edited entrance label for every visitor. Only the click action
  // changes with verified access: gallery for members, Stripe for buyers.
  const buttonReady=renderEntryButtonLabel(
