@@ -125,6 +125,8 @@ SCHEMA += COMMERCIAL_SCHEMA
 SCHEMA += download_plus.SCHEMA
 from .payment_risk import SCHEMA as PAYMENT_RISK_SCHEMA
 SCHEMA += PAYMENT_RISK_SCHEMA
+from .dupe_guard import SCHEMA as DEDUPE_SCHEMA
+SCHEMA += DEDUPE_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
  "title_image_height":120,"button_image_height":30,
