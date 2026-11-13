@@ -438,6 +438,9 @@ class TelegramPanel:
                 return web.json_response(result,headers=HEADERS)
             if op=='favorites' and request.method=='GET':
                 return web.json_response(await self.favorites.listing(actor),headers=HEADERS)
+            if op=='favorite-accounts' and request.method=='GET':
+                return web.json_response(
+                    {'accounts':await self.favorites.account_listing(actor)},headers=HEADERS)
             if post and op in ('favorite-toggle','favorite-remove',
                                'favorite-account-toggle'):
                 data=await request.json()
