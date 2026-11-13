@@ -89,3 +89,30 @@
 .favorite-remove{width:40px;height:40px;flex-shrink:0;border-radius:50%;font-size:26px;color:#daa200;background:#f6f7ed}
 .favorite-remove:disabled{opacity:.5}
 @media(max-width:700px){.conversation header #manage-chat,.conversation header #search-toggle{width:35px;height:35px;font-size:25px}.conversation header #favorite-toggle{width:35px;height:35px;font-size:27px}.conversation header .heading{min-width:0;overflow:hidden}}
+
+/* Favorite accounts: one small independent star, never nested in the
+   account-open button. Existing status/search/session controls stay intact. */
+.account-card{position:relative}
+.account-card>.account{padding-right:45px}
+.account-favorite-star{position:absolute;right:17px;top:10px;z-index:1;
+ width:36px;height:36px;display:grid;place-items:center;
+ border-radius:50%;font-size:29px;line-height:1;color:#d49a00;
+ background:#fff6d5;flex-shrink:0}
+.account-favorite-star[aria-pressed=true]{color:#ca8d00;background:#fff0b0}
+.account-favorite-star:disabled{opacity:.5}
+/* Dropdown expands directly beneath the already existing Favorites button;
+   choosing a category never changes the account/search/chat view filters. */
+.favorites-dropdown{margin:5px 12px 10px;padding:10px 12px;
+ border:1px solid #ecdca3;border-radius:13px;background:#fffdf4;
+ max-height:min(50dvh,450px);overflow-y:auto;flex-shrink:0}
+.favorites-dropdown[hidden]{display:none!important}
+.favorites-picker{display:flex;align-items:center;gap:8px;
+ font-size:12px;color:#68542a;font-weight:600}
+.favorites-picker select{flex:1;min-width:0;width:100%;
+ border-radius:9px;border:1px solid #d6c385;background:#fff;
+ padding:9px 8px;color:#423821;font:inherit}
+.favorites-results>p{padding:14px 5px;color:#7d836f;font-size:12px}
+.favorites-dropdown .favorite-entry{padding:7px 0}
+.favorites-dropdown .favorite-open strong{font-size:13px}
+.favorites-dropdown .favorite-open small{font-size:11px}
+.favorites-dropdown .favorite-remove{width:33px;height:33px;font-size:22px}
