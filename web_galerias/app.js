@@ -137,7 +137,7 @@ function renderEntryButtonLabel(label,forceText=false){
  // Reuse the same image instead of blanking it and downloading it again
  // after the slower per-user bootstrap response.
  const fast=button.querySelector?.("img[data-fast-button]");
- if(!forceText&&fast&&S.me?.design?.button_mode==="image"&&
+ if(!forceText&&!S.identityRefreshVersion&&fast&&S.me?.design?.button_mode==="image"&&
     button.dataset.fastButtonLabel===text){
   button.classList.add("enter-image-label");
   button.setAttribute("aria-label",text);
@@ -150,10 +150,21 @@ function renderEntryButtonLabel(label,forceText=false){
    fast.addEventListener("error",()=>{button.textContent=text;resolve();},{once:true});
   });
  }
- button.classList.remove("enter-image-label");
- button.textContent=text;
  button.setAttribute("aria-label",text);
- if(forceText||S.me?.design?.button_mode!=="image")return Promise.resolve();
+ const wantsImage=!forceText&&S.me?.design?.button_mode==="image";
+ if(!wantsImage){
+  button.classList.remove("enter-image-label");
+  if(button.textContent!==text)button.textContent=text;
+  return Promise.resolve();
+ }
+ const imageUrl="/web-galerias/assets/button-label-fast"+
+   (S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
+ const previousImage=button.querySelector?.("img.enter-label-image");
+ if(previousImage&&previousImage.getAttribute?.("src")===imageUrl)
+  return Promise.resolve();
+ // Keep existing artwork visible until the edited image loads.
+ if(!button.querySelector?.("img")&&button.textContent!==text)
+  button.textContent=text;
  const requested=Number(S.me.design.button_image_height??30);
  const height=Number.isFinite(requested)?Math.min(48,Math.max(12,requested)):30;
  button.style.setProperty("--entry-label-image-height",height+"px");
@@ -171,7 +182,7 @@ function renderEntryButtonLabel(label,forceText=false){
   };
   // On network failure, retain the saved accessible text as fallback.
   image.onerror=()=>resolve();
-  image.src="/web-galerias/assets/button-label-fast"+(S.identityRefreshVersion?"?v="+S.identityRefreshVersion:"");
+  image.src=imageUrl;
  });
 }
 function updateEditorLabelChoices(){
@@ -253,7 +264,8 @@ function applyLibraryIdentity(d){
   element.setAttribute("aria-label",label);
   if(mode!=="image"){
    element.classList.remove("library-slot-image");
-   element.textContent=label;continue;
+   if(element.textContent!==label)element.textContent=label;
+   continue;
   }
   element.classList.add("library-slot-image");
   const asset=slot.replaceAll("_","-");
@@ -263,7 +275,8 @@ function applyLibraryIdentity(d){
   const height=Number.isFinite(value)?value:
     (slot==="library_brand"?60:slot==="library_eyebrow"?44:100);
   const current=element.querySelector("img[data-library-image]");
-  if(current&&current.getAttribute("src")===src){
+  if(current&&(current.getAttribute("src")===src||
+     (!S.identityRefreshVersion&&current.getAttribute("data-library-image")===slot))){
    current.alt=label;
    current.style.height=height+"px";
    current.style.maxHeight=height+"px";
@@ -293,14 +306,18 @@ function applyDesign(d){const r=document.documentElement.style;
  // Keep the exact server-rendered image until it finishes decoding; replacing
  // its DOM would cause a second request and the visible title to disappear.
  const fastTitle=headline.querySelector?.("img[data-fast-title]");
- const reusable=!!(fastTitle&&d.header_mode==="image"&&
+ const reusable=!!(!S.identityRefreshVersion&&fastTitle&&d.header_mode==="image"&&
    headline.dataset.fastTitleLabel===d.title&&
    Number(headline.dataset.fastTitleHeight)===Number(d.title_image_height??120));
- if(!reusable)headline.textContent=d.title;
+ // An already rendered custom image stays visible until the new one loads.
+ if(!reusable&&(d.header_mode!=="image"||!headline.querySelector?.("img"))&&
+    headline.textContent!==d.title)headline.textContent=d.title;
  headline.setAttribute("aria-label",d.title);
  applyLibraryIdentity(d);
- $("intro-subtitle").textContent=d.intro_caption;
- $("intro-placeholder").lastElementChild.textContent=d.intro_label;
+ if($("intro-subtitle").textContent!==d.intro_caption)
+  $("intro-subtitle").textContent=d.intro_caption;
+ if($("intro-placeholder").lastElementChild.textContent!==d.intro_label)
+  $("intro-placeholder").lastElementChild.textContent=d.intro_label;
  document.title=d.title;
  for(const [id,key] of [["brand-logo","logo"]]){
    const image=$(id),icon=$("brand-icon");image.onload=()=>{image.hidden=false;icon.hidden=true;};
@@ -356,7 +373,9 @@ function applyDesign(d){const r=document.documentElement.style;
    placeholder.hidden=false;
   }
  };
- const revision=S.heroNeedsReload?"?v="+Date.now():"";
+ // Reuse the exact saved promo revision already embedded into the HTML.
+ const revision=S.heroNeedsReload?"?v="+Date.now():
+   (intro.dataset.heroRevision?"?v="+intro.dataset.heroRevision:"");
  S.heroNeedsReload=false;
  if(revision)poster.src="/web-galerias/assets/intro-poster"+revision;
  if(posterReady()){poster.hidden=false;placeholder.hidden=true;}
@@ -465,20 +484,14 @@ async function refresh(lite=false){
  $("stat-photos").textContent=pretty(S.me.photos);
  $("stat-videos").textContent=pretty(S.me.videos);
  updateQuotaStatus();
- let buttonReady=Promise.resolve();
+ // One edited entrance label for every visitor. Only the click action
+ // changes with verified access: gallery for members, Stripe for buyers.
+ const buttonReady=renderEntryButtonLabel(
+   S.me.design?.button_label||"ENTRAR A LA GALERÍA");
  if(!S.me.allowed){
-  if(S.me.checkout_enabled){
-   buttonReady=renderEntryButtonLabel("COMPRAR MEMBRESÍA",true);
-   $("enter").textContent="COMPRAR MEMBRESÍA";
-   // Provider branding only appears when the user opens hosted checkout.
-   $("intro-notice").textContent="";
-  }else{
-   buttonReady=renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
-   $("intro-notice").textContent=S.me.pilot?
-    "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
-  }
+  $("intro-notice").textContent=S.me.checkout_enabled?"":S.me.pilot?
+   "Prueba privada: solamente usuarios autorizados.":"Membresía necesaria para entrar";
  }else{
-  buttonReady=renderEntryButtonLabel(S.me.design?.button_label||"ENTRAR A LA GALERÍA");
   $("intro-notice").textContent=S.me.admin?"Acceso de administrador":"Acceso verificado";
  }
  $("intro-notice").classList.add("hidden");
@@ -1702,7 +1715,12 @@ async function saveDesign(){
                  "library_heading_image_height"])
   design[k]=Number($("edit-"+k).value);
  design.daily_limit=50;
- try{await api("admin-design",{design});notice("Diseño actualizado");await refresh();}catch(e){notice(e.message);}
+ try{
+  const oldIntroMode=S.me?.design?.intro_media;
+  await api("admin-design",{design});
+  if(oldIntroMode!==design.intro_media)S.heroNeedsReload=true;
+  notice("Diseño actualizado");await refresh();
+ }catch(e){notice(e.message);}
 }
 async function loadPermissions(){
  const uid=$("permission-uid").value.trim();
@@ -1852,12 +1870,14 @@ async function confirmEditorChanges(){
    design[key]=Number($("edit-"+key).value);
   design.daily_limit=50;
   status.textContent="Guardando identidad y marca de agua…";
+  const oldIntroMode=S.me?.design?.intro_media;
   await api("admin-design",{design});
   await api("admin-watermark",{watermark:watermarkFromEditor()});
   for(const key of ["logo","header","button-label-image",
                      "library-brand","library-eyebrow","library-heading",
                      "intro","intro-photo","web-promo"])$("upload-"+key).value="";
-  S.heroNeedsReload=files.some(({key})=>key==="intro"||key==="intro-photo");
+  S.heroNeedsReload=files.some(({key})=>key==="intro"||key==="intro-photo")||
+    oldIntroMode!==design.intro_media;
   if(files.some(({key})=>key==="header"||key==="button-label-image"||key.startsWith("library-")))
    S.identityRefreshVersion=Date.now();
   await refresh();
