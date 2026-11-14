@@ -10,6 +10,7 @@ from .permissions import is_admin,is_tester
 from . import moderation
 from .core import DEFAULTS,ASSET_MIME,MAX_ASSET,identifier
 from .covers import ALLOWED_MIME,MAX_UPLOAD,optimized_cover,temporary_cover
+from . import folder_sources
 
 async def linked_source_account(g, uid, system="descargas"):
     """Validate the intended registry, with no cross-database writes."""
@@ -92,6 +93,8 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op=="admin-folder-add-source":
+        return await folder_sources.add(g,uid,data)
     if op.startswith("admin-notices-"):
         from . import broadcasts
         return await broadcasts.admin_operation(g,uid,op,data)
@@ -156,6 +159,11 @@ async def admin_op(g,uid,op,data):
         for entry in reasons:
             reason_map.setdefault(entry["folder"],[]).append({
               "code":entry["error"] or "sin_motivo","count":entry["amount"]})
+        source_links=await db.fetch("""
+          SELECT parent_folder,source_folder FROM wg_folder_sources
+          ORDER BY parent_folder,source_folder
+        """)
+        folders=folder_sources.combine_admin_rows(folders,source_links)
         remote=await db.fetchval("SELECT value FROM wg_config WHERE key='backup_status'")
         if isinstance(remote,str):
             remote=json.loads(remote)
@@ -177,7 +185,13 @@ async def admin_op(g,uid,op,data):
             else:
                 folder["cover"]=None
             folder.pop("automatic_cover",None)
-            folder["missing_reasons"]=reason_map.get(folder["id"],[])
+            combined_reasons={}
+            for source in folder["sources"]:
+                for entry in reason_map.get(source["id"],[]):
+                    code=entry["code"]
+                    combined_reasons[code]=combined_reasons.get(code,0)+int(entry["count"])
+            folder["missing_reasons"]=[
+                {"code":code,"count":count} for code,count in combined_reasons.items()]
             result_folders.append(folder)
         return {"folders":result_folders,
             "users":[],  # Never preload thousands of visitors on overview.
@@ -189,9 +203,13 @@ async def admin_op(g,uid,op,data):
         folder=identifier(data.get("folder"))
         exists=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
         if not exists:raise web.HTTPNotFound(text="Galería no encontrada.")
-        rows=await db.fetch("""SELECT message,kind,mime,source_type,error
-          FROM wg_media WHERE folder=$1 AND state='missing'
-          ORDER BY id DESC LIMIT 10""",folder)
+        rows=await db.fetch("""SELECT m.message,m.kind,m.mime,m.source_type,m.error,
+              f.peer AS source_peer
+          FROM wg_media m JOIN wg_folders f ON f.id=m.folder
+          WHERE (m.folder=$1 OR m.folder IN (
+            SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
+            AND m.state='missing'
+          ORDER BY m.id DESC LIMIT 10""",folder)
         return {"items":[dict(row) for row in rows]}
     if op=="admin-recheck-missing":
         # La base de datos externa permanece privada. Volver a consultar
@@ -201,7 +219,10 @@ async def admin_op(g,uid,op,data):
         found=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
         if not found:raise web.HTTPNotFound(text="Galería no encontrada.")
         changed=await db.fetch("""WITH candidate AS (
-           SELECT id FROM wg_media WHERE folder=$1 AND state='missing'
+           SELECT id FROM wg_media WHERE
+             (folder=$1 OR folder IN (
+               SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
+             AND state='missing'
            ORDER BY CASE WHEN error='no_disponible_en_origen'
               THEN 0 ELSE 1 END,id DESC
            FOR UPDATE SKIP LOCKED LIMIT 10)
@@ -260,7 +281,11 @@ async def admin_op(g,uid,op,data):
             telegram_counts_next_attempt=CASE WHEN excluded.preferred_uid IS NOT NULL
               AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
               THEN 0 ELSE wg_folders.telegram_counts_next_attempt END
+          WHERE NOT EXISTS(SELECT 1 FROM wg_folder_sources s
+                           WHERE s.source_folder=wg_folders.id)
           RETURNING id""",peer,name,public_name,time.time(),account_uid)
+        if not row:
+            raise web.HTTPConflict(text="Este grupo ya está asociado a otra carpeta.")
         # Reactivación conserva todas las copias ready en R2 y los cursores.
         # Solo los archivos antes no disponibles pueden volver a intentarse.
         await db.execute("""UPDATE wg_media SET state='pending',
@@ -400,7 +425,9 @@ async def admin_op(g,uid,op,data):
         return await upload(g,uid,data)
     if op=="admin-sync-reset":
         folder=identifier(data.get("folder"))
-        await db.execute("UPDATE wg_folders SET scan_cursor=0,complete=FALSE,error='' WHERE id=$1",folder)
+        await db.execute("""UPDATE wg_folders SET scan_cursor=0,complete=FALSE,error=''
+            WHERE id=$1 OR id IN (
+              SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1)""",folder)
         await g.log(uid,op)
         return {"ok":True}
     raise web.HTTPNotFound()

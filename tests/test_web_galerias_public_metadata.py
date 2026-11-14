@@ -97,6 +97,7 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_creating_gallery_with_linked_account_stores_preferred_uid(self):
         core,db=self.make_core()
+        # Only the existing linked-account validation reads fetchval here.
         db.fetchval=AsyncMock(return_value=True)
         db.fetchrow=AsyncMock(return_value={"id":8})
         core.log=AsyncMock()

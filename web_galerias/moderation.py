@@ -64,7 +64,9 @@ async def operation(g, uid, op, data):
         rows = await db.fetch("""
             SELECT m.id,m.folder,m.message,m.kind,m.mime,m.filename,m.date,
                    m.state,m.thumb_key,m.file_key
-              FROM wg_media m WHERE m.folder=$1
+              FROM wg_media m WHERE
+                (m.folder=$1 OR m.folder IN (
+                  SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
                 AND m.state IN ('preview','ready')
                 AND ($3::text='all' OR m.kind=$3)
                 AND ($4::text='' OR to_tsvector('simple',m.search_text)

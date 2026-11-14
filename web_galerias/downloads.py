@@ -180,11 +180,13 @@ async def reserve(g,uid,ids):
     db=g.db();day=utc_day()
     async with db.acquire() as c,c.transaction():
         rows=await c.fetch("""SELECT m.id,m.size,m.folder,m.mime,m.filename FROM wg_media m
-           JOIN wg_folders f ON f.id=m.folder
+           JOIN wg_folders origin ON origin.id=m.folder AND origin.active
+           LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+           JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
            LEFT JOIN wg_user_prefs p ON p.uid=$2
            WHERE m.id=ANY($1::bigint[]) AND m.state='ready' AND f.active AND
            ($3 OR COALESCE(p.mode,'all')='all'
-            OR EXISTS(SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=m.folder))
+            OR EXISTS(SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=f.id))
            """,ids,uid,__import__("web_galerias.permissions",fromlist=["is_admin"]).is_admin(uid))
         if len(rows)!=len(ids):raise web.HTTPForbidden(text="Uno o más archivos no están autorizados.")
         if sum(max(0,x["size"]) for x in rows)>500*1024*1024:
