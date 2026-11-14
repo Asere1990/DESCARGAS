@@ -15,6 +15,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="/web-galerias/static/app.js?v=playback-range-android-ios-20261113-v2-playback-alert-cubanitas-billing-20261113"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=admin-original-media-20261112-v1"></script>
+<script defer src="/web-galerias/static/manual_upload.js?v=manual-r2-20261114-v1"></script>
 <script defer src="/web-galerias/static/broadcast_ui.js?v=announcements-20261112-v1"></script>
 </head><body>
 <div id="app" class="app">
@@ -214,6 +215,20 @@
      <p class="muted">JPEG, PNG o WebP · hasta 5 MB. Podrás cambiarla después.</p>
      <p id="new-cover-status" class="muted" role="status"></p>
      <button id="add-folder" class="primary compact">Agregar a la galería</button></details>
+    <details id="manual-r2-panel" class="panel-card admin-tools-fold">
+     <summary>☁ Subir fotos y videos directamente a Cloudflare R2 ▾</summary>
+     <p class="muted">Solo administradores. Selecciona una galería y las fotos o videos de tu teléfono. Aparecerán en esa carpeta cuando se confirme su subida y miniatura. DESCARGAS y DATOS siguen funcionando igual.</p>
+     <label for="manual-r2-folder">Carpeta de destino
+      <select id="manual-r2-folder"><option value="">Selecciona una galería…</option></select>
+     </label>
+     <label for="manual-r2-files">Fotos o videos
+      <input id="manual-r2-files" type="file" accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.webm,image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" multiple>
+     </label>
+     <p class="muted">Hasta 2 GiB por archivo y 1,000 seleccionados por tanda. Los videos deben poder abrirse en tu teléfono para generar su miniatura. Si una subida se interrumpe, vuelve a seleccionar el mismo archivo para reanudarla.</p>
+     <button id="manual-r2-start" type="button" class="primary compact">↑ Subir a esta galería</button>
+     <progress id="manual-r2-progress" max="1" value="0"></progress>
+     <p id="manual-r2-status" class="muted" aria-live="polite" role="status"></p>
+    </details>
     <details id="admin-media-manager" class="panel-card admin-media-manager admin-tools-fold">
      <summary>Moderar fotos y videos ▾</summary>
      <p class="muted">Selecciona archivos de cualquier galería. Ocultarlos no los borra de Telegram. El respaldo de Cloudflare es opcional.</p>
