@@ -468,6 +468,8 @@ class GalleryCore:
                 folder.pop("cover_updated",None)
                 cover=await self.db().fetchval("""SELECT id FROM wg_media
                   WHERE """+public_sources_sql()+""" AND state IN ('preview','ready')
+                    AND EXISTS(SELECT 1 FROM wg_folders origin
+                               WHERE origin.id=folder AND origin.active)
                     AND thumb_key IS NOT NULL
                   ORDER BY date DESC LIMIT 1""",folder["id"])
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
@@ -522,6 +524,8 @@ class GalleryCore:
               EXISTS(SELECT 1 FROM wg_favorites v
                      WHERE v.uid=$5 AND v.media=wg_media.id) AS favorite
               FROM wg_media WHERE """+public_sources_sql()+""" AND state IN ('preview','ready')
+              AND EXISTS(SELECT 1 FROM wg_folders origin
+                         WHERE origin.id=folder AND origin.active)
               AND ($3::text='all' OR kind=$3)
               AND to_tsvector('simple',search_text) @@ plainto_tsquery('simple',$2)
               AND id<$4 ORDER BY id DESC LIMIT 61""",folder,query,kind,cursor or 2**63-1,uid)
@@ -530,6 +534,8 @@ class GalleryCore:
               EXISTS(SELECT 1 FROM wg_favorites v
                      WHERE v.uid=$4 AND v.media=wg_media.id) AS favorite
               FROM wg_media WHERE """+public_sources_sql()+""" AND state IN ('preview','ready')
+              AND EXISTS(SELECT 1 FROM wg_folders origin
+                         WHERE origin.id=folder AND origin.active)
               AND ($2::text='all' OR kind=$2)
               AND id<$3 ORDER BY id DESC LIMIT 61""",folder,kind,cursor or 2**63-1,uid)
         result=[]
