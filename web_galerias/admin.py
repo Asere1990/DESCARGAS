@@ -68,11 +68,12 @@ def cleaned_design(value):
                 raise web.HTTPBadRequest(text="Estado de marca de agua inválido.")
             result[key]=val
         elif key in ("wm_opacity","wm_size","title_image_height","button_image_height",
-                    "library_brand_image_height","library_eyebrow_image_height",
+                    "logo_size","library_brand_image_height","library_eyebrow_image_height",
                     "library_heading_image_height"):
             limits={"wm_opacity":(0,100),"wm_size":(12,42),
                     "title_image_height":(40,220),
                     "button_image_height":(12,48),
+                    "logo_size":(24,200),
                     "library_brand_image_height":(24,140),
                     "library_eyebrow_image_height":(16,100),
                     "library_heading_image_height":(28,200)}
@@ -383,7 +384,7 @@ async def admin_op(g,uid,op,data):
             # Clients with an older editor must not reset the watermark or
             # these independently saved image sizes when changing other fields.
             preserved=WATERMARK_KEYS|{"title_image_height","button_image_height",
-                         "library_brand","library_brand_mode","library_brand_image_height",
+                         "logo_size","library_brand","library_brand_mode","library_brand_image_height",
                          "library_eyebrow","library_eyebrow_mode","library_eyebrow_image_height",
                          "library_heading","library_heading_mode","library_heading_image_height"}
             saved={k:current.get(k,DEFAULTS[k]) for k in preserved}

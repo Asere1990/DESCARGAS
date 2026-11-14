@@ -133,7 +133,7 @@ from .dupe_guard import SCHEMA as DEDUPE_SCHEMA
 SCHEMA += DEDUPE_SCHEMA
 DEFAULTS={
  "title":"Web Galerías","header_mode":"text","button_label":"ENTRAR A LA GALERÍA","button_mode":"text",
- "title_image_height":120,"button_image_height":30,
+ "title_image_height":120,"button_image_height":30,"logo_size":49,
  "library_brand":"Web Galerías","library_brand_mode":"text","library_brand_image_height":60,
  "library_eyebrow":"MI COLECCIÓN","library_eyebrow_mode":"text","library_eyebrow_image_height":44,
  "library_heading":"Mis galerías","library_heading_mode":"text","library_heading_image_height":100,

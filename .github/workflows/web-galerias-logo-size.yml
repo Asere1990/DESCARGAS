@@ -1,0 +1,36 @@
+name: Web Galerías — tamaño editable del logo
+on:
+  pull_request:
+    paths:
+      - 'web_galerias/index.html'
+      - 'web_galerias/style.css'
+      - 'web_galerias/app.js'
+      - 'web_galerias/core.py'
+      - 'web_galerias/admin.py'
+      - 'tests/test_web_galerias_logo_size.py'
+      - 'tests/test_web_galerias_logo_size.cjs'
+      - '.github/workflows/web-galerias-logo-size.yml'
+permissions:
+  contents: read
+jobs:
+  logo-size-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - name: Sintaxis de la web
+        run: |
+          python -m compileall -q web_galerias
+          node --check web_galerias/app.js
+      - name: Validación y compatibilidad del editor visual
+        run: |
+          python -m unittest tests.test_web_galerias_logo_size tests.test_web_galerias_button_label_image tests.test_web_galerias_library_identity tests.test_web_galerias_mobile_navigation -v
+      - name: Tamaño visual y controles táctiles
+        run: node --test tests/test_web_galerias_logo_size.cjs
