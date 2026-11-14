@@ -94,6 +94,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op.startswith("admin-manual-"):
+        from . import manual_upload
+        return await manual_upload.operation(g,uid,op,data)
     if op=="admin-folder-add-source":
         return await folder_sources.add(g,uid,data)
     if op in ("admin-folder-disconnect-account","admin-folder-disconnect-source"):
