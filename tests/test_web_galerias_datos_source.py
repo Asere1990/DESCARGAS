@@ -103,8 +103,15 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
     async def test_datos_gallery_uses_its_own_service_and_positive_telegram_uid(self):
         db=N(fetchval=AsyncMock(return_value=True),execute=AsyncMock())
         datos=N(ready=True)
-        gallery=N(closed=False,s=N(datos=datos),db=lambda:db,storage=N(ready=True))
         seen=[]
+        @asynccontextmanager
+        async def fake_main_lock(uid,wait=False):
+            self.assertEqual(uid,222)
+            self.assertFalse(wait)
+            seen.append(("shared_lock",uid))
+            yield
+        gallery=N(closed=False,s=N(datos=datos,repo=N(account_lock=fake_main_lock)),
+                  db=lambda:db,storage=N(ready=True))
         @asynccontextmanager
         async def fake_connected(service,uid):
             seen.append((service,uid))
@@ -122,7 +129,7 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
         ]
         for p in patches:p.start();self.addCleanup(p.stop)
         await sync_folder(gallery,folder,phase="counts")
-        self.assertEqual(seen,[(datos,222)])
+        self.assertEqual(seen,[("shared_lock",222),(datos,222)])
         count_calls.assert_awaited_once()
 
     async def test_admin_validates_only_the_selected_database(self):
