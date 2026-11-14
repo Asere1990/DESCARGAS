@@ -127,29 +127,25 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(db.fetchrow.await_count)
             self.assertEqual(db.execute.await_count,0)
 
-    async def test_switching_source_rescans_without_erasing_original_media(self):
+    async def test_existing_source_editor_uses_validated_lossless_handoff(self):
+        # Old cached admin Mini Apps must not reset the folder's cursor.
         core,db=self.make_core()
-        db.fetchval=AsyncMock(return_value=1)
-        db.fetchrow=AsyncMock(return_value={"id":7})
+        db.fetchval=AsyncMock(return_value=True)
         core.log=AsyncMock()
-        with patch("web_galerias.admin.is_admin",return_value=True):
+        response={"ok":True,"account_uid":1234567890,
+                  "progress_preserved":True,"r2_preserved":True}
+        with patch("web_galerias.admin.is_admin",return_value=True),\
+             patch("web_galerias.folder_sources.change_reader",
+                   new=AsyncMock(return_value=response)) as replace:
             result=await admin_op(core,7539025033,"admin-folder-source",{
                 "folder":7,"account_uid":"1234567890"})
-        self.assertEqual(result,{"ok":True,"changed":True,"account_uid":1234567890})
-        query=db.fetchrow.await_args.args[0]
-        for expected in ("preferred_uid=$2","source_uid=$2",
-                         "scan_cursor=0","high_water=0","complete=FALSE",
-                         "telegram_photos_total=NULL","telegram_videos_total=NULL"):
-            self.assertIn(expected,query)
-        self.assertNotIn("wg_media",query)
-        self.assertNotIn("DELETE",query)
-        statements=[call.args[0] for call in db.execute.await_args_list]
-        self.assertTrue(any("UPDATE wg_media SET state='pending'" in sql
-                            and "WHERE folder=$1 AND state='missing'" in sql
-                            for sql in statements))
-        self.assertTrue(all("DELETE FROM wg_media" not in sql for sql in statements))
-        self.assertTrue(all("state='ready'" not in sql for sql in statements))
-        core.log.assert_awaited_once_with(7539025033,"admin-folder-source")
+        self.assertEqual(result,response)
+        replace.assert_awaited_once_with(
+            core,7539025033,{"folder":7,"account_uid":"1234567890"},carry=True)
+        sql,*args=db.fetchval.await_args.args
+        self.assertIn("source_enabled",sql)
+        self.assertEqual(args,[7])
+        db.execute.assert_not_awaited()
 
     async def test_public_name_changes_do_not_rename_internal_folder(self):
         core,db=self.make_core()
