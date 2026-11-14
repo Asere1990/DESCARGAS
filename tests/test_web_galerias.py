@@ -426,7 +426,7 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(found["missing_rechecked"],2)
         self.assertEqual(sum(x["count"] for x in found["missing_reasons"]),32)
         self.assertNotIn("automatic_cover",found)
-        self.assertEqual(db.fetch.await_count,4)  # cuarto SELECT: orden global de carpetas
+        self.assertEqual(db.fetch.await_count,3)  # una sola carpeta no necesita consulta de orden
 
     async def test_rechecking_only_requeues_ten_missing_without_removing_r2(self):
         from types import SimpleNamespace
