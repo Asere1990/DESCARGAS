@@ -50,29 +50,33 @@ async def folders(g,uid):
     from .permissions import is_admin
     from .downloads import temporary_link
     rows=await g.db().fetch("""SELECT p.id,p.name,
-      COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND f.active
+      COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND f.active AND origin.active
         AND ($2 OR COALESCE(prefs.mode,'all')='all' OR EXISTS(
-          SELECT 1 FROM wg_user_folders u WHERE u.uid=$1 AND u.folder=m.folder))
+          SELECT 1 FROM wg_user_folders u WHERE u.uid=$1 AND u.folder=f.id))
       )::int AS count,
       EXISTS(SELECT 1 FROM wg_personal_covers c
         WHERE c.folder=p.id AND c.uid=$1) AS has_upload,
       p.cover_media,
       (SELECT m2.id FROM wg_personal_items i2
          JOIN wg_media m2 ON m2.id=i2.media
-         JOIN wg_folders f2 ON f2.id=m2.folder
+         JOIN wg_folders origin2 ON origin2.id=m2.folder AND origin2.active
+         LEFT JOIN wg_folder_sources link2 ON link2.source_folder=m2.folder
+         JOIN wg_folders f2 ON f2.id=COALESCE(link2.parent_folder,m2.folder)
          LEFT JOIN wg_user_prefs pref2 ON pref2.uid=$1
          WHERE i2.folder=p.id AND i2.uid=$1 AND f2.active
            AND m2.state IN ('preview','ready') AND m2.thumb_key IS NOT NULL
            AND ($2 OR COALESCE(pref2.mode,'all')='all' OR EXISTS(
              SELECT 1 FROM wg_user_folders u2 WHERE u2.uid=$1
-               AND u2.folder=m2.folder))
+               AND u2.folder=f2.id))
          ORDER BY CASE WHEN p.cover_media=m2.id THEN 0
                        WHEN m2.kind='photo' THEN 1 ELSE 2 END,
                   i2.added ASC,m2.id ASC LIMIT 1) AS cover_item
       FROM wg_personal_folders p
       LEFT JOIN wg_personal_items i ON i.folder=p.id AND i.uid=$1
       LEFT JOIN wg_media m ON m.id=i.media
-      LEFT JOIN wg_folders f ON f.id=m.folder
+      LEFT JOIN wg_folders origin ON origin.id=m.folder
+      LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+      LEFT JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
       LEFT JOIN wg_user_prefs prefs ON prefs.uid=$1
       WHERE p.uid=$1
       GROUP BY p.id ORDER BY p.created DESC,p.id DESC""",uid,is_admin(uid))
@@ -99,12 +103,14 @@ async def allowed_personal_media(connection,uid,ids):
     """Only files visible to this user may enter their personal folders."""
     from .permissions import is_admin
     rows=await connection.fetch("""SELECT m.id FROM wg_media m
-       JOIN wg_folders f ON f.id=m.folder
+       JOIN wg_folders origin ON origin.id=m.folder AND origin.active
+       LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+       JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
        LEFT JOIN wg_user_prefs p ON p.uid=$2
        WHERE m.id=ANY($1::bigint[])
         AND m.state IN ('preview','ready') AND f.active
         AND ($3 OR COALESCE(p.mode,'all')='all' OR EXISTS(
-          SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=m.folder))
+          SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=f.id))
        """,ids,uid,is_admin(uid))
     if len(rows)!=len(ids):
         raise web.HTTPForbidden(text="Uno o más archivos no están autorizados.")
@@ -206,13 +212,15 @@ async def operation(g,uid,op,data):
             allowed=await c.fetchval("""SELECT 1 FROM wg_personal_items i
               JOIN wg_personal_folders p ON p.id=i.folder AND p.uid=$2
               JOIN wg_media m ON m.id=i.media
-              JOIN wg_folders f ON f.id=m.folder
+              JOIN wg_folders origin ON origin.id=m.folder AND origin.active
+              LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+              JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
               LEFT JOIN wg_user_prefs prefs ON prefs.uid=$2
               WHERE i.folder=$1 AND i.uid=$2 AND i.media=$3
                 AND m.kind='photo' AND m.state IN ('preview','ready')
                 AND m.thumb_key IS NOT NULL AND f.active
                 AND ($4 OR COALESCE(prefs.mode,'all')='all' OR EXISTS(
-                  SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=m.folder))
+                  SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=f.id))
               """,folder,uid,media,is_admin(uid))
             if not allowed:raise web.HTTPForbidden(text="Selecciona una foto de tu carpeta.")
             await c.execute("""UPDATE wg_personal_folders SET cover_media=$3
@@ -271,7 +279,9 @@ async def items(g,uid,folder,query,cursor,kind,token):
        EXISTS(SELECT 1 FROM wg_favorites fav WHERE fav.uid=$7 AND fav.media=m.id) AS favorite
        FROM wg_personal_items i
        JOIN wg_media m ON m.id=i.media
-       JOIN wg_folders f ON f.id=m.folder
+       JOIN wg_folders origin ON origin.id=m.folder AND origin.active
+       LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+       JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
        LEFT JOIN wg_user_prefs p ON p.uid=$1
        WHERE i.uid=$1 AND i.folder=$2 AND f.active
         AND m.state IN ('preview','ready')
@@ -280,7 +290,7 @@ async def items(g,uid,folder,query,cursor,kind,token):
             @@ plainto_tsquery('simple',$4))
         AND m.id<$5
         AND ($6 OR COALESCE(p.mode,'all')='all' OR EXISTS(
-          SELECT 1 FROM wg_user_folders u WHERE u.uid=$1 AND u.folder=m.folder))
+          SELECT 1 FROM wg_user_folders u WHERE u.uid=$1 AND u.folder=f.id))
        ORDER BY m.id DESC LIMIT 61
        """,uid,folder,kind,query,cursor or 2**63-1,is_admin(uid),uid)
     result=[]
