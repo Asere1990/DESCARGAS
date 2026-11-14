@@ -150,6 +150,8 @@ async def admin_op(g,uid,op,data):
             COUNT(m.id) FILTER(WHERE m.state='pending' AND
               m.error='en_revalidacion')::int AS rechecking,
             COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
+            COUNT(m.id) FILTER(WHERE m.state='ready' AND m.kind='photo')::int AS r2_photos,
+            COUNT(m.id) FILTER(WHERE m.state='ready' AND m.kind='video')::int AS r2_videos,
             COUNT(m.id) FILTER(WHERE m.state='preview')::int AS preview_only,
             COUNT(m.id) FILTER(WHERE m.state='paused_preview')::int AS paused_preview,
             COUNT(m.id) FILTER(WHERE m.state='preview'
@@ -221,6 +223,7 @@ async def admin_op(g,uid,op,data):
           FROM wg_media m JOIN wg_folders f ON f.id=m.folder
           WHERE (m.folder=$1 OR m.folder IN (
             SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
+            AND f.source_enabled
             AND m.state='missing'
           ORDER BY m.id DESC LIMIT 10""",folder)
         return {"items":[dict(row) for row in rows]}
@@ -236,6 +239,8 @@ async def admin_op(g,uid,op,data):
              (folder=$1 OR folder IN (
                SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
              AND state='missing'
+             AND EXISTS(SELECT 1 FROM wg_folders origin
+                        WHERE origin.id=folder AND origin.source_enabled)
            ORDER BY CASE WHEN error='no_disponible_en_origen'
               THEN 0 ELSE 1 END,id DESC
            FOR UPDATE SKIP LOCKED LIMIT 10)
@@ -421,8 +426,9 @@ async def admin_op(g,uid,op,data):
     if op=="admin-sync-reset":
         folder=identifier(data.get("folder"))
         await db.execute("""UPDATE wg_folders SET scan_cursor=0,complete=FALSE,error=''
-            WHERE id=$1 OR id IN (
-              SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1)""",folder)
+            WHERE (id=$1 OR id IN (
+              SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
+            AND source_enabled""",folder)
         await g.log(uid,op)
         return {"ok":True}
     raise web.HTTPNotFound()

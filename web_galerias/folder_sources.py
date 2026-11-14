@@ -47,6 +47,32 @@ async def add(g,actor,data):
     uid=await linked_source_account(
         g,data.get('account_uid'),data.get('account_system','descargas'))
     db=g.db()
+    # A disconnected source keeps an internal folder ID to preserve its cloud
+    # objects. If the admin adds that SAME peer again to the SAME public folder,
+    # reactivate the existing source from zero instead of creating duplicates.
+    previous=await db.fetchrow("""
+      SELECT f.id,f.source_enabled,link.parent_folder
+      FROM wg_folders f
+      LEFT JOIN wg_folder_sources link ON link.source_folder=f.id
+      WHERE f.peer=$1
+    """,peer)
+    if previous:
+        same_folder=(int(previous['id'])==parent or
+                     previous['parent_folder']==parent)
+        if not same_folder:
+            raise web.HTTPConflict(
+                text='Este grupo ya existe en otra galería. No se modificó ninguna carpeta.')
+        if previous['source_enabled']:
+            raise web.HTTPConflict(text='Este grupo ya está conectado a la carpeta.')
+        refreshed=await change_reader(g,actor,{
+            'folder':previous['id'],
+            'account_uid':data.get('account_uid'),
+            'account_system':data.get('account_system','descargas'),
+        },carry=False)
+        await g.log(actor,'admin-folder-add-source:reactivated')
+        return {'ok':True,'folder':parent,'source_folder':int(previous['id']),
+                'peer':peer,'account_uid':uid,'reactivated':True,
+                'progress_preserved':False,'r2_preserved':True}
     async with db.acquire() as conn,conn.transaction():
         # Serialise attachments to the same parent, and disallow child-of-child.
         parent_row=await conn.fetchrow("""
@@ -181,16 +207,22 @@ async def disconnect(g,actor,data,kind):
             raise web.HTTPNotFound(text="Origen de Telegram no encontrado.")
         if not row["source_enabled"]:
             return {"ok":True,"changed":False,"r2_preserved":True}
-        old=row["preferred_uid"] or row["source_uid"] or row["last_source_uid"]
+        # Drop obsolete Telegram-only scan/status metadata on disconnect.
+        # Keep wg_folders.id, peer and the wg_folder_sources link: those are
+        # internal foreign-key references for media already stored in R2.
         await conn.execute("""
           UPDATE wg_folders SET source_enabled=FALSE,
             source_access_status='disconnected',preferred_uid=NULL,
-            source_uid=NULL,last_source_uid=$2,
-            error=$3
+            source_uid=NULL,last_source_uid=NULL,
+            scan_cursor=0,high_water=0,complete=FALSE,
+            last_check=0,error='',scan_count=0,
+            telegram_photos_total=NULL,telegram_videos_total=NULL,
+            telegram_counts_at=0,telegram_counts_next_attempt=0,
+            telegram_counts_error=''
           WHERE id=$1
-        """,folder,old,("Grupo/canal desconectado; archivos de Cloudflare conservados"
-                         if kind=="source" else
-                         "Cuenta desconectada; asigna otra para comenzar desde cero"))
+        """,folder)
+        await conn.execute("DELETE FROM wg_discovery WHERE folder=$1",folder)
+        await conn.execute("DELETE FROM wg_source_peers WHERE folder=$1",folder)
         # Hide only previews without an original. Preserve their R2 thumbnail
         # keys, all 'ready' originals and every user/personal-folder reference.
         result=await conn.execute("""
@@ -267,7 +299,12 @@ async def change_reader(g,actor,data,carry):
 
 
 def combine_admin_rows(rows,links):
-    """Aggregate counts without touching per-source synchronization state."""
+    """Expose current Telegram links only; cloud-ready media remains aggregated.
+
+    Disconnected source rows are retained internally to resolve every original
+    and thumbnail in R2. They must not appear as current accounts, peers,
+    Telegram totals, stale errors or pending downloads in the admin card.
+    """
     records={int(r['id']):dict(r) for r in rows}
     children={}
     for link in links:
@@ -275,41 +312,47 @@ def combine_admin_rows(rows,links):
         if parent in records and child in records:
             children.setdefault(parent,[]).append(child)
     child_ids={child for family in children.values() for child in family}
+    cloud_fields=('ready','visible_photos','visible_videos','r2_photos','r2_videos')
+    live_fields=tuple(field for field in SUM_FIELDS if field not in cloud_fields)
     result=[]
     for fid,source in records.items():
         if fid in child_ids:
             continue
         root=dict(source)
         family=[source]+[records[child] for child in children.get(fid,())]
+        connected=[s for s in family if s.get('source_enabled',True)]
         root['sources']=[
             {'id':int(s['id']),'peer':int(s['peer']),
              'account_uid':s.get('preferred_uid') or s.get('source_uid'),
-             'last_account_uid':s.get('last_source_uid'),
-             'source_enabled':s.get('source_enabled',True),
+             'source_enabled':True,
              'access_status':s.get('source_access_status') or 'unknown',
              'scan_count':int(s.get('scan_count') or 0),
              'error':s.get('error') or '',
              'complete':bool(s.get('complete'))}
-            for s in family]
-        for key in SUM_FIELDS:
-            root[key]=sum(int(s.get(key) or 0) for s in family)
-        for key in TOTAL_FIELDS:
-            values=[s.get(key) for s in family]
-            root[key]=sum(int(x) for x in values) if all(x is not None for x in values) else None
-        root['complete']=all(bool(s.get('complete')) for s in family)
-        root['last_check']=max(float(s.get('last_check') or 0) for s in family)
+            for s in connected]
+        root['active_source_count']=len(connected)
+        for field in cloud_fields:
+            root[field]=sum(int(s.get(field) or 0) for s in family)
+        for field in live_fields:
+            root[field]=sum(int(s.get(field) or 0) for s in connected)
+        for field in TOTAL_FIELDS:
+            totals=[s.get(field) for s in connected]
+            root[field]=(sum(int(x) for x in totals)
+                         if totals and all(x is not None for x in totals)
+                         else None)
+        root['complete']=bool(connected) and all(bool(s.get('complete')) for s in connected)
+        root['last_check']=max((float(s.get('last_check') or 0) for s in connected),default=0)
         root['telegram_counts_at']=min(
-            (float(s.get('telegram_counts_at') or 0) for s in family),default=0)
+            (float(s.get('telegram_counts_at') or 0) for s in connected),default=0)
         root['automatic_cover']=max(
             (int(s.get('automatic_cover') or 0) for s in family),default=0) or None
-        reasons=[f"{s['peer']}: {s['error']}" for s in family if s.get('error')]
-        root['error']=' | '.join(reasons)[:1000]
+        root['error']=' | '.join(
+            f"{s['peer']}: {s['error']}" for s in connected if s.get('error'))[:1000]
         root['telegram_counts_error']=' | '.join(
-            f"{s['peer']}: {s['telegram_counts_error']}" for s in family
+            f"{s['peer']}: {s['telegram_counts_error']}" for s in connected
             if s.get('telegram_counts_error'))[:1000]
         result.append(root)
     return result
-
 
 def public_sources_sql(field='folder',placeholder='$1'):
     """Use indexed per-source folder IDs; media row IDs remain globally unique."""

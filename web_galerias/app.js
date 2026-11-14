@@ -1753,12 +1753,18 @@ function previewAdmin(){
   count.textContent=pretty(f.visible_photos)+" fotos · "+pretty(f.visible_videos)+" videos";
   // El origen declara mucho más contenido que el catálogo actual.
   // Nunca presentar un dato aún no consultado como cero.
-  const hasTelegramTotals=f.telegram_photos_total!==null&&f.telegram_photos_total!==undefined
+  const activeSources=Array.isArray(f.sources)?
+    f.sources.filter(source=>source.source_enabled!==false):[];
+  const hasLiveSources=activeSources.length>0;
+  const hasTelegramTotals=hasLiveSources&&
+    f.telegram_photos_total!==null&&f.telegram_photos_total!==undefined
     &&f.telegram_videos_total!==null&&f.telegram_videos_total!==undefined;
   const originCount=document.createElement("p");originCount.className="admin-origin-count";
-  originCount.textContent=hasTelegramTotals?
-    "En Telegram: "+pretty(f.telegram_photos_total)+" fotos · "+pretty(f.telegram_videos_total)+" videos":
-    "En Telegram: consultando totales…";
+  originCount.textContent=!hasLiveSources?
+    "Sin conexiones de Telegram · contenido conservado en R2":
+    hasTelegramTotals?
+      "En Telegram: "+pretty(f.telegram_photos_total)+" fotos · "+pretty(f.telegram_videos_total)+" videos":
+      "En Telegram: consultando totales…";
   const chevron=document.createElement("span");chevron.className="admin-gallery-chevron";
   chevron.textContent="Detalles ▾";
   trigger.append(cover,title,count,originCount,chevron);
@@ -1784,81 +1790,72 @@ function previewAdmin(){
   addAdminDatum("Nombre interno",f.name||"Sin nombre");
   addAdminDatum("Visibilidad para clientes",f.active?"Visible":"Oculta",
     "Ocultarla no detiene la catalogación ni el respaldo en Cloudflare R2.");
-  addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal de origen.");
-  if(Array.isArray(f.sources)&&f.sources.length>1){
-    addAdminDatum("Fuentes conectadas",f.sources.length+" grupos o canales",
-      "Cada origen conserva su cuenta, su historial y su respaldo independientes.");
-    for(const [ix,source] of f.sources.entries()){
-      addAdminDatum("Origen "+(ix+1),
+  addAdminDatum("Conexiones de Telegram",hasLiveSources?
+    activeSources.length+" grupo(s) o canal(es) activo(s)":
+    "Sin conexiones de Telegram",
+    "Solo aparecen aquí las cuentas y grupos que actualmente alimentan esta carpeta.");
+  if(hasLiveSources){
+    for(const [ix,source] of activeSources.entries()){
+      addAdminDatum("Origen activo "+(ix+1),
         source.peer+" · "+gallerySourceLabel(source.account_uid)+
           " · "+pretty(source.scan_count)+" mensajes recorridos"+
+          (source.access_status==="revoked"?" · sesión revocada":"")+
           (source.error?" · "+source.error:""),
-        "Todas sus fotos y videos se reúnen en esta carpeta.");
+        "Identificador y cuenta conectados a esta carpeta.");
     }
+    addAdminDatum("Fotos totales en Telegram",
+      hasTelegramTotals?pretty(f.telegram_photos_total):"Pendiente de consulta",
+      "Solo grupos o canales actualmente conectados.");
+    addAdminDatum("Videos totales en Telegram",
+      hasTelegramTotals?pretty(f.telegram_videos_total):"Pendiente de consulta",
+      "Solo grupos o canales actualmente conectados.");
+    addAdminDatum("Fotos + videos en Telegram",
+      hasTelegramTotals?pretty(Number(f.telegram_photos_total)+Number(f.telegram_videos_total)):"Pendiente de consulta");
+    addAdminDatum("Totales consultados",f.telegram_counts_at?
+      new Date(Number(f.telegram_counts_at)*1000).toLocaleString("es-US"):"Todavía sin consultar");
+    if(f.telegram_counts_error)addAdminDatum("Último error al consultar Telegram",
+      f.telegram_counts_error);
   }
-  addAdminDatum("Cuenta Telegram para el historial",
-    f.preferred_uid?gallerySourceLabel(f.preferred_uid):"No asignada",
-    "Solo esta cuenta vinculada se utilizará cuando la establezcas. Debe poder ver todo el historial.");
-  if(!f.preferred_uid&&f.source_uid)
-    addAdminDatum("Cuenta detectada hasta ahora",gallerySourceLabel(f.source_uid),
-      "Cuenta elegida automáticamente; puedes fijar otra con acceso al historial completo.");
-  addAdminDatum("Fotos totales en Telegram",
-    hasTelegramTotals?pretty(f.telegram_photos_total):"Pendiente de consulta",
-    "Cantidad reportada por Telegram, sin descargar archivos ni esperar la catalogación.");
-  addAdminDatum("Videos totales en Telegram",
-    hasTelegramTotals?pretty(f.telegram_videos_total):"Pendiente de consulta",
-    "Cantidad reportada por Telegram, independiente de los videos ya respaldados.");
-  addAdminDatum("Fotos + videos en Telegram",
-    hasTelegramTotals?pretty(Number(f.telegram_photos_total)+Number(f.telegram_videos_total)):"Pendiente de consulta",
-    "Total de los filtros de fotos y videos. Los GIF y archivos enviados como documentos pueden contabilizarse aparte.");
-  addAdminDatum("Totales consultados",
-    f.telegram_counts_at?new Date(Number(f.telegram_counts_at)*1000).toLocaleString("es-US"):"Todavía sin consultar",
-    "Se actualizan periódicamente usando una cuenta que ya tiene acceso al grupo.");
-  if(f.telegram_counts_error)
-    addAdminDatum("Último error al consultar Telegram",f.telegram_counts_error,
-      "Se conserva el último total conocido; la consulta se reintentará.");
-  addAdminDatum("Fotos normales",pretty(f.photo_native),"Incluye registros antiguos aún sin clasificar.");
-  addAdminDatum("Videos normales",pretty(f.video_native),"Incluye registros antiguos aún sin clasificar.");
-  addAdminDatum("GIF",pretty(f.gifs),"Se incluyen en la galería de videos.");
-  addAdminDatum("Fotos enviadas como archivo",pretty(f.photo_files));
-  addAdminDatum("Videos enviados como archivo",pretty(f.video_files));
-  addAdminDatum("Multimedia registrado",pretty(f.media_total),
-    "Inventario único identificado hasta ahora. Puede aumentar si la catalogación continúa.");
-  if(f.legacy_uncategorized){
-   addAdminDatum("Registros antiguos sin distinguir formato",pretty(f.legacy_uncategorized),
-      "Ya están incluidos arriba; se clasificarán mejor cuando se revaliden.");
+  addAdminDatum("Archivos respaldados en Cloudflare R2",pretty(f.ready),
+    "Originales conservados aunque se desconecten sus grupos y cuentas de Telegram.");
+  addAdminDatum("Fotos respaldadas en R2",pretty(f.r2_photos),
+    "Fotos completas guardadas en la nube, de cualquier origen.");
+  addAdminDatum("Videos respaldados en R2",pretty(f.r2_videos),
+    "Videos completos guardados en la nube, de cualquier origen.");
+  if(hasLiveSources){
+    addAdminDatum("Fotos normales",pretty(f.photo_native),
+      "Solo multimedia registrado en las fuentes actualmente conectadas.");
+    addAdminDatum("Videos normales",pretty(f.video_native));
+    addAdminDatum("GIF",pretty(f.gifs),"Se incluyen en la galería de videos.");
+    addAdminDatum("Fotos enviadas como archivo",pretty(f.photo_files));
+    addAdminDatum("Videos enviados como archivo",pretty(f.video_files));
+    addAdminDatum("Multimedia catalogado en fuentes activas",pretty(f.media_total));
+    if(f.legacy_uncategorized)
+      addAdminDatum("Registros sin distinguir formato",pretty(f.legacy_uncategorized));
+    addAdminDatum("Estado del respaldo",state,
+       "Estado general del sincronizador; no necesariamente de este grupo.");
+    addAdminDatum("Archivos visibles solo con vista previa",pretty(f.preview_only),
+      "Pendientes de que su original se respalde en Cloudflare.");
+    addAdminDatum("Vistas previas con miniatura",pretty(f.previews_with_images));
+    addAdminDatum("Archivos pendientes en fuentes activas",pretty(f.pending));
+    if(f.rechecking)addAdminDatum("Revalidación solicitada",pretty(f.rechecking));
+    const legacyMissing=Math.max(0,Number(f.missing||0)-Number(f.missing_rechecked||0));
+    addAdminDatum("Incidencias sin verificar",pretty(legacyMissing));
+    addAdminDatum("No recuperados tras tres comprobaciones",pretty(f.missing_rechecked));
+    addAdminDatum("Restringidos o temporales",pretty(f.skipped));
+    addAdminDatum("Mensajes recorridos en fuentes activas",pretty(f.scan_count));
+    addAdminDatum("Historial inicial",f.complete?
+      "Recorrido completado":"Recorrido en curso");
+    if(Array.isArray(f.missing_reasons)){
+      for(const reason of f.missing_reasons){
+        addAdminDatum("Motivo: "+(readableReason[reason.code]||reason.code||"Desconocido"),
+          pretty(reason.count));
+      }
+    }
+    if(f.paused_preview)addAdminDatum("Vistas previas retenidas por sesión revocada",
+      pretty(f.paused_preview),"Ocultas al público; ningún objeto de R2 se borra.");
+    if(f.error)addAdminDatum("Última incidencia técnica",f.error);
   }
-  addAdminDatum("Estado del respaldo",state,
-     "Estado general del sincronizador; no necesariamente una transferencia activa de este grupo.");
-  addAdminDatum("Archivos visibles solo con vista previa",pretty(f.preview_only),
-    "Aparecen en la galería antes de que se guarde su original en Cloudflare.");
-  addAdminDatum("Vistas previas con miniatura",pretty(f.previews_with_images),
-    "Archivos con imagen de muestra, pero todavía sin respaldo completo.");
-  addAdminDatum("Archivos respaldados",pretty(f.ready),"Originales guardados en Cloudflare R2.");
-  addAdminDatum("Archivos pendientes",pretty(f.pending),
-     "Falta respaldar el original; algunos ya tienen miniatura.");
-  if(f.rechecking)addAdminDatum("Revalidación solicitada",pretty(f.rechecking),
-     "Forman parte de los pendientes; se comprobarán sin bloquear las descargas.");
-  const legacyMissing=Math.max(0,Number(f.missing||0)-Number(f.missing_rechecked||0));
-  addAdminDatum("Incidencias sin verificar",pretty(legacyMissing),
-    "No significa que estén borrados; incluye errores de clasificación anteriores.");
-  addAdminDatum("No recuperados tras tres comprobaciones",pretty(f.missing_rechecked),
-    "Pueden estar borrados, haber cambiado o no ser accesibles; no se borró nada de R2.");
-  addAdminDatum("Restringidos o temporales",pretty(f.skipped),
-    "Separados de los archivos que realmente faltan.");
-  addAdminDatum("Mensajes recorridos",pretty(f.scan_count),
-    "Contador de entradas examinadas por Telegram; se indexan únicamente los multimedia y sus captions.");
-  addAdminDatum("Historial inicial",f.complete?"Recorrido completado":"Recorrido en curso",
-    "Solo indica que se alcanzó el final del historial inicial; el respaldo sigue aparte.");
-  if(Array.isArray(f.missing_reasons)&&f.missing_reasons.length){
-   for(const reason of f.missing_reasons){
-    const label=readableReason[reason.code]||reason.code||"Motivo desconocido";
-    addAdminDatum("Motivo: "+label,pretty(reason.count));
-   }
-  }
-  if(f.paused_preview)addAdminDatum("Vistas previas retenidas por sesión revocada",
-    pretty(f.paused_preview),"Ocultas del público; sus objetos en R2 no se borran.");
-  if(f.error)addAdminDatum("Última incidencia técnica",f.error);
   const buttons=document.createElement("div");buttons.className="row-actions";
   const edit=document.createElement("button");edit.type="button";
   edit.className="small-btn";edit.textContent="Nombre interno";
@@ -1907,12 +1904,11 @@ function previewAdmin(){
   sourceHeading.textContent="Conexiones de Telegram";
   const sourceHelp=document.createElement("p");
   sourceHelp.className="muted";
-  sourceHelp.textContent="Reemplazar la cuenta antes de desconectar conserva el avance si tiene acceso al mismo grupo. Desconectar detiene la fuente y oculta vistas previas incompletas. Ningún objeto de Cloudflare R2 se elimina.";
+  sourceHelp.textContent=hasLiveSources?
+    "Solo se muestran conexiones vigentes. Reemplazar la cuenta antes de desconectar conserva el avance. Desconectar elimina los datos técnicos de esa conexión de la ficha sin borrar R2.":
+    "Sin conexiones de Telegram. Todo lo ya respaldado permanece en Cloudflare R2. Para iniciar una nueva sincronización usa «Agregar grupo o canal».";
   sourceControls.append(sourceHeading,sourceHelp);
-  for(const origin of (f.sources?.length?f.sources:[{
-    id:f.id,peer:f.peer,account_uid:f.preferred_uid||f.source_uid,
-    source_enabled:f.source_enabled,access_status:f.source_access_status
-  }])){
+  for(const origin of activeSources){
     const line=document.createElement("div");
     line.className="admin-source-row";
     const heading=document.createElement("strong");
@@ -1983,7 +1979,7 @@ function previewAdmin(){
     if(peer===null)return;
     if(!/^-[0-9]{3,19}$/.test(peer.trim()))
       return notice("Indica el ID completo negativo del grupo o canal.");
-    const suggested=gallerySourceLabel(f.preferred_uid||f.source_uid);
+    const suggested=gallerySourceLabel(activeSources[0]?.account_uid);
     const value=prompt("Cuenta vinculada que lee ese grupo. Escribe DESCARGAS:telegram_id o DATOS:telegram_id:",
       suggested==="No asignada"?"":suggested);
     if(value===null)return;
@@ -2016,10 +2012,11 @@ function previewAdmin(){
    };
    buttons.append(resetPhoto);
   }
-  buttons.append(remove,reset);
+  buttons.append(remove);
+  if(hasLiveSources)buttons.append(reset);
   const audit=document.createElement("button");audit.type="button";audit.className="small-btn";
   audit.textContent="Revalidar 10 incidencias";
-  audit.disabled=!f.missing;
+  audit.disabled=!hasLiveSources||!f.missing;
   audit.onclick=async()=>{
    audit.disabled=true;
    try{
@@ -2035,7 +2032,7 @@ function previewAdmin(){
   examples.className="admin-missing-examples hidden";
   const samples=document.createElement("button");samples.type="button";
   samples.className="small-btn";samples.textContent="Ver 10 ejemplos";
-  samples.disabled=!f.missing;
+  samples.disabled=!hasLiveSources||!f.missing;
   samples.onclick=async()=>{
    samples.disabled=true;examples.classList.remove("hidden");
    examples.textContent="Consultando incidencias…";

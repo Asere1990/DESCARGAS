@@ -65,6 +65,7 @@ class RecoveryPostgresTests(unittest.IsolatedAsyncioTestCase):
             error TEXT NOT NULL DEFAULT '',
             available DOUBLE PRECISION NOT NULL DEFAULT 0);
           CREATE TEMP TABLE wg_discovery(folder BIGINT,uid BIGINT);
+          CREATE TEMP TABLE wg_source_peers(folder BIGINT,uid BIGINT,handle BYTEA);
           CREATE TEMP TABLE wg_folder_order(
             uid BIGINT NOT NULL,scope TEXT NOT NULL,folder BIGINT NOT NULL,
             position INT NOT NULL,PRIMARY KEY(uid,scope,folder));
@@ -80,6 +81,9 @@ class RecoveryPostgresTests(unittest.IsolatedAsyncioTestCase):
                 (12,2,'preview','r2/child-thumb',NULL),
                 (13,2,'ready','r2/child-ready-thumb','r2/child-original');
           INSERT INTO wg_personal_folders(id,uid) VALUES(51,900),(52,900);
+          INSERT INTO wg_discovery(folder,uid) VALUES(1,101),(2,202);
+          INSERT INTO wg_source_peers(folder,uid,handle)
+          VALUES(1,101,decode('aabb','hex')),(2,202,decode('ccdd','hex'));
         """)
         self.db=Pool(self.conn)
         # A fake store that fails if an R2 delete method is ever used.
@@ -124,6 +128,19 @@ class RecoveryPostgresTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["r2_preserved"])
         self.assertFalse(await self.db.fetchval("SELECT source_enabled FROM wg_folders WHERE id=1"))
         self.assertIsNone(await self.db.fetchval("SELECT preferred_uid FROM wg_folders WHERE id=1"))
+        clean=await self.db.fetchrow("""
+          SELECT scan_cursor,high_water,scan_count,complete,last_source_uid,
+                 telegram_photos_total,telegram_videos_total,telegram_counts_at,
+                 last_check,error FROM wg_folders WHERE id=1""")
+        self.assertEqual((clean["scan_cursor"],clean["high_water"],clean["scan_count"]),(0,0,0))
+        self.assertFalse(clean["complete"])
+        for key in ("last_source_uid","telegram_photos_total","telegram_videos_total"):
+            self.assertIsNone(clean[key])
+        self.assertEqual(clean["error"],"")
+        self.assertEqual(clean["last_check"],0)
+        self.assertEqual(await self.db.fetchval("SELECT COUNT(*) FROM wg_discovery WHERE folder=1"),0)
+        self.assertEqual(await self.db.fetchval("SELECT COUNT(*) FROM wg_source_peers WHERE folder=1"),0)
+        self.assertEqual(await self.db.fetchval("SELECT COUNT(*) FROM wg_discovery WHERE folder=2"),1)
         self.assertEqual(await self.db.fetchval("SELECT state FROM wg_media WHERE id=11"),"pending")
         self.assertEqual(await self.db.fetchval("SELECT state FROM wg_media WHERE id=10"),"ready")
         self.assertEqual(await self.db.fetchval("SELECT state FROM wg_media WHERE id=12"),"preview")
@@ -139,6 +156,25 @@ class RecoveryPostgresTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((actual["source_enabled"],actual["preferred_uid"],actual["scan_cursor"],
                           actual["high_water"],actual["complete"]),(True,-404,0,0,False))
         self.assertEqual(await self.db.fetch("SELECT id,thumb_key,file_key FROM wg_media ORDER BY id"),original)
+        self.r2.delete.assert_not_awaited()
+
+    async def test_add_same_group_id_reactivates_archived_source_without_duplicate(self):
+        await folder_sources.disconnect(self.g,900,{"folder":1},"source")
+        original=await self.db.fetch("SELECT id,folder,thumb_key,file_key FROM wg_media ORDER BY id")
+        with patch("web_galerias.admin.linked_source_account",
+                   new=AsyncMock(return_value=707)),\
+             patch.object(folder_sources,"verified_reader",
+                          new=AsyncMock(return_value=True)) as verify:
+            result=await folder_sources.add(self.g,900,{
+                "folder":1,"peer":-100111,"account_uid":"707"})
+        self.assertTrue(result["reactivated"])
+        self.assertFalse(result["progress_preserved"])
+        self.assertEqual(result["source_folder"],1)
+        verify.assert_awaited_once_with(self.g,707,-100111)
+        self.assertTrue(await self.db.fetchval("SELECT source_enabled FROM wg_folders WHERE id=1"))
+        self.assertEqual(await self.db.fetchval("SELECT preferred_uid FROM wg_folders WHERE id=1"),707)
+        self.assertEqual(await self.db.fetchval("SELECT COUNT(*) FROM wg_folders"),3)
+        self.assertEqual(await self.db.fetch("SELECT id,folder,thumb_key,file_key FROM wg_media ORDER BY id"),original)
         self.r2.delete.assert_not_awaited()
 
     async def test_disconnected_cannot_claim_lossless_handoff(self):
