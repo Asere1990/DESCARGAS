@@ -49,6 +49,16 @@ test('selected linked-account header displays Telegram ID directly under the nam
  assert.match(source,/\$\('account-telegram-row'\)\.hidden=false/);
  assert.match(source,/\$\('copy-account-id'\)\.onclick=\(\)=>\{if\(account\)copyTelegramId\(account\.id\)/);
 });
+test('linked-account header shows the existing phone beneath the Telegram ID',()=>{
+ const name=html.indexOf('id="account-name"');
+ const id=html.indexOf('id="account-telegram-id"',name);
+ const phone=html.indexOf('id="account-phone"',id);
+ const next=html.indexOf('id="new-chat"',phone);
+ assert.ok(name>=0&&id>name&&phone>id&&next>phone);
+ assert.match(source,/\$\('account-phone'\)\.textContent='Teléfono: '\+\(a\.phone\|\|'No disponible'\)/);
+ assert.match(source,/\$\('account-phone'\)\.hidden=false/);
+ assert.match(css,/\.account-context \.account-phone\{/);
+});
 test('groups and channels have separate copy buttons; ordinary chat opening stays unchanged',()=>{
  assert.match(source,/const showPeerId=panelAdmin&&\(c\.type==='group'\|\|c\.type==='channel'\)/);
  assert.match(source,/body\.append\(el\('small','ID: '\+c\.id\)\)/);
