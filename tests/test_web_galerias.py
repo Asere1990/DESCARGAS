@@ -426,7 +426,7 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(found["missing_rechecked"],2)
         self.assertEqual(sum(x["count"] for x in found["missing_reasons"]),32)
         self.assertNotIn("automatic_cover",found)
-        self.assertEqual(db.fetch.await_count,2)
+        self.assertEqual(db.fetch.await_count,3)
 
     async def test_rechecking_only_requeues_ten_missing_without_removing_r2(self):
         from types import SimpleNamespace
@@ -454,7 +454,7 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         g=SimpleNamespace(db=lambda:db)
         result=await admin_op(g,7539025033,"admin-missing-samples",{"folder":7})
         self.assertEqual(result["items"],samples)
-        self.assertIn("ORDER BY id DESC LIMIT 10",db.fetch.await_args.args[0])
+        self.assertIn("ORDER BY m.id DESC LIMIT 10",db.fetch.await_args.args[0])
         self.assertEqual(db.fetch.await_args.args[1],7)
         with self.assertRaises(web.HTTPForbidden):
             await admin_op(g,123456,"admin-missing-samples",{"folder":7})
