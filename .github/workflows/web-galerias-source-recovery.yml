@@ -13,6 +13,8 @@ on:
       - 'web_galerias/personal.py'
       - 'web_galerias/style.css'
       - 'tests/test_web_galerias_source_recovery_pg.py'
+      - 'tests/test_web_galerias_clean_disconnect.py'
+      - 'tests/test_web_galerias_clean_disconnect.cjs'
       - 'tests/test_web_galerias_folder_sort.cjs'
       - '.github/workflows/web-galerias-source-recovery.yml'
 permissions:
@@ -51,5 +53,9 @@ jobs:
           node --check web_galerias/app.js
       - name: Relevo, revocación, desconexión y R2 intacto en PostgreSQL aislado
         run: python -m unittest tests.test_web_galerias_source_recovery_pg -v
+      - name: Limpiar orígenes obsoletos sin alterar R2
+        run: python -m unittest tests.test_web_galerias_clean_disconnect -v
+      - name: Interfaz sin conexiones antiguas
+        run: node --test tests/test_web_galerias_clean_disconnect.cjs
       - name: Arrastre por pulsación sostenida y botones de origen
         run: node --test tests/test_web_galerias_folder_sort.cjs
