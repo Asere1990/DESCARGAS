@@ -203,9 +203,13 @@ async def admin_op(g,uid,op,data):
         folder=identifier(data.get("folder"))
         exists=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
         if not exists:raise web.HTTPNotFound(text="Galería no encontrada.")
-        rows=await db.fetch("""SELECT message,kind,mime,source_type,error
-          FROM wg_media WHERE folder=$1 AND state='missing'
-          ORDER BY id DESC LIMIT 10""",folder)
+        rows=await db.fetch("""SELECT m.message,m.kind,m.mime,m.source_type,m.error,
+              f.peer AS source_peer
+          FROM wg_media m JOIN wg_folders f ON f.id=m.folder
+          WHERE (m.folder=$1 OR m.folder IN (
+            SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
+            AND m.state='missing'
+          ORDER BY m.id DESC LIMIT 10""",folder)
         return {"items":[dict(row) for row in rows]}
     if op=="admin-recheck-missing":
         # La base de datos externa permanece privada. Volver a consultar
@@ -215,7 +219,10 @@ async def admin_op(g,uid,op,data):
         found=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
         if not found:raise web.HTTPNotFound(text="Galería no encontrada.")
         changed=await db.fetch("""WITH candidate AS (
-           SELECT id FROM wg_media WHERE folder=$1 AND state='missing'
+           SELECT id FROM wg_media WHERE
+             (folder=$1 OR folder IN (
+               SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
+             AND state='missing'
            ORDER BY CASE WHEN error='no_disponible_en_origen'
               THEN 0 ELSE 1 END,id DESC
            FOR UPDATE SKIP LOCKED LIMIT 10)
@@ -419,7 +426,9 @@ async def admin_op(g,uid,op,data):
         return await upload(g,uid,data)
     if op=="admin-sync-reset":
         folder=identifier(data.get("folder"))
-        await db.execute("UPDATE wg_folders SET scan_cursor=0,complete=FALSE,error='' WHERE id=$1",folder)
+        await db.execute("""UPDATE wg_folders SET scan_cursor=0,complete=FALSE,error=''
+            WHERE id=$1 OR id IN (
+              SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1)""",folder)
         await g.log(uid,op)
         return {"ok":True}
     raise web.HTTPNotFound()
