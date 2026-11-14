@@ -235,11 +235,6 @@ async def admin_op(g,uid,op,data):
         try:peer=int(data.get("peer",0))
         except (ValueError,TypeError,OverflowError):raise web.HTTPBadRequest(text="ID incorrecto.")
         if not -2**63<peer<0:raise web.HTTPBadRequest(text="Escribe el ID completo negativo del grupo o canal.")
-        if await db.fetchval("""
-            SELECT 1 FROM wg_folders f
-            JOIN wg_folder_sources s ON s.source_folder=f.id
-            WHERE f.peer=$1""",peer):
-            raise web.HTTPConflict(text="Ese grupo ya está asociado a otra carpeta.")
         name=str(data.get("name","")).strip()
         if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre interno incorrecto.")
         public_name=data.get("public_name")
@@ -286,7 +281,11 @@ async def admin_op(g,uid,op,data):
             telegram_counts_next_attempt=CASE WHEN excluded.preferred_uid IS NOT NULL
               AND excluded.preferred_uid IS DISTINCT FROM wg_folders.preferred_uid
               THEN 0 ELSE wg_folders.telegram_counts_next_attempt END
+          WHERE NOT EXISTS(SELECT 1 FROM wg_folder_sources s
+                           WHERE s.source_folder=wg_folders.id)
           RETURNING id""",peer,name,public_name,time.time(),account_uid)
+        if not row:
+            raise web.HTTPConflict(text="Este grupo ya está asociado a otra carpeta.")
         # Reactivación conserva todas las copias ready en R2 y los cursores.
         # Solo los archivos antes no disponibles pueden volver a intentarse.
         await db.execute("""UPDATE wg_media SET state='pending',
