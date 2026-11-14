@@ -409,7 +409,7 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
                 "missing_rechecked":2,"skipped":0,"rechecking":0}
         reasons=[{"folder":7,"error":"no_disponible_en_origen","amount":30},
                  {"folder":7,"error":"message_absent_after_rechecks","amount":2}]
-        db=SimpleNamespace(fetch=AsyncMock(side_effect=[[folder],reasons,[]]),
+        db=SimpleNamespace(fetch=AsyncMock(side_effect=[[folder],reasons,[],[]]),
                            fetchval=AsyncMock(return_value={
                              "enabled":True,"storage":True,"updated":now,"phase":"respaldando"}))
         g=SimpleNamespace(db=lambda:db,s=FakeService(),
@@ -426,7 +426,7 @@ class AdminAuditAndCompactGridTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(found["missing_rechecked"],2)
         self.assertEqual(sum(x["count"] for x in found["missing_reasons"]),32)
         self.assertNotIn("automatic_cover",found)
-        self.assertEqual(db.fetch.await_count,3)
+        self.assertEqual(db.fetch.await_count,3)  # una sola carpeta no necesita consulta de orden
 
     async def test_rechecking_only_requeues_ten_missing_without_removing_r2(self):
         from types import SimpleNamespace

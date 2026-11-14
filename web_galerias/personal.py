@@ -96,7 +96,8 @@ async def folders(g,uid):
         else:
             item["cover"]=None
         result.append(item)
-    return result
+    from .folder_order import ordered
+    return await ordered(g,uid,"personal",result)
 
 
 async def allowed_personal_media(connection,uid,ids):

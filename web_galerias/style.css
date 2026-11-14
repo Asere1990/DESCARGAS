@@ -1226,3 +1226,25 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #subscription-manage button:disabled{opacity:.5}
 #subscription-manage .subscription-status{font-size:12px;color:#b7c4d5;line-height:1.5}
 #subscription-manage .subscription-status.pending{color:#ffd592}
+
+
+/* Per-origin maintenance changes only Telegram links, never R2 objects. */
+.admin-source-controls{margin:13px 0;padding:12px;border:1px solid var(--line);
+ border-radius:14px;background:rgba(255,255,255,.025)}
+.admin-source-controls h4{font-size:14px;margin:0 0 7px;font-weight:750}
+.admin-source-controls>.muted{line-height:1.5;font-size:12px;margin:0 0 12px}
+.admin-source-row{display:flex;flex-direction:column;gap:7px;padding:11px 0;
+ border-top:1px solid var(--line);overflow-wrap:anywhere}
+.admin-source-row strong{font-size:13px;font-weight:700;user-select:text}
+.admin-source-row small{font-size:12px;color:var(--muted);line-height:1.4;user-select:text}
+.admin-source-row .row-actions{gap:7px;display:flex;flex-wrap:wrap;align-items:center}
+.admin-source-row button{white-space:normal;text-align:center;min-height:38px}
+
+/* Long-touch the folder, then move over another to swap their positions.
+   Normal scrolling remains available until the gesture is held. */
+[data-folder-swap-scope]{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;
+ touch-action:pan-y;transition:outline-color .14s,opacity .14s}
+[data-folder-swap-scope].folder-sort-held{opacity:.68;transform:scale(.985);
+ outline:3px solid var(--accent);outline-offset:-3px;touch-action:none}
+[data-folder-swap-scope].folder-sort-target{outline:3px dashed var(--accent);
+ outline-offset:-4px}

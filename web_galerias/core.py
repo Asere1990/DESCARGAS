@@ -19,6 +19,7 @@ from .user_features import SCHEMA as USER_FEATURES_SCHEMA
 from .commercial import SCHEMA as COMMERCIAL_SCHEMA
 from . import download_plus
 from .folder_sources import SCHEMA as FOLDER_SOURCES_SCHEMA, public_sources_sql
+from .folder_order import SCHEMA as FOLDER_ORDER_SCHEMA, ordered
 
 SCHEMA="""
 CREATE TABLE IF NOT EXISTS wg_folders(
@@ -120,6 +121,7 @@ CREATE TABLE IF NOT EXISTS wg_free_access(
  changed_by BIGINT NOT NULL);
 """
 SCHEMA += FOLDER_SOURCES_SCHEMA
+SCHEMA += FOLDER_ORDER_SCHEMA
 SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
 SCHEMA += USER_FEATURES_SCHEMA
@@ -418,7 +420,7 @@ class GalleryCore:
           SELECT 1 FROM wg_user_folders u WHERE u.uid=$1 AND u.folder=f.id))
         GROUP BY f.id ORDER BY f.id DESC
         """,uid,is_admin(uid))
-        return [dict(r) for r in rows]
+        return await ordered(self,uid,"public",[dict(r) for r in rows])
 
     async def bootstrap(self,uid,name="",*,track_visit=True):
         # Use exactly the same authenticated user response for the user's

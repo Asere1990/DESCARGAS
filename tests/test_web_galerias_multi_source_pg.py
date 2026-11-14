@@ -48,7 +48,10 @@ class MultiSourcePostgresTests(unittest.IsolatedAsyncioTestCase):
             id BIGSERIAL PRIMARY KEY,peer BIGINT UNIQUE NOT NULL,
             name TEXT NOT NULL,public_name TEXT,active BOOLEAN NOT NULL DEFAULT TRUE,
             created DOUBLE PRECISION NOT NULL DEFAULT 0,preferred_uid BIGINT,
-            source_uid BIGINT,complete BOOLEAN NOT NULL DEFAULT FALSE,
+            source_uid BIGINT,last_source_uid BIGINT,
+            source_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+            source_access_status TEXT NOT NULL DEFAULT 'unknown',
+            complete BOOLEAN NOT NULL DEFAULT FALSE,
             error TEXT NOT NULL DEFAULT '',last_check DOUBLE PRECISION NOT NULL DEFAULT 0,
             scan_count BIGINT NOT NULL DEFAULT 0
           );
@@ -58,6 +61,10 @@ class MultiSourcePostgresTests(unittest.IsolatedAsyncioTestCase):
             created DOUBLE PRECISION NOT NULL,
             CHECK (parent_folder<>source_folder)
           );
+          CREATE TEMP TABLE wg_folder_order(
+            uid BIGINT NOT NULL,scope TEXT NOT NULL,
+            folder BIGINT NOT NULL,position INT NOT NULL,
+            PRIMARY KEY(uid,scope,folder));
           CREATE TEMP TABLE wg_media(
             id BIGSERIAL PRIMARY KEY,folder BIGINT NOT NULL REFERENCES wg_folders(id),
             message BIGINT NOT NULL,kind TEXT NOT NULL,mime TEXT NOT NULL DEFAULT '',

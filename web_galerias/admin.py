@@ -95,6 +95,15 @@ async def admin_op(g,uid,op,data):
     db=g.db()
     if op=="admin-folder-add-source":
         return await folder_sources.add(g,uid,data)
+    if op in ("admin-folder-disconnect-account","admin-folder-disconnect-source"):
+        return await folder_sources.disconnect(g,uid,data,
+            "account" if op.endswith("-account") else "source")
+    if op in ("admin-folder-handoff","admin-folder-reconnect"):
+        return await folder_sources.change_reader(g,uid,data,
+            carry=op=="admin-folder-handoff")
+    if op=="admin-folder-order":
+        from .folder_order import save
+        return await save(g,uid,"public",data.get("ids"),global_order=True)
     if op.startswith("admin-notices-"):
         from . import broadcasts
         return await broadcasts.admin_operation(g,uid,op,data)
@@ -119,6 +128,7 @@ async def admin_op(g,uid,op,data):
             COALESCE(f.public_name,'') AS public_name,
             f.active,f.error,f.complete,f.scan_count,
             f.last_check,f.source_uid,f.preferred_uid,
+            f.source_enabled,f.source_access_status,f.last_source_uid,
             f.telegram_photos_total,f.telegram_videos_total,
             f.telegram_counts_at,f.telegram_counts_error,
             MAX(c.updated) AS cover_updated,
@@ -141,6 +151,7 @@ async def admin_op(g,uid,op,data):
               m.error='en_revalidacion')::int AS rechecking,
             COUNT(m.id) FILTER(WHERE m.state='ready')::int AS ready,
             COUNT(m.id) FILTER(WHERE m.state='preview')::int AS preview_only,
+            COUNT(m.id) FILTER(WHERE m.state='paused_preview')::int AS paused_preview,
             COUNT(m.id) FILTER(WHERE m.state='preview'
               AND m.thumb_key IS NOT NULL)::int AS previews_with_images,
             COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending,
@@ -164,6 +175,8 @@ async def admin_op(g,uid,op,data):
           ORDER BY parent_folder,source_folder
         """)
         folders=folder_sources.combine_admin_rows(folders,source_links)
+        from .folder_order import ordered
+        folders=await ordered(g,0,"public",folders)
         remote=await db.fetchval("SELECT value FROM wg_config WHERE key='backup_status'")
         if isinstance(remote,str):
             remote=json.loads(remote)
@@ -293,31 +306,13 @@ async def admin_op(g,uid,op,data):
         await g.log(uid,op)
         return {"ok":True,"id":row["id"]}
     if op=="admin-folder-source":
+        # Older cached mini-apps must also use the validated, lossless handoff.
         folder=identifier(data.get("folder"))
-        account_uid=await linked_source_account(
-            g,data.get("account_uid"),data.get("account_system","descargas"))
-        row=await db.fetchrow("""UPDATE wg_folders SET
-            preferred_uid=$2,source_uid=$2,
-            scan_cursor=0,high_water=0,complete=FALSE,
-            last_check=0,error='',scan_count=0,
-            telegram_photos_total=NULL,telegram_videos_total=NULL,
-            telegram_counts_at=0,telegram_counts_next_attempt=0,
-            telegram_counts_error=''
-          WHERE id=$1 AND preferred_uid IS DISTINCT FROM $2
-          RETURNING id""",folder,account_uid)
-        exists=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)
-        if not exists:raise web.HTTPNotFound(text="Carpeta no encontrada.")
-        if row:
-            await db.execute("""UPDATE wg_discovery SET next_after=0
-              WHERE folder=$1 AND uid=$2""",folder,account_uid)
-            # Los mensajes previamente no recuperables con la cuenta anterior
-            # merecen una nueva oportunidad. Nunca se alteran las copias ready.
-            await db.execute("""UPDATE wg_media SET state='pending',
-              source_checks=0,attempts=0,available=0,
-              error='revalidar_con_nueva_cuenta'
-              WHERE folder=$1 AND state='missing'""",folder)
-            await g.log(uid,op)
-        return {"ok":True,"changed":bool(row),"account_uid":account_uid}
+        connected=await db.fetchval(
+            "SELECT source_enabled FROM wg_folders WHERE id=$1",folder)
+        if connected is None:
+            raise web.HTTPNotFound(text="Origen de Telegram no encontrado.")
+        return await folder_sources.change_reader(g,uid,data,carry=bool(connected))
     if op=="admin-folder-cover-remove":
         folder=identifier(data.get("folder"))
         found=await db.fetchval("SELECT 1 FROM wg_folders WHERE id=$1",folder)

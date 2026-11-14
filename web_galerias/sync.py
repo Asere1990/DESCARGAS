@@ -15,7 +15,7 @@ from telethon import errors, types
 from PIL import Image, ImageOps
 from .core import normal
 from .media_types import classify
-from . import media_text
+from . import media_text, folder_sources
 
 log=logging.getLogger("web-galerias-sync")
 EXTRA="""
@@ -58,7 +58,8 @@ async def folder_active(g,folder,uid=None):
     # active solo controla la visibilidad a los clientes. Mantener la copia
     # de una carpeta oculta, sin permitir que una cuenta antigua altere cursores.
     return bool(await g.db().fetchval("""SELECT
-       ($2::bigint IS NULL OR preferred_uid IS NULL OR preferred_uid=$2)
+       source_enabled AND source_access_status<>'revoked'
+       AND ($2::bigint IS NULL OR preferred_uid IS NULL OR preferred_uid=$2)
        FROM wg_folders WHERE id=$1""",folder,uid))
 
 
@@ -511,7 +512,10 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
                 return
             await mark_discovery(g,folder,uid,True)
             await g.db().execute("""UPDATE wg_folders SET
-              source_uid=$2,last_check=$3,error='' WHERE id=$1""",
+              source_uid=$2,last_check=$3,error='',
+              source_access_status='ok'
+              WHERE id=$1 AND source_enabled
+                AND source_access_status<>'revoked'""",
               folder,uid,time.time())
             if phase=="counts":
                 await refresh_telegram_counts(g,folder,client,entity,guard)
@@ -593,12 +597,19 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
         log.warning("Gallery cooldown after rate limit: wait=%ds account_cooldown=%ds",
                     seconds,per_account_cooldown)
     except ValueError as exc:
-        # Cuenta ocupada = ceder, pero credencial no válida = pasar a otra.
-        if "Espera a que termine" not in str(exc):
+        if folder_sources.revoked_error(exc):
+            await folder_sources.mark_revoked(g,uid)
+            log.warning("Gallery source session revoked: account=%s",uid)
+        # Account busy: yield; temporary invalid account: retry later.
+        elif "Espera a que termine" not in str(exc):
             await mark_discovery(g,folder,uid,False,delay=900)
             await g.db().execute("""UPDATE wg_folders SET source_uid=NULL
               WHERE id=$1 AND source_uid=$2""",folder,uid)
     except (errors.RPCError,OSError,TimeoutError) as exc:
+        if folder_sources.revoked_error(exc):
+            await folder_sources.mark_revoked(g,uid)
+            log.warning("Gallery source session invalid: account=%s",uid)
+            return
         log.warning("Gallery account deferred (%s)",type(exc).__name__)
         # Retirar un access_hash antiguo; al intentar de nuevo se buscará uno válido.
         await g.db().execute("DELETE FROM wg_source_peers WHERE folder=$1 AND uid=$2",
@@ -877,6 +888,7 @@ async def run(g):
                         continue
                     await checkpoint(g,phase="esperando_carpetas")
                     folders=await db.fetch("""SELECT * FROM wg_folders
+                      WHERE source_enabled AND source_access_status<>'revoked'
                       ORDER BY active DESC,last_check ASC,id ASC""")
                     if not folders:
                         await asyncio.sleep(5)
@@ -891,6 +903,7 @@ async def run(g):
                     due=await db.fetch("""SELECT f.* FROM wg_folders f
                       LEFT JOIN wg_account_cooldown c ON c.uid=f.source_uid
                       WHERE f.source_uid IS NOT NULL
+                        AND f.source_enabled AND f.source_access_status<>'revoked'
                         AND f.telegram_counts_next_attempt<=$1
                         AND COALESCE(c.available_at,0)<=$1
                       ORDER BY f.telegram_counts_at ASC,f.id ASC LIMIT 3""",time.time())

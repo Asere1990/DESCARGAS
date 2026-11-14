@@ -1,0 +1,55 @@
+name: Web Galerías — origen revocado, R2 intacto y orden táctil
+on:
+  pull_request:
+    paths:
+      - 'web_galerias/folder_sources.py'
+      - 'web_galerias/folder_order.py'
+      - 'web_galerias/sync.py'
+      - 'web_galerias/on_demand.py'
+      - 'web_galerias/admin.py'
+      - 'web_galerias/core.py'
+      - 'web_galerias/app.py'
+      - 'web_galerias/app.js'
+      - 'web_galerias/personal.py'
+      - 'web_galerias/style.css'
+      - 'tests/test_web_galerias_source_recovery_pg.py'
+      - 'tests/test_web_galerias_folder_sort.cjs'
+      - '.github/workflows/web-galerias-source-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  recovery-and-folders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: local_test_only
+          POSTGRES_DB: descargas_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test -d descargas_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://test:local_test_only@localhost:5432/descargas_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - name: Validar sintaxis
+        run: |
+          python -m compileall -q web_galerias
+          node --check web_galerias/app.js
+      - name: Relevo, revocación, desconexión y R2 intacto en PostgreSQL aislado
+        run: python -m unittest tests.test_web_galerias_source_recovery_pg -v
+      - name: Arrastre por pulsación sostenida y botones de origen
+        run: node --test tests/test_web_galerias_folder_sort.cjs

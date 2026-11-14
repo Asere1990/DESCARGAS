@@ -671,6 +671,130 @@ async function saveFavoriteFromDoubleTap(item){
  finally{favoriteTapPending.delete(item.id);}
 }
 
+// Long-touch and drag swaps exactly two folder positions. Touch and mouse
+// listeners are scoped to folder cards, never to media thumbnails.
+function bindFolderSwap(node,scope,id){
+ node.dataset.folderSwapScope=scope;
+ node.dataset.folderSwapId=String(id);
+ let press=null,ignoreClickUntil=0;
+ const targetAt=(x,y)=>{
+  const found=document.elementFromPoint(x,y)?.closest("[data-folder-swap-scope]");
+  return found?.dataset.folderSwapScope===scope?found:null;
+ };
+ const clearHighlight=()=>{
+  if(press?.candidate)press.candidate.classList.remove("folder-sort-target");
+  node.classList.remove("folder-sort-held");
+ };
+ const clean=()=>{
+  if(!press)return;
+  clearTimeout(press.timer);
+  clearHighlight();
+  document.removeEventListener("touchmove",touchMove);
+  document.removeEventListener("touchend",touchEnd);
+  document.removeEventListener("touchcancel",cancel);
+  document.removeEventListener("pointermove",pointerMove);
+  document.removeEventListener("pointerup",pointerEnd);
+  document.removeEventListener("pointercancel",cancel);
+  press=null;
+ };
+ const swap=async(other)=>{
+  const items=scope==="admin"?S.admin?.folders:scope==="personal"?S.personal:S.folders;
+  if(!Array.isArray(items))return;
+  const from=items.findIndex(x=>String(x.id)===String(id));
+  const to=items.findIndex(x=>String(x.id)===String(other));
+  if(from<0||to<0||from===to)return;
+  [items[from],items[to]]=[items[to],items[from]];
+  const render=scope==="admin"?previewAdmin:scope==="personal"?renderPersonalFolders:renderFolders;
+  render();
+  try{
+   const ids=items.map(x=>Number(x.id));
+   if(scope==="admin")await api("admin-folder-order",{ids});
+   else await api("folder-order",{kind:scope,ids});
+   notice("Orden de carpetas guardado.");
+  }catch(e){
+   [items[from],items[to]]=[items[to],items[from]];
+   render();
+   notice("No se guardó el orden: "+e.message);
+  }
+ };
+ const move=(x,y,event)=>{
+  if(!press)return;
+  const distance=Math.hypot(x-press.x,y-press.y);
+  if(!press.held){
+   if(distance>10)cancel();
+   return;
+  }
+  event?.preventDefault?.();
+  if(press.candidate)press.candidate.classList.remove("folder-sort-target");
+  const target=targetAt(x,y);
+  press.candidate=target&&target!==node?target:null;
+  if(press.candidate)press.candidate.classList.add("folder-sort-target");
+ };
+ const finish=(x,y,event)=>{
+  if(!press)return;
+  const held=press.held;
+  const target=held?targetAt(x,y):null;
+  if(held){
+   event?.preventDefault?.();
+   ignoreClickUntil=Date.now()+700;
+  }
+  clean();
+  if(held&&target&&target!==node)
+   swap(target.dataset.folderSwapId).catch(e=>notice(e.message));
+ };
+ function cancel(){clean();}
+ function touchMove(event){
+  const touch=event.touches?.[0];
+  if(touch)move(touch.clientX,touch.clientY,event);
+ }
+ function touchEnd(event){
+  const touch=event.changedTouches?.[0];
+  if(touch)finish(touch.clientX,touch.clientY,event);else clean();
+ }
+ function pointerMove(event){
+  if(press&&press.pointer===event.pointerId)move(event.clientX,event.clientY,event);
+ }
+ function pointerEnd(event){
+  if(press&&press.pointer===event.pointerId)finish(event.clientX,event.clientY,event);
+ }
+ function begin(x,y,pointer=null){
+  if(press)return;
+  press={x,y,pointer,held:false,candidate:null,timer:null};
+  press.timer=setTimeout(()=>{
+   if(!press)return;
+   press.held=true;
+   node.classList.add("folder-sort-held");
+  },430);
+  if(pointer===null){
+   document.addEventListener("touchmove",touchMove,{passive:false});
+   document.addEventListener("touchend",touchEnd,{passive:false});
+   document.addEventListener("touchcancel",cancel);
+  }else{
+   document.addEventListener("pointermove",pointerMove,{passive:false});
+   document.addEventListener("pointerup",pointerEnd);
+   document.addEventListener("pointercancel",cancel);
+  }
+ }
+ node.addEventListener("touchstart",e=>{
+  const interactive=e.target.closest?.("button,a,input,select,textarea");
+  if(interactive&&interactive!==node)return;
+  const touch=e.touches?.[0];
+  if(touch)begin(touch.clientX,touch.clientY);
+ },{passive:true});
+ node.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="touch"||e.button!==0)return;
+  const interactive=e.target.closest?.("button,a,input,select,textarea");
+  if(interactive&&interactive!==node)return;
+  begin(e.clientX,e.clientY,e.pointerId);
+ });
+ node.addEventListener("contextmenu",e=>{if(press?.held)e.preventDefault();});
+ node.addEventListener("click",e=>{
+  if(Date.now()<ignoreClickUntil){
+   e.preventDefault();e.stopImmediatePropagation();
+  }
+ },true);
+}
+
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
  const root=$("folders");root.replaceChildren();
@@ -696,6 +820,7 @@ function renderFolders(){
   }
   card.onclick=()=>openFolder(folder);
   card.onkeydown=e=>{if(e.key==="Enter")openFolder(folder);};
+  bindFolderSwap(card,"public",folder.id);
   root.append(card);
  }
  if(!S.folders.length)root.innerHTML='<div class="empty">El administrador todavía no ha publicado carpetas.</div>';
@@ -736,6 +861,7 @@ function renderPersonalFolders(){
   const count=document.createElement("small");count.textContent=pretty(folder.count)+" archivos";
   text.append(title,count);main.append(text);
   main.onclick=()=>{setPersonalMenuOpen(false);openFolder({...folder,personal:true});};
+  bindFolderSwap(main,"personal",folder.id);
   const tools=document.createElement("div");tools.className="personal-folder-tools";
   const change=document.createElement("button");change.type="button";
   change.textContent="▧";change.title="Cambiar portada";change.setAttribute("aria-label","Cambiar portada de "+folder.name);
@@ -1730,6 +1856,8 @@ function previewAdmin(){
     addAdminDatum("Motivo: "+label,pretty(reason.count));
    }
   }
+  if(f.paused_preview)addAdminDatum("Vistas previas retenidas por sesión revocada",
+    pretty(f.paused_preview),"Ocultas del público; sus objetos en R2 no se borran.");
   if(f.error)addAdminDatum("Última incidencia técnica",f.error);
   const buttons=document.createElement("div");buttons.className="row-actions";
   const edit=document.createElement("button");edit.type="button";
@@ -1772,26 +1900,81 @@ function previewAdmin(){
    try{if(await uploadAsset("folder-cover",file,f.id)){await loadAdmin();await refresh(true);}}
    finally{choose.disabled=false;choose.textContent=oldLabel;}
   };
-  const sourceButton=document.createElement("button");sourceButton.type="button";
-  sourceButton.className="small-btn";sourceButton.textContent="Cuenta del historial";
-  sourceButton.onclick=async()=>{
-    const current=gallerySourceLabel(f.preferred_uid||f.source_uid);
-    const value=prompt("Cuenta del historial. Escribe DESCARGAS:telegram_id o DATOS:telegram_id:",current==="No asignada"?"":current);
-    if(value===null)return;
-    const parsed=gallerySourceInput(value);
-    if(!parsed)return notice("Indica un Telegram ID válido. Para DATOS escribe DATOS:123456789.");
-    if(gallerySourceLabel(f.preferred_uid)===gallerySourceLabel(
-        parsed.account_system==="datos"?-Number(parsed.account_uid):Number(parsed.account_uid)))
-      return notice("Esa cuenta ya está asignada.");
-    if(!confirm("El historial se volverá a revisar desde esta cuenta. Los archivos guardados en Cloudflare permanecerán intactos. ¿Continuar?"))return;
-    sourceButton.disabled=true;
-    try{
-      await api("admin-folder-source",{folder:f.id,...parsed});
-      await loadAdmin();
-      notice("Cuenta asignada. El sistema buscará el historial que puede ver esa cuenta.");
-    }catch(e){notice(e.message);}
-    finally{sourceButton.disabled=false;}
-  };
+
+  const sourceControls=document.createElement("section");
+  sourceControls.className="admin-source-controls";
+  const sourceHeading=document.createElement("h4");
+  sourceHeading.textContent="Conexiones de Telegram";
+  const sourceHelp=document.createElement("p");
+  sourceHelp.className="muted";
+  sourceHelp.textContent="Reemplazar la cuenta antes de desconectar conserva el avance si tiene acceso al mismo grupo. Desconectar detiene la fuente y oculta vistas previas incompletas. Ningún objeto de Cloudflare R2 se elimina.";
+  sourceControls.append(sourceHeading,sourceHelp);
+  for(const origin of (f.sources?.length?f.sources:[{
+    id:f.id,peer:f.peer,account_uid:f.preferred_uid||f.source_uid,
+    source_enabled:f.source_enabled,access_status:f.source_access_status
+  }])){
+    const line=document.createElement("div");
+    line.className="admin-source-row";
+    const heading=document.createElement("strong");
+    heading.textContent="Group / Channel ID: "+origin.peer;
+    const status=document.createElement("small");
+    const connected=origin.source_enabled!==false;
+    const revoked=origin.access_status==="revoked";
+    status.textContent=(connected?(revoked?"⚠ Sesión revocada · sincronización detenida":"Conectado"):"Desconectado · sin sincronización")+
+      " · "+gallerySourceLabel(origin.account_uid||origin.last_account_uid);
+    const actions=document.createElement("div");
+    actions.className="row-actions";
+    const replace=document.createElement("button");
+    replace.type="button";replace.className="small-btn strong";
+    replace.textContent=connected?"Reemplazar cuenta · mantener avance":"Conectar cuenta · empezar desde cero";
+    replace.onclick=async()=>{
+      const current=gallerySourceLabel(origin.account_uid||origin.last_account_uid);
+      const raw=prompt("Nueva cuenta con acceso al Group ID o Channel ID "+origin.peer+
+        ". Escribe DESCARGAS:telegram_id o DATOS:telegram_id:",
+        current==="No asignada"?"":current);
+      if(raw===null)return;
+      const parsed=gallerySourceInput(raw);
+      if(!parsed)return notice("Escribe una cuenta vinculada válida.");
+      if(!confirm(connected?
+        "Se verificará que la nueva cuenta tenga acceso a ESTE MISMO grupo/canal. Se conservarán cursores, miniaturas y todos los archivos de R2. ¿Reemplazar?":
+        "Este origen fue desconectado: se revisará desde el principio. Solo se mostrarán archivos completos o vistas previas recuperables. R2 no se borrará. ¿Conectar?"))return;
+      replace.disabled=true;
+      try{
+        const result=await api(connected?"admin-folder-handoff":"admin-folder-reconnect",
+          {folder:origin.id,...parsed});
+        await loadAdmin();await refresh(true);
+        notice(result.progress_preserved?
+          "Cuenta sustituida. Se conserva el historial y el avance de ese grupo.":
+          "Cuenta conectada. Se revisará el historial desde el principio.");
+      }catch(e){notice(e.message);}
+      finally{replace.disabled=false;}
+    };
+    actions.append(replace);
+    if(connected){
+      for(const [mode,label] of [["account","Desconectar cuenta"],["source","Desconectar grupo/canal"]]){
+        const button=document.createElement("button");
+        button.type="button";button.className="small-btn";
+        button.textContent=label;
+        button.onclick=async()=>{
+          const warning=mode==="account"?
+            "La cuenta dejará de alimentar este grupo/canal. Para continuar más adelante habrá que conectarlo desde cero.":
+            "Este grupo/canal dejará de alimentar la carpeta. Sus archivos completos en R2 seguirán visibles; las miniaturas incompletas se ocultarán.";
+          if(!confirm(warning+"\n\nNo se eliminará NINGÚN objeto de Cloudflare R2. ¿Continuar?"))return;
+          button.disabled=true;
+          try{
+            const result=await api("admin-folder-disconnect-"+mode,{folder:origin.id});
+            await loadAdmin();await refresh(true);
+            notice("Origen desconectado. "+(result.previews_hidden||0)+
+              " vistas previas incompletas ocultadas. R2 permanece intacto.");
+          }catch(e){notice(e.message);}
+          finally{button.disabled=false;}
+        };
+        actions.append(button);
+      }
+    }
+    line.append(heading,status,actions);
+    sourceControls.append(line);
+  }
   const addSource=document.createElement("button");addSource.type="button";
   addSource.className="small-btn";addSource.textContent="＋ Agregar grupo o canal";
   addSource.setAttribute("aria-label","Agregar otro grupo o canal a esta carpeta");
@@ -1821,7 +2004,7 @@ function previewAdmin(){
   browse.onclick=()=>{S.returnFromAdmin=true;openFolder({
     id:f.id,name:f.public_name||("Galería "+f.id),photos:f.visible_photos,videos:f.visible_videos
   });};
-  buttons.append(browse,edit,publicEdit,sourceButton,addSource,choose);
+  buttons.append(browse,edit,publicEdit,addSource,choose);
   if(f.has_custom_cover){
    const resetPhoto=document.createElement("button");resetPhoto.type="button";
    resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
@@ -1880,7 +2063,7 @@ function previewAdmin(){
   note.className="admin-reindex-hint";
   note.textContent="Para volver a recorrer el historial y detectar archivos antiguos"+
     " que antes no se reconocían, utiliza Revisar origen. No borra los originales respaldados.";
-  details.append(info,pick,buttons,note,examples);
+  details.append(info,sourceControls,pick,buttons,note,examples);
   function setExpanded(open){
     card.classList.toggle("expanded",open);
     details.classList.toggle("hidden",!open);
@@ -1892,6 +2075,7 @@ function previewAdmin(){
    if(open)S.adminExpanded.add(f.id);else S.adminExpanded.delete(f.id);
    setExpanded(open);
   };
+  bindFolderSwap(trigger,"admin",f.id);
   setExpanded(S.adminExpanded.has(f.id));
   card.append(trigger,details);root.append(card);
  }
