@@ -405,11 +405,13 @@ class GalleryCore:
         )
         SELECT f.id,
           COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name,
-          BOOL_AND(origin.complete) AS complete,
+          COALESCE(BOOL_AND(origin.complete) FILTER
+            (WHERE origin.source_enabled),FALSE) AS complete,
           MAX(f.error) AS error,MAX(c.updated) AS cover_updated,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='photo')::int AS photos,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='video')::int AS videos,
-          COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending
+          COUNT(m.id) FILTER(WHERE origin.source_enabled AND
+            m.state IN ('pending','preview'))::int AS pending
         FROM wg_folders f
         JOIN source_map map ON map.parent_folder=f.id
         JOIN wg_folders origin ON origin.id=map.source_folder AND origin.active
