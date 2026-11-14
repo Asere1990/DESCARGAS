@@ -86,7 +86,7 @@ class RecoveryPostgresTests(unittest.IsolatedAsyncioTestCase):
         self.r2=N(delete=AsyncMock(side_effect=AssertionError("R2 DELETE FORBIDDEN")),
                   delete_object=AsyncMock(side_effect=AssertionError("R2 DELETE FORBIDDEN")))
         self.g=N(db=lambda:self.db,storage=self.r2,log=AsyncMock(),
-                 folder_list=AsyncMock(return_value=[{"id":1},{"id":2},{"id":3}]))
+                 folder_list=AsyncMock(return_value=[{"id":1},{"id":3}]))
     async def asyncTearDown(self):
         await self.conn.close()
 
@@ -151,19 +151,20 @@ class RecoveryPostgresTests(unittest.IsolatedAsyncioTestCase):
         verified.assert_not_awaited()
 
     async def test_admin_global_and_individual_folder_orders_are_isolated(self):
+        # The child source 2 is not a public folder: it is grouped under 1.
         with patch("web_galerias.permissions.is_admin",return_value=True):
-            await folder_order.save(self.g,900,"public",[3,1,2],global_order=True)
-        items=[{"id":1},{"id":2},{"id":3}]
-        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,901,"public",items)],[3,1,2])
-        await folder_order.save(self.g,901,"public",[2,3,1])
-        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,901,"public",items)],[2,3,1])
-        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,902,"public",items)],[3,1,2])
+            await folder_order.save(self.g,900,"public",[3,1],global_order=True)
+        items=[{"id":1},{"id":3}]
+        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,901,"public",items)],[3,1])
+        await folder_order.save(self.g,901,"public",[1,3])
+        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,901,"public",items)],[1,3])
+        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,902,"public",items)],[3,1])
         await folder_order.save(self.g,900,"personal",[52,51])
         self.assertEqual([x["id"] for x in await folder_order.ordered(
             self.g,900,"personal",[{"id":51},{"id":52}])],[52,51])
         with self.assertRaises(web.HTTPConflict):
-            await folder_order.save(self.g,901,"public",[1,2,999])
-        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,901,"public",items)],[2,3,1])
+            await folder_order.save(self.g,901,"public",[1,999])
+        self.assertEqual([x["id"] for x in await folder_order.ordered(self.g,901,"public",items)],[1,3])
 
     def test_revoked_error_is_not_a_transient_network_or_floodwait(self):
         self.assertTrue(folder_sources.revoked_error(ValueError(
