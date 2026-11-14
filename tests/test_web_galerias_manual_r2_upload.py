@@ -99,5 +99,111 @@ class CorsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(out["multipart"])
 
 
+
+class CaptionFakeConnection:
+    def __init__(self, rows):
+        self.rows = rows
+        self.sql_reads = []
+        self.sql_writes = []
+
+    def acquire(self):
+        return self
+
+    def transaction(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        return False
+
+    async def fetch(self, sql, *args):
+        self.sql_reads.append((sql, args))
+        return self.rows
+
+    async def execute(self, sql, *args):
+        self.sql_writes.append((sql, args))
+        return "UPDATE " + str(len(self.rows))
+
+
+class CaptionFakeGallery:
+    def __init__(self, rows):
+        self.connection = CaptionFakeConnection(rows)
+
+    def db(self):
+        return self.connection
+
+
+class ManualBatchCaptionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_one_caption_is_searchable_for_every_photo_and_video(self):
+        import uuid
+        one, two = uuid.uuid4(), uuid.uuid4()
+        g = CaptionFakeGallery([
+            {"media_id": 11, "folder": 7, "filename": "foto-1.jpg"},
+            {"media_id": 12, "folder": 7, "filename": "video-1.mp4"},
+        ])
+        answer = await manual.caption(
+            g, 1234, {"uploads": [str(one), str(two)], "caption": "La Habana — Playa"})
+        self.assertEqual(answer, {"ok": True, "updated": 2})
+        read_sql, (ids, actor) = g.connection.sql_reads[0]
+        self.assertEqual(ids, [one, two])
+        self.assertEqual(actor, 1234)
+        self.assertIn("u.actor=$2", read_sql)
+        self.assertIn("u.status='ready'", read_sql)
+        self.assertIn("m.state='ready'", read_sql)
+        self.assertIn("m.message<0", read_sql)
+        self.assertIn("m.file_key=u.object_key", read_sql)
+        sql, (media, caption, search) = g.connection.sql_writes[0]
+        self.assertIn("UNNEST", sql)
+        self.assertEqual(media, [11, 12])
+        self.assertEqual(caption, "La Habana — Playa")
+        self.assertEqual(search, [
+            "la habana — playa foto-1.jpg",
+            "la habana — playa video-1.mp4",
+        ])
+
+    async def test_missing_or_foreign_file_rejects_entire_batch(self):
+        import uuid
+        g = CaptionFakeGallery([{"media_id": 11, "folder": 7, "filename": "foto.jpg"}])
+        with self.assertRaises(web.HTTPConflict):
+            await manual.caption(g, 1234, {
+                "uploads": [str(uuid.uuid4()), str(uuid.uuid4())],
+                "caption": "Pinar del Río",
+            })
+        self.assertEqual(g.connection.sql_writes, [])
+
+    async def test_mixed_folders_rejected_without_writes(self):
+        import uuid
+        g = CaptionFakeGallery([
+            {"media_id": 11, "folder": 7, "filename": "foto.jpg"},
+            {"media_id": 12, "folder": 8, "filename": "video.mp4"},
+        ])
+        with self.assertRaises(web.HTTPBadRequest):
+            await manual.caption(g, 1234, {
+                "uploads": [str(uuid.uuid4()), str(uuid.uuid4())],
+                "caption": "un caption",
+            })
+        self.assertEqual(g.connection.sql_writes, [])
+
+    async def test_empty_caption_requires_explicit_skip(self):
+        import uuid
+        g = CaptionFakeGallery([])
+        for text in ("", "   ", "x" * 1501):
+            with self.subTest(text=text[:10]), self.assertRaises(web.HTTPBadRequest):
+                await manual.caption(g, 1234, {
+                    "uploads": [str(uuid.uuid4())], "caption": text})
+        self.assertEqual(g.connection.sql_reads, [])
+
+    async def test_repeated_upload_identifier_is_rejected(self):
+        import uuid
+        g = CaptionFakeGallery([])
+        ident = str(uuid.uuid4())
+        with self.assertRaises(web.HTTPBadRequest):
+            await manual.caption(g, 1234, {
+                "uploads": [ident, ident], "caption": "La Habana"})
+        self.assertEqual(g.connection.sql_reads, [])
+
+
 if __name__ == "__main__":
     unittest.main()
