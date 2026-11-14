@@ -140,3 +140,13 @@
 #media-dialog .media-dialog-header strong{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #media-dialog .media-report-action{flex-shrink:0;background:#fff0f0;color:#b6202b;border:1px solid #e1a1a7;border-radius:10px;padding:8px 10px;min-height:40px;font-size:12px;font-weight:700;white-space:nowrap}
 #media-dialog .media-report-action:active{background:#f9d8dc}
+
+/* Copy-only Telegram ID controls: no changes to chat navigation or selection. */
+.telegram-id-row{display:flex;align-items:center;gap:5px;min-width:0;max-width:100%;margin-top:2px}
+.telegram-id-row[hidden]{display:none!important}
+.account-context .telegram-id-row small,.conversation .telegram-id-row small{font-size:12px;letter-spacing:0;margin:0;color:#6e7e89;overflow-wrap:anywhere;user-select:text}
+.copy-id{display:inline-grid;place-items:center;flex:0 0 auto;width:34px;height:34px;border:1px solid #cad8e5;border-radius:9px;color:#0875d3;background:#f3f8ff;font-size:23px;line-height:1;touch-action:manipulation}
+.copy-id:active{background:#d9ebff}
+.chat-row-shell{display:flex;align-items:center;width:100%;min-width:0}
+.chat-row-shell>.chat-row{width:auto;flex:1;min-width:0;padding-right:4px}
+.chat-row-shell>.copy-id{margin-right:12px}

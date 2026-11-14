@@ -1,0 +1,26 @@
+name: Panel Telegram — copiar IDs
+on:
+  push:
+    branches: [ui/copy-telegram-ids-20261113]
+  pull_request:
+    paths:
+      - 'descargas_app/panel_web/app.js'
+      - 'descargas_app/panel_web/index.html'
+      - 'descargas_app/panel_web/style.css'
+      - 'tests/test_panel_copy_ids.cjs'
+      - '.github/workflows/panel-copy-ids.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validar JavaScript
+        run: node --check descargas_app/panel_web/app.js
+      - name: IDs, portapapeles, selección múltiple, visor y reportes
+        run: node --test tests/test_panel_copy_ids.cjs tests/test_panel_mobile_longpress.cjs tests/test_panel_batch_selection.cjs tests/test_panel_media.cjs
