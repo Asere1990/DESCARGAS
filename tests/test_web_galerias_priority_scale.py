@@ -146,7 +146,9 @@ class BurstAPI(unittest.IsolatedAsyncioTestCase):
                    new=AsyncMock(return_value=True)):
             uid = await on_demand._select_source(g, {"id": 7, "preferred_uid": None})
         self.assertEqual(uid, -654321)
-        self.assertIn(-654321, g.priority_accounts_in_use)
+        # The reservation uses the physical Telegram ID, not signed provider key.
+        self.assertIn(654321, g.priority_accounts_in_use)
+        self.assertNotIn(-654321, g.priority_accounts_in_use)
 
 
 class StreamingProgress(unittest.IsolatedAsyncioTestCase):

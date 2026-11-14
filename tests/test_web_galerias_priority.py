@@ -183,6 +183,28 @@ class PriorityWorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("UPDATE wg_media_priority" in sql
                             for sql, _ in db.commands))
 
+    async def test_both_provider_locks_are_temporary_busy_not_broken_video(self):
+        g,db=gallery()
+        db.job={"state":"running","next_attempt":0}
+        g.s.datos=N(ready=True)
+        @asynccontextmanager
+        async def locked_reader(g,uid):
+            self.assertEqual(uid,-804200001)
+            raise ValueError("Espera a que termine la transferencia en curso y vuelve a intentarlo.")
+            yield
+        with patch.dict(os.environ,{"GALERIAS_SYNC_ENABLED":"1"}), \
+             patch("web_galerias.on_demand._select_source",
+                   new=AsyncMock(return_value=-804200001)), \
+             patch("web_galerias.reader_sessions.gallery_connected",
+                   new=locked_reader):
+            await on_demand._process(g,55)
+        queued=[(sql,args) for sql,args in db.commands
+                if "UPDATE wg_media_priority SET" in sql]
+        self.assertEqual(len(queued),1)
+        self.assertEqual(queued[0][1][-1],"source_busy_or_unavailable")
+        self.assertFalse(any("invalid_or_incomplete_original" in str(entry)
+                             for entry in queued))
+
     async def test_bulk_backup_yields_to_urgent_video_but_urgent_does_not(self):
         g, db = gallery()
         with patch.dict(os.environ, {"GALERIAS_SYNC_ENABLED": "1"}), \

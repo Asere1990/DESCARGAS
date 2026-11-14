@@ -199,9 +199,10 @@ async def has_urgent(g, account_uid):
          JOIN wg_folders f ON f.id=m.folder
          WHERE f.active AND m.state='preview'
            AND q.next_attempt <= $1
-           AND (f.preferred_uid=$2 OR
+           AND (ABS(f.preferred_uid)=ABS($2::bigint) OR
               (f.preferred_uid IS NULL AND
-                (f.source_uid=$2 OR f.source_uid IS NULL)))
+                (ABS(f.source_uid)=ABS($2::bigint)
+                 OR f.source_uid IS NULL)))
        )
     """, time.time(), account_uid))
 
@@ -261,8 +262,10 @@ async def report_playback_failure(g, uid, media):
 async def _select_source(g, folder):
     """Prefer the known source, then another previously verified free account.
 
-    All accounts still use the original account_lock (wait=False), including
-    DATOS. Administratively pinned accounts are never silently changed.
+    All accounts use the original account_lock (wait=False); DATOS readers
+    additionally share DESCARGAS's lock on the REAL Telegram UID. A session
+    existing in both systems is not a reason to reject its DATOS reader.
+    Administratively pinned accounts are never silently changed.
     """
     first = await sync.choose_account(g, folder)
     candidates = [first] if first is not None else []
@@ -285,32 +288,25 @@ async def _select_source(g, folder):
         source = g.s if uid > 0 else getattr(g.s, "datos", None)
         if source is None or (uid < 0 and not getattr(source, "ready", False)):
             continue
-        if uid < 0:
-            # DESCARGAS and DATOS can contain the same Telegram UID.
-            # Their independent DB locks would not protect each other:
-            # never open that real account through both systems at once.
-            duplicate = await g.db().fetchval("""
-                SELECT EXISTS(SELECT 1 FROM descarga_accounts
-                              WHERE uid=$1 AND session IS NOT NULL)
-            """, -uid)
-            if duplicate:
-                continue
-        if reserved is not None and uid in reserved:
+        # +UID (DESCARGAS) and -UID (DATOS) identify the SAME physical
+        # Telegram account. Only one priority transfer may reserve that UID.
+        real_uid=abs(int(uid))
+        if reserved is not None and real_uid in reserved:
             continue
         if not await sync.source_free(g, uid, folder["id"]):
             continue
         if lock is not None and reserved is not None:
             async with lock:
-                if uid in reserved:
+                if real_uid in reserved:
                     continue
-                reserved.add(uid)
+                reserved.add(real_uid)
         return uid
     return None
 
 
 async def _process(g, media):
     """One bounded download, shared account lock, no second Telegram polling."""
-    from descargas_app.account_chat import connected
+    from .reader_sessions import gallery_connected
 
     row = await g.db().fetchrow("""
       SELECT m.id,m.folder,m.message,m.kind,m.mime,m.size,m.filename,
@@ -343,7 +339,7 @@ async def _process(g, media):
         service = g.s if uid > 0 else getattr(g.s, "datos", None)
         if service is None or (uid < 0 and not getattr(service, "ready", False)):
             raise sync.PauseRequested("source_unavailable")
-        async with connected(service, abs(uid)) as client:
+        async with gallery_connected(g,uid) as client:
             guard = sync.PauseGuard(g, uid, folder["id"], priority=True)
             await guard()
             entity = await sync.find_dialog(
@@ -425,6 +421,11 @@ async def _process(g, media):
             await folder_sources.mark_revoked(g,uid)
             await g.db().execute("DELETE FROM wg_media_priority WHERE media=$1",media)
             return
+        # A Telegram account busy in EITHER provider is NOT a corrupt video.
+        # Keep the same priority job queued for a short retry, no false error.
+        if "Espera a que termine la transferencia" in str(exc):
+            await _defer(g,media,"source_busy_or_unavailable",8)
+            return
         if media in (132224,132225):
             log.warning("Video recovery invalid id=%s reason=%s",
                         media,str(exc)[:90])
@@ -447,7 +448,7 @@ async def _process(g, media):
     finally:
         reserved = getattr(g, "priority_accounts_in_use", None)
         if reserved is not None and uid is not None:
-            reserved.discard(uid)
+            reserved.discard(abs(int(uid)))
 
 
 async def run(g):

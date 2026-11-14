@@ -150,10 +150,12 @@ async def find_dialog(g,client,folder,uid,peer):
 
 
 async def choose_account(g,folder):
-    """Select one accessible account from either isolated source, without duplicates.
+    """Select a reader from either service; deduplicate concurrent USE, not presence.
 
-    Existing DESCARGAS-only behavior is unchanged if DATOS is not configured.
-    Signed source keys prevent UID collisions in discovery and cooldown tables.
+    DATOS and DESCARGAS accounts remain in separate databases. Signed source
+    keys isolate discovery state, while gallery_connected and fair_round lock
+    their common real Telegram ID only when used. No provider is excluded
+    simply because an identical Telegram ID is also connected elsewhere.
     """
     now=time.time()
     datos=getattr(g.s,"datos",None)
@@ -163,19 +165,13 @@ async def choose_account(g,folder):
         if await datos.has_account(-preferred):
             keys.append(preferred)
     if keys:
-        # DATOS candidates are *not* copied into the primary database.
-        # A duplicate Telegram UID is intentionally reserved for DESCARGAS so
-        # the same account cannot acquire locks in two different databases.
+        # DATOS candidates are NOT copied into DESCARGAS's database.
+        # Both signed candidates may be selected, but never share an active
+        # Telegram connection when abs(uid) is the same (reader lock).
         sql="""WITH sources AS (
           SELECT uid FROM descarga_accounts WHERE session IS NOT NULL
           UNION ALL
           SELECT d.uid FROM unnest($5::bigint[]) AS d(uid)
-          -- An explicit DATOS:telegram_id must win even when the same
-          -- Telegram ID is linked in DESCARGAS. Auto-discovery still keeps
-          -- the original DESCARGAS-first deduplication for unpinned folders.
-          WHERE (d.uid=$4 OR NOT EXISTS (
-            SELECT 1 FROM descarga_accounts a0
-            WHERE a0.uid=-d.uid AND a0.session IS NOT NULL))
         )
         SELECT a.uid FROM sources a
         LEFT JOIN wg_discovery d ON d.folder=$1 AND d.uid=a.uid
@@ -479,7 +475,7 @@ async def refresh_telegram_counts(g,folder,client,entity,guard):
 
 async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,phase="combined"):
     """Un turno de lectura + copia, con lock exclusivo de cuenta ya existente."""
-    from descargas_app.account_chat import connected
+    from .reader_sessions import gallery_connected
     folder=source["id"]
     if not await folder_active(g,folder):return
     uid=await choose_account(g,source)
@@ -496,7 +492,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
     if uid<0 and not getattr(source_service,"ready",False):
         return
     try:
-        async with connected(source_service,abs(uid)) as client:
+        async with gallery_connected(g,uid) as client:
             guard=PauseGuard(g,uid,folder)
             await guard()
             entity=await find_dialog(g,client,folder,uid,source["peer"])
@@ -852,10 +848,11 @@ async def fair_round(g,folders,*,catalog_only=False,phase="combined"):
     semaphore=asyncio.Semaphore(max_accounts)
     lanes={}
     for folder in folders:
-        # Las galerías sin fuente conocida se agrupan por cuenta candidata.
-        # Sigue existiendo un único carril por sesión autorizada.
+        # A real Telegram account may exist in both DESCARGAS (+UID) and
+        # DATOS (-UID). It must occupy ONE reader lane, regardless of which
+        # provider serves each folder. Distinct real accounts stay parallel.
         uid=folder["source_uid"] or await choose_account(g,folder)
-        lanes.setdefault(uid or 0,[]).append(folder)
+        lanes.setdefault(abs(int(uid or 0)),[]).append(folder)
 
     async def lane(group):
         async with semaphore:
