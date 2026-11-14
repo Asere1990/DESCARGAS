@@ -44,7 +44,7 @@ def app_icon(size):
 HEADERS={
  "Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
  "Referrer-Policy":"no-referrer","X-Robots-Tag":"noindex, nofollow, noarchive",
- "Content-Security-Policy":"default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self'; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'none'; form-action 'self'"
+ "Content-Security-Policy":"default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; connect-src 'self' https://*.r2.cloudflarestorage.com; frame-ancestors https://web.telegram.org https://*.telegram.org; base-uri 'none'; form-action 'self'"
 }
 
 def intro_page_headers(source):
@@ -199,7 +199,7 @@ def mount(app,service):
         return web.Response(text=content,content_type="text/html",headers=headers)
     async def static(request):
         name=request.match_info["name"]
-        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css","admin_account.js","admin_account.css","broadcast_ui.js"):raise web.HTTPNotFound()
+        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css","admin_account.js","admin_account.css","broadcast_ui.js","manual_upload.js"):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/name,headers={
             "Cache-Control":"no-cache","X-Content-Type-Options":"nosniff"})
     async def api(request):

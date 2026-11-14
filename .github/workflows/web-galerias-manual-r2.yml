@@ -1,0 +1,32 @@
+name: Web Galerías — carga manual R2 (aislada)
+on:
+  pull_request:
+    paths:
+      - 'web_galerias/manual_upload.py'
+      - 'web_galerias/manual_upload.js'
+      - 'web_galerias/app.py'
+      - 'web_galerias/admin.py'
+      - 'web_galerias/app.js'
+      - 'web_galerias/index.html'
+      - 'tests/test_web_galerias_manual_r2_upload.py'
+      - '.github/workflows/web-galerias-manual-r2.yml'
+jobs:
+  focused-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax of both independent upload modules
+        run: |
+          python -m compileall -q web_galerias/manual_upload.py web_galerias/admin.py web_galerias/app.py
+          node --check web_galerias/manual_upload.js
+          node --check web_galerias/app.js
+      - name: Dependencies
+        run: pip install -e .
+      - name: Isolated uploader tests
+        run: python -m unittest discover -s tests -p test_web_galerias_manual_r2_upload.py -v
