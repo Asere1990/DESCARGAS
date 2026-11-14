@@ -9,6 +9,7 @@ on:
       - 'web_galerias/app.js'
       - 'web_galerias/index.html'
       - 'tests/test_web_galerias_manual_r2_upload.py'
+      - 'tests/test_web_galerias_manual_caption.cjs'
       - '.github/workflows/web-galerias-manual-r2.yml'
 jobs:
   focused-check:
@@ -26,6 +27,7 @@ jobs:
           python -m compileall -q web_galerias/manual_upload.py web_galerias/admin.py web_galerias/app.py
           node --check web_galerias/manual_upload.js
           node --check web_galerias/app.js
+          node --test tests/test_web_galerias_manual_caption.cjs
       - name: Dependencies
         run: pip install -e .
       - name: Isolated uploader tests
