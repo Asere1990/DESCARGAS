@@ -200,7 +200,7 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('account_system',self.js)
         self.assertIn('activeSources[0]?.account_uid',self.js)
         self.assertIn('for(const origin of activeSources)',self.js)
-        self.assertIn("Ningún objeto de Cloudflare R2 se elimina.",self.js)
+        self.assertIn("sin borrar R2.",self.js)
 
     def test_browser_admin_logout_is_hidden_from_telegram_clients(self):
         self.assertIn('id="browser-logout" type="button" class="mobile-action hidden"',self.html)
