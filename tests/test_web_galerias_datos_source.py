@@ -38,7 +38,7 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(reader.cipher)
             self.assertEqual(reader.cipher.decrypt(reader.cipher.encrypt(b"test")),b"test")
 
-    async def test_chooser_queries_both_databases_but_deduplicates_same_telegram_uid(self):
+    async def test_chooser_queries_both_databases_without_presence_ban(self):
         db=N(fetchrow=AsyncMock(return_value={"uid":-222}))
         datos=N(ready=True,account_keys=AsyncMock(return_value=[-111,-222]),
                 has_account=AsyncMock(return_value=True))
@@ -47,7 +47,7 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await choose_account(gallery,folder),-222)
         sql,*args=db.fetchrow.await_args.args
         self.assertIn("unnest($5::bigint[])",sql)
-        self.assertIn("a0.uid=-d.uid AND a0.session IS NOT NULL",sql)
+        self.assertNotIn("a0.uid=-d.uid AND a0.session IS NOT NULL",sql)
         self.assertIn("COALESCE(d.next_after,0)<=$2",sql)
         self.assertEqual(args[-1],[-111,-222])
         self.assertEqual(args[:4],[7,args[1],None,None])
@@ -64,20 +64,20 @@ class DualSourceSafetyTests(unittest.IsolatedAsyncioTestCase):
         folder={"id":7,"source_uid":-222,"preferred_uid":-222}
         self.assertEqual(await choose_account(gallery,folder),-222)
         sql,*args=db.fetchrow.await_args.args
-        self.assertIn("d.uid=$4 OR NOT EXISTS",sql)
-        self.assertIn("a0.uid=-d.uid AND a0.session IS NOT NULL",sql)
+        self.assertIn("SELECT d.uid FROM unnest($5::bigint[])",sql)
+        self.assertNotIn("a0.uid=-d.uid AND a0.session IS NOT NULL",sql)
         self.assertIn("($4::bigint IS NULL OR a.uid=$4)",sql)
         self.assertEqual(args[-1],[-222])
         self.assertEqual(args[3],-222)
 
-    async def test_unpinned_datos_duplicate_remains_deduplicated(self):
-        db=N(fetchrow=AsyncMock(return_value={"uid":222}))
+    async def test_unpinned_datos_remains_eligible_even_when_uid_exists_in_descargas(self):
+        db=N(fetchrow=AsyncMock(return_value={"uid":-222}))
         datos=N(ready=True,account_keys=AsyncMock(return_value=[-222]))
         gallery=N(s=N(datos=datos),db=lambda:db)
         folder={"id":8,"source_uid":None,"preferred_uid":None}
-        self.assertEqual(await choose_account(gallery,folder),222)
+        self.assertEqual(await choose_account(gallery,folder),-222)
         sql,*args=db.fetchrow.await_args.args
-        self.assertIn("d.uid=$4 OR NOT EXISTS",sql)
+        self.assertIn("SELECT d.uid FROM unnest($5::bigint[])",sql)
         self.assertIsNone(args[3])
 
     async def test_missing_datos_source_preserves_primary_selection(self):
