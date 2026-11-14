@@ -578,8 +578,9 @@
   min-height:60px;
 }
 #library .library-branding #brand-logo{
-  flex:0 0 auto;width:49px;height:49px;object-fit:contain;
-  border-radius:13px;
+  flex:0 0 auto;width:var(--gallery-logo-size,49px);
+  height:var(--gallery-logo-size,49px);
+  object-fit:contain;border-radius:13px;
 }
 #library .library-branding #brand-icon{
   flex:0 0 auto;font-size:34px;color:var(--accent);
@@ -591,7 +592,10 @@
 }
 @media(max-width:370px){
   #library .library-branding{gap:10px;margin-bottom:15px}
-  #library .library-branding #brand-logo{width:44px;height:44px}
+  #library .library-branding #brand-logo{
+   width:var(--gallery-logo-size,44px);
+   height:var(--gallery-logo-size,44px)
+  }
 }
 
 /* El símbolo ✦ central era el placeholder del video: el atributo hidden
@@ -1248,3 +1252,11 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
  outline:3px solid var(--accent);outline-offset:-3px;touch-action:none}
 [data-folder-swap-scope].folder-sort-target{outline:3px dashed var(--accent);
  outline-offset:-4px}
+
+/* Same existing editor slider style; only the uploaded logo's preview scales. */
+#tab-diseno .editor-logo-setting .editor-logo-preview{
+ min-height:72px;max-height:230px;
+}
+#tab-diseno .editor-logo-setting #edit-logo-image-preview{
+ width:auto;max-width:100%;object-fit:contain;
+}
