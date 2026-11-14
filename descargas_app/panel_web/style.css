@@ -147,6 +147,9 @@
 .account-context .telegram-id-row small,.conversation .telegram-id-row small{font-size:12px;letter-spacing:0;margin:0;color:#6e7e89;overflow-wrap:anywhere;user-select:text}
 .copy-id{display:inline-grid;place-items:center;flex:0 0 auto;width:34px;height:34px;border:1px solid #cad8e5;border-radius:9px;color:#0875d3;background:#f3f8ff;font-size:23px;line-height:1;touch-action:manipulation}
 .copy-id:active{background:#d9ebff}
+/* Linked-account phone comes from the existing, authorized account list. */
+.account-context .account-phone{font-size:12px;letter-spacing:0;margin:3px 0 0;color:#6e7e89;overflow-wrap:anywhere;user-select:text}
+.account-context .account-phone[hidden]{display:none!important}
 .chat-row-shell{display:flex;align-items:center;width:100%;min-width:0}
 .chat-row-shell>.chat-row{width:auto;flex:1;min-width:0;padding-right:4px}
 .chat-row-shell>.copy-id{margin-right:12px}
