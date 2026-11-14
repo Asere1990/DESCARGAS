@@ -385,6 +385,57 @@ async def finish(g, uid, data):
             return {"ok": True, "media": media}
 
 
+
+async def caption(g, uid, data):
+    """Apply one optional batch caption to verified, admin-owned manual media.
+
+    This changes only the existing gallery text index. It neither downloads
+    nor uploads any bytes, touches Telegram sessions, nor edits nonmanual
+    media. The file name remains searchable when a caption is supplied.
+    """
+    from .core import normal
+
+    raw = data.get("uploads")
+    value = data.get("caption")
+    if not isinstance(raw, list) or not 1 <= len(raw) <= 1000:
+        raise web.HTTPBadRequest(text="Selecciona de 1 a 1.000 archivos del lote.")
+    if not isinstance(value, str) or not value.strip() or len(value) > 1500:
+        raise web.HTTPBadRequest(text="Escribe un caption de hasta 1.500 caracteres o elige Sin caption.")
+    label = value.strip()
+    ids = [upload_uuid(item) for item in raw]
+    if len(set(ids)) != len(ids):
+        raise web.HTTPBadRequest(text="Hay archivos repetidos en el lote.")
+
+    async with g.db().acquire() as conn:
+        async with conn.transaction():
+            rows = await conn.fetch("""
+                SELECT u.media_id,u.folder,m.filename
+                FROM wg_manual_uploads AS u
+                JOIN wg_media AS m ON m.id=u.media_id
+                WHERE u.id=ANY($1::uuid[]) AND u.actor=$2
+                  AND u.status='ready' AND m.state='ready'
+                  AND m.folder=u.folder AND m.file_key=u.object_key
+                  AND m.message<0
+                FOR UPDATE OF u,m
+            """, ids, uid)
+            if len(rows) != len(ids):
+                raise web.HTTPConflict(
+                    text="El lote cambió o contiene archivos no autorizados; no se modificó nada.")
+            if len({int(row["folder"]) for row in rows}) != 1:
+                raise web.HTTPBadRequest(
+                    text="El caption debe pertenecer a una sola galería.")
+            media_ids = [int(row["media_id"]) for row in rows]
+            search = [normal(label + " " + str(row["filename"] or ""))
+                      for row in rows]
+            await conn.execute("""
+                UPDATE wg_media AS m SET
+                    label=$2,search_text=items.index_text
+                FROM UNNEST($1::bigint[],$3::text[]) AS items(media,index_text)
+                WHERE m.id=items.media AND m.state='ready'
+            """, media_ids, label, search)
+    return {"ok": True, "updated": len(rows)}
+
+
 async def abort(g, uid, data):
     row = await row_for(g, uid, data)
     if row["status"] == "ready":
@@ -428,6 +479,8 @@ async def operation(g, uid, op, data):
         return await part_url(g, uid, data)
     if op == "admin-manual-complete":
         return await finish(g, uid, data)
+    if op == "admin-manual-caption":
+        return await caption(g, uid, data)
     if op == "admin-manual-abort":
         return await abort(g, uid, data)
     raise web.HTTPNotFound()
