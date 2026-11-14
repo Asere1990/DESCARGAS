@@ -18,6 +18,7 @@ from .admin_browser import SCHEMA as BROWSER_SCHEMA,authenticate as authenticate
 from .user_features import SCHEMA as USER_FEATURES_SCHEMA
 from .commercial import SCHEMA as COMMERCIAL_SCHEMA
 from . import download_plus
+from .folder_sources import SCHEMA as FOLDER_SOURCES_SCHEMA, public_sources_sql
 
 SCHEMA="""
 CREATE TABLE IF NOT EXISTS wg_folders(
@@ -118,6 +119,7 @@ CREATE TABLE IF NOT EXISTS wg_free_access(
  updated DOUBLE PRECISION NOT NULL DEFAULT 0,
  changed_by BIGINT NOT NULL);
 """
+SCHEMA += FOLDER_SOURCES_SCHEMA
 SCHEMA += PERSONAL_SCHEMA
 SCHEMA += COVER_SCHEMA
 SCHEMA += USER_FEATURES_SCHEMA
@@ -376,8 +378,11 @@ class GalleryCore:
         if not await self.entitled(uid):return False
         if is_admin(uid):return True
         return bool(await self.db().fetchval("""
-        SELECT 1 FROM wg_folders f LEFT JOIN wg_user_prefs p ON p.uid=$2
-        WHERE f.id=$1 AND f.active AND
+        SELECT 1 FROM wg_folders source
+        LEFT JOIN wg_folder_sources link ON link.source_folder=source.id
+        JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,source.id)
+        LEFT JOIN wg_user_prefs p ON p.uid=$2
+        WHERE source.id=$1 AND source.active AND f.active AND
         (COALESCE(p.mode,'all')='all' OR EXISTS(
          SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=f.id))
         """,folder,uid))
@@ -389,13 +394,24 @@ class GalleryCore:
 
     async def folder_list(self,uid):
         rows=await self.db().fetch("""
+        WITH source_map AS (
+          SELECT f.id AS parent_folder,f.id AS source_folder
+          FROM wg_folders f WHERE NOT EXISTS(
+            SELECT 1 FROM wg_folder_sources x WHERE x.source_folder=f.id)
+          UNION ALL
+          SELECT parent_folder,source_folder FROM wg_folder_sources
+        )
         SELECT f.id,
           COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name,
-          f.complete,f.error,MAX(c.updated) AS cover_updated,
+          BOOL_AND(origin.complete) AS complete,
+          MAX(f.error) AS error,MAX(c.updated) AS cover_updated,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='photo')::int AS photos,
           COUNT(m.id) FILTER(WHERE m.state IN ('preview','ready') AND m.kind='video')::int AS videos,
           COUNT(m.id) FILTER(WHERE m.state IN ('pending','preview'))::int AS pending
-        FROM wg_folders f LEFT JOIN wg_media m ON m.folder=f.id
+        FROM wg_folders f
+        JOIN source_map map ON map.parent_folder=f.id
+        JOIN wg_folders origin ON origin.id=map.source_folder AND origin.active
+        LEFT JOIN wg_media m ON m.folder=origin.id
         LEFT JOIN wg_folder_covers c ON c.folder=f.id
         LEFT JOIN wg_user_prefs p ON p.uid=$1
         WHERE f.active AND ($2 OR COALESCE(p.mode,'all')='all' OR EXISTS(
@@ -451,7 +467,8 @@ class GalleryCore:
                     continue
                 folder.pop("cover_updated",None)
                 cover=await self.db().fetchval("""SELECT id FROM wg_media
-                  WHERE folder=$1 AND state IN ('preview','ready') AND thumb_key IS NOT NULL
+                  WHERE """+public_sources_sql()+""" AND state IN ('preview','ready')
+                    AND thumb_key IS NOT NULL
                   ORDER BY date DESC LIMIT 1""",folder["id"])
                 folder["cover"]=("/web-galerias/media/"+str(cover)+"/thumb?t="+
                   temporary_link(self,uid,cover,"thumb")) if cover else None
@@ -504,7 +521,7 @@ class GalleryCore:
             rows=await self.db().fetch("""SELECT id,folder,kind,mime,filename,date,width,height,size,state,thumb_key,
               EXISTS(SELECT 1 FROM wg_favorites v
                      WHERE v.uid=$5 AND v.media=wg_media.id) AS favorite
-              FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
+              FROM wg_media WHERE """+public_sources_sql()+""" AND state IN ('preview','ready')
               AND ($3::text='all' OR kind=$3)
               AND to_tsvector('simple',search_text) @@ plainto_tsquery('simple',$2)
               AND id<$4 ORDER BY id DESC LIMIT 61""",folder,query,kind,cursor or 2**63-1,uid)
@@ -512,7 +529,7 @@ class GalleryCore:
             rows=await self.db().fetch("""SELECT id,folder,kind,mime,filename,date,width,height,size,state,thumb_key,
               EXISTS(SELECT 1 FROM wg_favorites v
                      WHERE v.uid=$4 AND v.media=wg_media.id) AS favorite
-              FROM wg_media WHERE folder=$1 AND state IN ('preview','ready')
+              FROM wg_media WHERE """+public_sources_sql()+""" AND state IN ('preview','ready')
               AND ($2::text='all' OR kind=$2)
               AND id<$3 ORDER BY id DESC LIMIT 61""",folder,kind,cursor or 2**63-1,uid)
         result=[]
