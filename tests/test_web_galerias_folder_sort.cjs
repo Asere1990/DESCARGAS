@@ -10,9 +10,13 @@ const admin=fs.readFileSync(path.join(root,'admin.py'),'utf8');
 const sources=fs.readFileSync(path.join(root,'folder_sources.py'),'utf8');
 
 test('source actions distinguish handoff from reset and never request R2 deletion',()=>{
- for(const op of ['admin-folder-handoff','admin-folder-reconnect',
-  'admin-folder-disconnect-account','admin-folder-disconnect-source']){
+ for(const op of ['admin-folder-handoff','admin-folder-reconnect']){
   assert.ok(js.includes(op),op);
+  assert.ok(admin.includes(op),op);
+ }
+ for(const kind of ['account','source']){
+  const op='admin-folder-disconnect-'+kind;
+  assert.ok(js.includes('"admin-folder-disconnect-"+mode'),op);
   assert.ok(admin.includes(op),op);
  }
  assert.match(js,/Reemplazar cuenta · mantener avance/);
