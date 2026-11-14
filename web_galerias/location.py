@@ -4,6 +4,7 @@ Uses the same stable ID ordering as the existing original gallery listing,
 not the order of a custom personal folder or search results.
 """
 from aiohttp import web
+from .folder_sources import public_sources_sql
 
 
 async def locate(g,uid,data):
@@ -12,9 +13,13 @@ async def locate(g,uid,data):
     target=identifier(data.get("media"))
     db=g.db()
     record=await db.fetchrow("""
-        SELECT m.id,m.folder,COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name,
-               f.active
-        FROM wg_media m JOIN wg_folders f ON f.id=m.folder
+        SELECT m.id,COALESCE(link.parent_folder,m.folder) AS folder,
+               COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name,
+               (f.active AND origin.active) AS active
+        FROM wg_media m
+        JOIN wg_folders origin ON origin.id=m.folder
+        LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+        JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
         WHERE m.id=$1 AND m.state IN ('preview','ready')""",target)
     if not record or not record["active"] or not await g.permitted(uid,record["folder"]):
         raise web.HTTPForbidden(text="Este archivo no está disponible en tus galerías.")
@@ -22,12 +27,14 @@ async def locate(g,uid,data):
     newer=await db.fetch("""
         SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key,file_key,
           EXISTS(SELECT 1 FROM wg_favorites f WHERE f.uid=$3 AND f.media=wg_media.id) AS favorite
-        FROM wg_media WHERE folder=$1 AND id>$2 AND state IN ('preview','ready')
+        FROM wg_media WHERE """+public_sources_sql()+""" AND id>$2 AND state IN ('preview','ready')
+          AND EXISTS(SELECT 1 FROM wg_folders orig WHERE orig.id=folder AND orig.active)
         ORDER BY id ASC LIMIT 25""",folder,target,uid)
     older=await db.fetch("""
         SELECT id,kind,mime,filename,date,width,height,size,state,thumb_key,file_key,
           EXISTS(SELECT 1 FROM wg_favorites f WHERE f.uid=$3 AND f.media=wg_media.id) AS favorite
-        FROM wg_media WHERE folder=$1 AND id<=$2 AND state IN ('preview','ready')
+        FROM wg_media WHERE """+public_sources_sql()+""" AND id<=$2 AND state IN ('preview','ready')
+          AND EXISTS(SELECT 1 FROM wg_folders orig WHERE orig.id=folder AND orig.active)
         ORDER BY id DESC LIMIT 36""",folder,target,uid)
     rows=list(reversed(newer))+older[:35]
     if not any(x["id"]==target for x in rows):
