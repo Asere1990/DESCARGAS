@@ -426,8 +426,8 @@ async def admin_op(g,uid,op,data):
     if op=="admin-sync-reset":
         folder=identifier(data.get("folder"))
         await db.execute("""UPDATE wg_folders SET scan_cursor=0,complete=FALSE,error=''
-            WHERE id=$1 OR id IN (
-              SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1)
+            WHERE (id=$1 OR id IN (
+              SELECT source_folder FROM wg_folder_sources WHERE parent_folder=$1))
             AND source_enabled""",folder)
         await g.log(uid,op)
         return {"ok":True}
