@@ -11,7 +11,7 @@ to be absent from the other system.
 """
 from contextlib import asynccontextmanager
 
-from descargas_app.account_chat import connected
+from descargas_app import account_chat
 
 
 @asynccontextmanager
@@ -28,7 +28,7 @@ async def gallery_connected(g, signed_uid):
         raise ValueError("La cuenta de Telegram no está asignada.")
     real_uid=abs(uid)
     if uid > 0:
-        async with connected(g.s,real_uid) as client:
+        async with account_chat.connected(g.s,real_uid) as client:
             yield client
         return
     datos=getattr(g.s,"datos",None)
@@ -38,5 +38,5 @@ async def gallery_connected(g, signed_uid):
     # provider-specific database key. An existing DESCARGAS download blocks
     # this DATOS attempt temporarily; it NEVER bans or revokes the account.
     async with g.s.repo.account_lock(real_uid,wait=False):
-        async with connected(datos,real_uid) as client:
+        async with account_chat.connected(datos,real_uid) as client:
             yield client
