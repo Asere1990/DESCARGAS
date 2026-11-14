@@ -15,7 +15,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script defer src="/web-galerias/static/app.js?v=playback-range-android-ios-20261113-v2-playback-alert-cubanitas-billing-20261113"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=admin-original-media-20261112-v1"></script>
-<script defer src="/web-galerias/static/manual_upload.js?v=manual-r2-20261114-v1"></script>
+<script defer src="/web-galerias/static/manual_upload.js?v=manual-r2-20261114-v2-caption"></script>
 <script defer src="/web-galerias/static/broadcast_ui.js?v=announcements-20261112-v1"></script>
 </head><body>
 <div id="app" class="app">
@@ -228,6 +228,19 @@
      <button id="manual-r2-start" type="button" class="primary compact">↑ Subir a esta galería</button>
      <progress id="manual-r2-progress" max="1" value="0"></progress>
      <p id="manual-r2-status" class="muted" aria-live="polite" role="status"></p>
+     <div id="manual-r2-caption-panel" class="panel-card hidden" role="group" aria-labelledby="manual-r2-caption-title">
+      <h3 id="manual-r2-caption-title">¿Agregar caption a este lote?</h3>
+      <p id="manual-r2-caption-count" class="muted"></p>
+      <label for="manual-r2-caption-text">Caption para todas las fotos y videos de esta tanda (opcional)
+       <textarea id="manual-r2-caption-text" rows="3" maxlength="1500" placeholder="Escribe palabras o una descripción que los usuarios puedan encontrar en Buscar…"></textarea>
+      </label>
+      <p class="muted">Este caption se asociará a cada archivo terminado y servirá para encontrarlo desde el buscador de la web.</p>
+      <div class="row-actions">
+       <button id="manual-r2-caption-save" type="button" class="small-btn strong">Guardar caption</button>
+       <button id="manual-r2-caption-skip" type="button" class="small-btn">No agregar caption</button>
+      </div>
+      <p id="manual-r2-caption-status" class="muted" role="status" aria-live="polite"></p>
+     </div>
     </details>
     <details id="admin-media-manager" class="panel-card admin-media-manager admin-tools-fold">
      <summary>Moderar fotos y videos ▾</summary>
