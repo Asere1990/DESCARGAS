@@ -122,6 +122,13 @@ class MultiSourcePostgresTests(unittest.IsolatedAsyncioTestCase):
           INSERT INTO wg_personal_folders(id,uid,name) VALUES(8,701111,'Favoritos personales');
           INSERT INTO wg_personal_items(uid,folder,media,added) VALUES(701111,8,2,1);
         """)
+        await self.conn.fetchval("""
+          SELECT setval(pg_get_serial_sequence('wg_folders','id'),
+                        (SELECT MAX(id) FROM wg_folders))
+        """)
+        await self.conn.execute("""
+          INSERT INTO wg_user_prefs(uid,mode) VALUES(701112,'selected')
+        """)
         self.db=TestDB(self.conn)
         self.g=N(db=lambda:self.db,
                  entitled=AsyncMock(return_value=True),
