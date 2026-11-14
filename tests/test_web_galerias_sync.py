@@ -81,7 +81,7 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
     def test_private_folders_remain_invisible_in_customer_catalog(self):
         from pathlib import Path
         text=(Path(__file__).resolve().parents[1]/"web_galerias"/"core.py").read_text()
-        self.assertIn("WHERE f.id=$1 AND f.active AND",text)
+        self.assertIn("WHERE source.id=$1 AND source.active AND f.active AND",text)
         self.assertIn("WHERE f.active AND",text)
 
     async def test_pause_guard_stops_if_folder_record_is_missing(self):
@@ -197,6 +197,8 @@ class SafeSync(unittest.IsolatedAsyncioTestCase):
 
     async def test_admin_readdition_keeps_folder_and_retries_missing(self):
         g,db=gallery()
+        # There is no existing multiorigin link for this original folder.
+        db.fetchval.return_value=False
         db.fetchrow.return_value={"id":7}
         with patch("web_galerias.admin.is_admin",return_value=True):
             result=await admin_op(g,7539025033,"admin-folder",
