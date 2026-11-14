@@ -479,7 +479,7 @@ async def refresh_telegram_counts(g,folder,client,entity,guard):
 
 async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,phase="combined"):
     """Un turno de lectura + copia, con lock exclusivo de cuenta ya existente."""
-    from descargas_app.account_chat import connected
+    from .reader_sessions import gallery_connected
     folder=source["id"]
     if not await folder_active(g,folder):return
     uid=await choose_account(g,source)
@@ -496,7 +496,7 @@ async def sync_folder(g,source,*,max_files=None,scan_size=90,catalog_only=False,
     if uid<0 and not getattr(source_service,"ready",False):
         return
     try:
-        async with connected(source_service,abs(uid)) as client:
+        async with gallery_connected(g,uid) as client:
             guard=PauseGuard(g,uid,folder)
             await guard()
             entity=await find_dialog(g,client,folder,uid,source["peer"])
@@ -852,10 +852,11 @@ async def fair_round(g,folders,*,catalog_only=False,phase="combined"):
     semaphore=asyncio.Semaphore(max_accounts)
     lanes={}
     for folder in folders:
-        # Las galerías sin fuente conocida se agrupan por cuenta candidata.
-        # Sigue existiendo un único carril por sesión autorizada.
+        # A real Telegram account may exist in both DESCARGAS (+UID) and
+        # DATOS (-UID). It must occupy ONE reader lane, regardless of which
+        # provider serves each folder. Distinct real accounts stay parallel.
         uid=folder["source_uid"] or await choose_account(g,folder)
-        lanes.setdefault(uid or 0,[]).append(folder)
+        lanes.setdefault(abs(int(uid or 0)),[]).append(folder)
 
     async def lane(group):
         async with semaphore:
