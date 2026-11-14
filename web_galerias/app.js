@@ -2125,6 +2125,7 @@ async function loadAdmin(){
   S.admin=await api("admin-overview");
   previewAdmin();
   window.CubanitasTools?.adminRefreshed?.(S.admin);
+  window.GalleryManualUpload?.refreshed?.(S.admin);
   await window.CubanitasTools?.refreshUserStats?.();
  }catch(e){notice(e.message);}
 }
