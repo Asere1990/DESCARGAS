@@ -22,7 +22,7 @@ REVOKE ALL ON wg_folder_order FROM PUBLIC;
 
 async def ordered(g,uid,scope,items):
     """Sort a bounded folder list using private preference then global default."""
-    if not items:
+    if len(items)<2:
         return items
     owners=[uid] if scope=="personal" or uid==0 else [uid,0]
     rows=await g.db().fetch("""
