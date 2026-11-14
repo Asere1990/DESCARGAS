@@ -24,6 +24,9 @@ TYPES = {
     ".jpeg": ("image/jpeg", "photo"),
     ".png": ("image/png", "photo"),
     ".webp": ("image/webp", "photo"),
+    ".heic": ("image/heic", "photo"),
+    ".heif": ("image/heif", "photo"),
+    ".avif": ("image/avif", "photo"),
     ".mp4": ("video/mp4", "video"),
     ".mov": ("video/quicktime", "video"),
     ".webm": ("video/webm", "video"),
@@ -153,6 +156,7 @@ async def cors_ready(g):
             LOG.warning("R2 CORS inspection failed: %s", type(exc).__name__)
             return False
     origins = trusted_origins()
+    changed = False
     for origin in origins:
         configured = any(
             (origin in rule.get("AllowedOrigins", []) or
@@ -163,6 +167,7 @@ async def cors_ready(g):
                      for h in rule.get("AllowedHeaders", [])))
             for rule in rules)
         if not configured:
+            changed = True
             rules.append({
                 "AllowedOrigins": [origin],
                 "AllowedMethods": ["PUT"],
@@ -170,6 +175,9 @@ async def cors_ready(g):
                 "ExposeHeaders": ["ETag"],
                 "MaxAgeSeconds": 3600,
             })
+    if not changed:
+        g._manual_upload_cors_ready = True
+        return True
     try:
         await asyncio.to_thread(
             client.put_bucket_cors, Bucket=bucket,
@@ -223,8 +231,11 @@ async def begin(g, uid, data):
     if active >= 50:
         raise web.HTTPTooManyRequests(
             text="Hay demasiadas subidas pendientes; reanuda las anteriores.")
-    width = max(0, min(100000, int(data.get("width") or 0)))
-    height = max(0, min(100000, int(data.get("height") or 0)))
+    try:
+        width = max(0, min(100000, int(data.get("width") or 0)))
+        height = max(0, min(100000, int(data.get("height") or 0)))
+    except (ValueError, TypeError, OverflowError):
+        raise web.HTTPBadRequest(text="Dimensiones incorrectas.") from None
     ident = uuid.uuid4()
     key = f"manual/{folder}/{ident.hex}/original{ext}"
     thumb = f"manual/{folder}/{ident.hex}/thumb.jpg"
@@ -316,7 +327,12 @@ async def finish(g, uid, data):
         raise web.HTTPConflict(
             text="No se confirmó la miniatura. Vuelve a seleccionar el mismo archivo.")
 
-    if row["status"] == "uploading" and row["multipart_id"]:
+    # If an earlier request completed R2 but lost its DB response, recover
+    # from the verified HEAD instead of calling a consumed multipart ID.
+    previously_completed = await r2_head(g.storage, row["object_key"])
+    if (row["status"] == "uploading" and row["multipart_id"]
+            and not (previously_completed and
+                     int(previously_completed["ContentLength"]) == row["bytes"])):
         parts = await list_parts(g, row)
         expected_parts = math.ceil(row["bytes"] / PART_SIZE)
         if len(parts) != expected_parts or sum(int(p["Size"]) for p in parts) != row["bytes"]:
