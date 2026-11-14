@@ -506,6 +506,18 @@
     </div>
     <div class="panel-card"><h2>Imágenes y video</h2>
       <label>Logo<input id="upload-logo" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <div class="editor-image-setting editor-logo-setting">
+       <label for="edit-logo_size" class="editor-image-size-label">
+        Tamaño del logo
+        <output id="edit-logo-size-value" for="edit-logo_size">49 px</output>
+       </label>
+       <input id="edit-logo_size" type="range" min="24" max="200" step="1" value="49"
+              aria-label="Aumentar o disminuir el tamaño del logo de Web Galerías">
+       <div class="editor-image-size-preview editor-logo-preview">
+        <img id="edit-logo-image-preview" alt="Vista previa del logo" hidden>
+       </div>
+       <small class="muted">Ajusta el tamaño sin reemplazar el logo. Se publicará al confirmar los cambios.</small>
+      </div>
       <label>Foto o GIF promocional
         <input id="upload-intro-photo" type="file" accept="image/png,image/jpeg,image/webp,image/gif">
       </label>
