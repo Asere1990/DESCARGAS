@@ -429,8 +429,8 @@ async def caption(g, uid, data):
                       for row in rows]
             await conn.execute("""
                 UPDATE wg_media AS m SET
-                    label=$2,search_text=items.search
-                FROM UNNEST($1::bigint[],$3::text[]) AS items(media,search)
+                    label=$2,search_text=items.index_text
+                FROM UNNEST($1::bigint[],$3::text[]) AS items(media,index_text)
                 WHERE m.id=items.media AND m.state='ready'
             """, media_ids, label, search)
     return {"ok": True, "updated": len(rows)}
