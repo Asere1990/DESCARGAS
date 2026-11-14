@@ -235,6 +235,14 @@ async def admin_op(g,uid,op,data):
         try:peer=int(data.get("peer",0))
         except (ValueError,TypeError,OverflowError):raise web.HTTPBadRequest(text="ID incorrecto.")
         if not -2**63<peer<0:raise web.HTTPBadRequest(text="Escribe el ID completo negativo del grupo o canal.")
+        # An existing secondary source may not be re-added as a top-level
+        # gallery: that would silently change its account and scan cursor.
+        if await db.fetchval("""
+            SELECT 1 FROM wg_folders f
+            JOIN wg_folder_sources link ON link.source_folder=f.id
+            WHERE f.peer=$1
+        """,peer):
+            raise web.HTTPConflict(text="Este grupo ya alimenta una carpeta.")
         name=str(data.get("name","")).strip()
         if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre interno incorrecto.")
         public_name=data.get("public_name")
