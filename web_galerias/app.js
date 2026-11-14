@@ -1659,6 +1659,17 @@ function previewAdmin(){
   addAdminDatum("Visibilidad para clientes",f.active?"Visible":"Oculta",
     "Ocultarla no detiene la catalogación ni el respaldo en Cloudflare R2.");
   addAdminDatum("Origen de Telegram",f.peer,"Identificador del grupo o canal de origen.");
+  if(Array.isArray(f.sources)&&f.sources.length>1){
+    addAdminDatum("Fuentes conectadas",f.sources.length+" grupos o canales",
+      "Cada origen conserva su cuenta, su historial y su respaldo independientes.");
+    for(const [ix,source] of f.sources.entries()){
+      addAdminDatum("Origen "+(ix+1),
+        source.peer+" · "+gallerySourceLabel(source.account_uid)+
+          " · "+pretty(source.scan_count)+" mensajes recorridos"+
+          (source.error?" · "+source.error:""),
+        "Todas sus fotos y videos se reúnen en esta carpeta.");
+    }
+  }
   addAdminDatum("Cuenta Telegram para el historial",
     f.preferred_uid?gallerySourceLabel(f.preferred_uid):"No asignada",
     "Solo esta cuenta vinculada se utilizará cuando la establezcas. Debe poder ver todo el historial.");
@@ -1781,12 +1792,36 @@ function previewAdmin(){
     }catch(e){notice(e.message);}
     finally{sourceButton.disabled=false;}
   };
+  const addSource=document.createElement("button");addSource.type="button";
+  addSource.className="small-btn";addSource.textContent="＋ Agregar grupo o canal";
+  addSource.setAttribute("aria-label","Agregar otro grupo o canal a esta carpeta");
+  addSource.onclick=async()=>{
+    const peer=prompt("ID completo del otro grupo o canal que alimentará esta carpeta (ej.: -1001234567890):","");
+    if(peer===null)return;
+    if(!/^-[0-9]{3,19}$/.test(peer.trim()))
+      return notice("Indica el ID completo negativo del grupo o canal.");
+    const suggested=gallerySourceLabel(f.preferred_uid||f.source_uid);
+    const value=prompt("Cuenta vinculada que lee ese grupo. Escribe DESCARGAS:telegram_id o DATOS:telegram_id:",
+      suggested==="No asignada"?"":suggested);
+    if(value===null)return;
+    const account=gallerySourceInput(value);
+    if(!account)return notice("Indica una cuenta vinculada: DESCARGAS:123456789 o DATOS:123456789.");
+    if(!confirm("¿Agregar este grupo o canal a la carpeta «"+
+      (f.public_name||f.name)+"»? El grupo original y las descargas existentes se conservarán."))return;
+    addSource.disabled=true;
+    try{
+      await api("admin-folder-add-source",{folder:f.id,peer:peer.trim(),...account});
+      await loadAdmin();await refresh(true);
+      notice("Fuente agregada. Su historial se catalogará en esta misma carpeta.");
+    }catch(e){notice(e.message);}
+    finally{addSource.disabled=false;}
+  };
   const browse=document.createElement("button");browse.type="button";browse.className="small-btn strong";
   browse.textContent="Abrir galería y buscar";
   browse.onclick=()=>{S.returnFromAdmin=true;openFolder({
     id:f.id,name:f.public_name||("Galería "+f.id),photos:f.visible_photos,videos:f.visible_videos
   });};
-  buttons.append(browse,edit,publicEdit,sourceButton,choose);
+  buttons.append(browse,edit,publicEdit,sourceButton,addSource,choose);
   if(f.has_custom_cover){
    const resetPhoto=document.createElement("button");resetPhoto.type="button";
    resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
