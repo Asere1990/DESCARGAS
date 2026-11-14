@@ -66,6 +66,7 @@ class MultiSourcePostgresTests(unittest.IsolatedAsyncioTestCase):
             size BIGINT NOT NULL DEFAULT 0,state TEXT NOT NULL DEFAULT 'pending',
             thumb_key TEXT,file_key TEXT,search_text TEXT NOT NULL DEFAULT '',
             label TEXT NOT NULL DEFAULT '',grouped TEXT,ocr_text TEXT NOT NULL DEFAULT '',
+            source_type TEXT NOT NULL DEFAULT '',
             metadata_rev BIGINT NOT NULL DEFAULT 0,
             search_caption TEXT NOT NULL DEFAULT '',search_replies TEXT NOT NULL DEFAULT '',
             search_ocr TEXT NOT NULL DEFAULT '',
@@ -184,6 +185,38 @@ class MultiSourcePostgresTests(unittest.IsolatedAsyncioTestCase):
                 self.g,701111,1,query,0,
                 lambda uid,mid,kind:"fake-"+str(mid), "all")
             self.assertEqual({x["id"] for x in result["items"]},expected)
+
+    async def test_gif_and_media_sent_as_files_keep_captions_and_ocr_searchable(self):
+        # GIFs and documents containing photos/videos still share this same
+        # public gallery and keep their own Telegram provenance.
+        await self.conn.execute("""
+          INSERT INTO wg_media(folder,message,kind,mime,filename,date,size,state,
+                               thumb_key,file_key,label,ocr_text,source_type)
+          VALUES
+            (2,70,'video','image/gif','animacion.gif',104,500,'ready',
+             'gif-thumb','gif-file','captiongifsegundo','', 'gif'),
+            (2,71,'photo','image/png','foto-archivo.png',105,600,'ready',
+             'photo-thumb','photo-file','captionarchivoimagen',
+             'ocrarchivofoto','photo_file'),
+            (2,72,'video','video/mp4','video-archivo.mp4',106,700,'ready',
+             'video-thumb','video-file','captionarchivovideo','', 'video_file')
+        """)
+        await media_text.rebuild(self.g,2,[70,71,72])
+        for phrase,message,kind,source_type in (
+            ("captiongifsegundo",70,"video","gif"),
+            ("captionarchivoimagen",71,"photo","photo_file"),
+            ("ocrarchivofoto",71,"photo","photo_file"),
+            ("captionarchivovideo",72,"video","video_file")
+        ):
+            result=await GalleryCore.list_items(
+                self.g,701111,1,phrase,0,lambda uid,mid,format:"safe","all")
+            self.assertEqual(len(result["items"]),1)
+            found=result["items"][0]
+            original=await self.conn.fetchrow(
+                "SELECT message,kind,source_type FROM wg_media WHERE id=$1",
+                found["id"])
+            self.assertEqual((original["message"],original["kind"],
+                              original["source_type"]), (message,kind,source_type))
 
     async def test_moderation_and_playback_are_individually_identifiable(self):
         result=await GalleryCore.list_items(self.g,701111,1,"",0,
