@@ -97,7 +97,8 @@ class PublicMetadataTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_creating_gallery_with_linked_account_stores_preferred_uid(self):
         core,db=self.make_core()
-        db.fetchval=AsyncMock(return_value=True)
+        # Peer is not already attached as a secondary source; account exists.
+        db.fetchval=AsyncMock(side_effect=[False,True])
         db.fetchrow=AsyncMock(return_value={"id":8})
         core.log=AsyncMock()
         with patch("web_galerias.admin.is_admin",return_value=True):
