@@ -28,7 +28,7 @@ SUM_FIELDS=(
     'scan_count','media_total','visible_photos','visible_videos',
     'photo_native','video_native','photo_files','video_files','gifs',
     'legacy_uncategorized','rechecking','ready','preview_only',
-    'previews_with_images','pending','missing','missing_rechecked','skipped',
+    'previews_with_images','paused_preview','pending','missing','missing_rechecked','skipped',
 )
 TOTAL_FIELDS=('telegram_photos_total','telegram_videos_total')
 
