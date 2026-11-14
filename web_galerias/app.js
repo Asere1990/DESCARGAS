@@ -258,7 +258,35 @@ function updateEditorImageSizes(){
  $("edit-button-image-size-value").textContent=buttonHeight+" px";
  $("edit-title-image-preview").style.height=titleHeight+"px";
  $("edit-button-image-preview").style.height=buttonHeight+"px";
+ updateEditorLogoSizePreview();
  updateLibraryEditorSizes();
+}
+function updateEditorLogoSizePreview(){
+ const value=Number($("edit-logo_size").value);
+ const size=Number.isFinite(value)?Math.min(200,Math.max(24,value)):49;
+ $("edit-logo-size-value").textContent=size+" px";
+ const preview=$("edit-logo-image-preview");
+ preview.style.width=size+"px";
+ preview.style.height=size+"px";
+}
+function loadEditorLogoPreview(){
+ const image=$("edit-logo-image-preview");
+ if(image.dataset.objectUrl){
+  URL.revokeObjectURL(image.dataset.objectUrl);
+  delete image.dataset.objectUrl;
+ }
+ const file=$("upload-logo").files?.[0];
+ image.hidden=true;
+ image.onload=()=>{image.hidden=false;};
+ image.onerror=()=>{image.hidden=true;};
+ if(file){
+  const url=URL.createObjectURL(file);
+  image.dataset.objectUrl=url;
+  image.src=url;
+ }else{
+  image.src="/web-galerias/assets/logo?t="+Date.now();
+ }
+ updateEditorLogoSizePreview();
 }
 function loadEditorImagePreview(kind){
  const asset=kind==="title"?"header":"button-label-image";
@@ -356,6 +384,11 @@ function applyLibraryIdentity(d){
 function applyDesign(d){const r=document.documentElement.style;
  r.setProperty("--accent",d.accent);r.setProperty("--bg",d.background);r.setProperty("--text",d.text_color);
  r.setProperty("--button",d.button_color);r.setProperty("--tile-aspect",d.tile_shape==="rectangle"?"4 / 3":"1");
+ // Scale only the existing uploaded logo in the library, not the title,
+ // covers, miniatures or the full Telegram Mini App layout.
+ const configuredLogo=Number(d.logo_size??49);
+ const logoSize=Number.isFinite(configuredLogo)?Math.min(200,Math.max(24,configuredLogo)):49;
+ r.setProperty("--gallery-logo-size",logoSize+"px");
  renderViewerWatermark(d);
  const headline=$("intro-headline");
  const titleGeneration=(S.titleImageGeneration||0)+1;
@@ -2107,11 +2140,12 @@ function populateEditor(){
                  "library_brand","library_brand_mode","library_eyebrow","library_eyebrow_mode",
                  "library_heading","library_heading_mode",
                  "intro_fit","intro_media","button_color","accent","background","text_color",
-                 "title_image_height","button_image_height",
+                 "title_image_height","button_image_height","logo_size",
                  "library_brand_image_height","library_eyebrow_image_height",
                  "library_heading_image_height"])
   $("edit-"+k).value=d[k]??(k==="button_mode"?"text":"");
  updateEditorLabelChoices();
+ loadEditorLogoPreview();
  loadEditorImagePreview("title");
  loadEditorImagePreview("button");
  for(const slot of LIBRARY_SLOTS)loadLibraryEditorPreview(slot);
@@ -2124,7 +2158,7 @@ async function saveDesign(){
                  "library_heading","library_heading_mode",
                  "intro_fit","intro_media","button_color","accent","background","text_color"])
   design[k]=$("edit-"+k).value;
- for(const k of ["title_image_height","button_image_height",
+ for(const k of ["title_image_height","button_image_height","logo_size",
                  "library_brand_image_height","library_eyebrow_image_height",
                  "library_heading_image_height"])
   design[k]=Number($("edit-"+k).value);
@@ -2278,7 +2312,7 @@ async function confirmEditorChanges(){
                     "library_heading","library_heading_mode",
                     "accent","background","text_color"])
    design[key]=$("edit-"+key).value;
-  for(const key of ["title_image_height","button_image_height",
+  for(const key of ["title_image_height","button_image_height","logo_size",
                  "library_brand_image_height","library_eyebrow_image_height",
                  "library_heading_image_height"])
    design[key]=Number($("edit-"+key).value);
@@ -2727,7 +2761,7 @@ for(const key of ["enabled","line1","line2","position","opacity","size","color"]
 for(const selector of ["header_mode","button_mode",
                       "library_brand_mode","library_eyebrow_mode","library_heading_mode"])
  $("edit-"+selector).onchange=updateEditorLabelChoices;
-for(const key of ["title_image_height","button_image_height",
+for(const key of ["title_image_height","button_image_height","logo_size",
                  "library_brand_image_height","library_eyebrow_image_height",
                  "library_heading_image_height"])
  $("edit-"+key).oninput=updateEditorImageSizes;
@@ -2745,6 +2779,7 @@ for(const key of ["logo","header","button-label-image",
    }
   if(key==="header"||key==="button-label-image")
    loadEditorImagePreview(key==="header"?"title":"button");
+  if(key==="logo")loadEditorLogoPreview();
   if(key==="intro"&&file){
    $("upload-intro-photo").value="";
    $("edit-intro_media").value="video";
