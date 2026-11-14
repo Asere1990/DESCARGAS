@@ -97,6 +97,9 @@ class Gallery(GalleryCore):
         if isinstance(op,str) and op.startswith("admin-"):
             return await admin.admin_op(self,uid,op,data)
         if not await self.entitled(uid):raise web.HTTPForbidden(text="Acceso no autorizado.")
+        if op=="folder-order":
+            from .folder_order import save
+            return await save(self,uid,data.get("kind","public"),data.get("ids"))
         if op=="chat-unread":
             from .customer_bridge import ready as bridge_ready,post_signed
             if is_admin(uid) or not bridge_ready():
