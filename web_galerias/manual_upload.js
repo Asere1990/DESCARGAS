@@ -11,7 +11,7 @@
   const cachePrefix = "wg_manual_r2_v1:";
   const MIME = {
     jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png",
-    webp: "image/webp", mp4: "video/mp4", mov: "video/quicktime",
+    webp: "image/webp", heic: "image/heic", heif: "image/heif", avif: "image/avif", mp4: "video/mp4", mov: "video/quicktime",
     webm: "video/webm"
   };
   let busy = false;
@@ -32,7 +32,7 @@
   function kindOf(file) {
     const ext = (file.name.split(".").pop() || "").toLowerCase();
     if (!MIME[ext]) throw Error("Formato no admitido: " + file.name);
-    return {kind: ["jpg", "jpeg", "png", "webp"].includes(ext) ? "photo" : "video",
+    return {kind: ["jpg", "jpeg", "png", "webp", "heic", "heif", "avif"].includes(ext) ? "photo" : "video",
             mime: MIME[ext]};
   }
   function asJpeg(canvas) {
