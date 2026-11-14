@@ -175,14 +175,18 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn('className="admin-data-row"',section)
         self.assertIn('className="admin-data-label"',section)
         self.assertIn('className="admin-data-value"',section)
-        for label in ("Nombre público","Origen de Telegram","Estado del respaldo",
-                      "Archivos respaldados","Archivos pendientes","Mensajes recorridos",
+        for label in ("Nombre público","Conexiones de Telegram","Estado del respaldo",
+                      "Archivos respaldados en Cloudflare R2",
+                      "Archivos pendientes en fuentes activas",
+                      "Mensajes recorridos en fuentes activas",
                       "Historial inicial","Incidencias sin verificar"):
             self.assertIn('addAdminDatum("'+label+'"',section)
         self.assertNotIn('info.textContent="Nombre público:',section)
         self.assertIn("#admin .admin-data-row{",self.css)
         self.assertIn("flex-direction:column",self.css)
-        self.assertIn("Solo indica que se alcanzó el final del historial inicial; el respaldo sigue aparte.",self.js)
+        self.assertIn('if(hasLiveSources){',self.js)
+        self.assertIn("Sin conexiones de Telegram",self.js)
+        self.assertIn("Archivos respaldados en Cloudflare R2",self.js)
 
     def test_admin_can_assign_telegram_account_when_adding_or_editing_group(self):
         self.assertIn('id="new-source-uid"',self.html)
@@ -194,8 +198,8 @@ class GalleryMobileNavigation(unittest.TestCase):
         self.assertIn("admin-folder-reconnect",self.js)
         self.assertIn('api("admin-folder",{peer,name,public_name,...source_account})',self.js)
         self.assertIn('account_system',self.js)
-        self.assertIn('f.preferred_uid',self.js)
-        self.assertIn('f.source_uid',self.js)
+        self.assertIn('activeSources[0]?.account_uid',self.js)
+        self.assertIn('for(const origin of activeSources)',self.js)
         self.assertIn("Ningún objeto de Cloudflare R2 se elimina.",self.js)
 
     def test_browser_admin_logout_is_hidden_from_telegram_clients(self):
