@@ -76,7 +76,7 @@ async def save_progress(g,uid,data):
        FROM wg_media m
        LEFT JOIN wg_folder_sources s ON s.source_folder=m.folder
        WHERE m.id=$1 AND m.state IN ('preview','ready')""",target)
-    if not row or not await g.permitted(uid,row["source_folder"]):
+    if not row or not await g.permitted(uid,row.get("source_folder",row["folder"])):
         raise web.HTTPForbidden(text="Archivo no disponible en tus galerías.")
     await g.db().execute("""
       INSERT INTO wg_view_progress(uid,folder,media,updated)
@@ -105,7 +105,7 @@ async def set_favorite(g,uid,data):
        FROM wg_media m
        LEFT JOIN wg_folder_sources s ON s.source_folder=m.folder
        WHERE m.id=$1 AND m.state IN ('preview','ready')""",target)
-    if not row or not await g.permitted(uid,row["source_folder"]):
+    if not row or not await g.permitted(uid,row.get("source_folder",row["folder"])):
         raise web.HTTPForbidden(text="Archivo no disponible en tus galerías.")
     await g.db().execute("""
        INSERT INTO wg_favorites(uid,media,created)
