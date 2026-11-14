@@ -1866,7 +1866,9 @@ function previewAdmin(){
      const row=document.createElement("p");
      const kind=item.source_type||item.kind||"tipo desconocido";
      const code=item.error||"sin motivo";
-     row.textContent="Mensaje "+item.message+" · "+kind+" · "+item.mime+
+     row.textContent=(f.sources?.length>1&&item.source_peer?
+        "Grupo/canal "+item.source_peer+" · ":"")+
+       "Mensaje "+item.message+" · "+kind+" · "+item.mime+
        " · "+(readableReason[code]||code);
      examples.append(row);
     }
