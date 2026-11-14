@@ -103,6 +103,16 @@ async def verified_reader(g,uid,peer):
     try:
         async with asyncio.timeout(35):
             async with connected(source,abs(uid)) as client:
+                # Prefer a cached peer: one message query validates membership
+                # without enumerating thousands of other dialogs.
+                cached=None
+                try:
+                    cached=await client.get_input_entity(int(peer))
+                except ValueError:
+                    pass
+                if cached is not None:
+                    await client.get_messages(cached,limit=1)
+                    return True
                 async for dialog in client.iter_dialogs():
                     if int(dialog.id)==int(peer):
                         return True
