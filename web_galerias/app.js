@@ -671,6 +671,130 @@ async function saveFavoriteFromDoubleTap(item){
  finally{favoriteTapPending.delete(item.id);}
 }
 
+// Long-touch and drag swaps exactly two folder positions. Touch and mouse
+// listeners are scoped to folder cards, never to media thumbnails.
+function bindFolderSwap(node,scope,id){
+ node.dataset.folderSwapScope=scope;
+ node.dataset.folderSwapId=String(id);
+ let press=null,ignoreClickUntil=0;
+ const targetAt=(x,y)=>{
+  const found=document.elementFromPoint(x,y)?.closest("[data-folder-swap-scope]");
+  return found?.dataset.folderSwapScope===scope?found:null;
+ };
+ const clearHighlight=()=>{
+  if(press?.candidate)press.candidate.classList.remove("folder-sort-target");
+  node.classList.remove("folder-sort-held");
+ };
+ const clean=()=>{
+  if(!press)return;
+  clearTimeout(press.timer);
+  clearHighlight();
+  document.removeEventListener("touchmove",touchMove);
+  document.removeEventListener("touchend",touchEnd);
+  document.removeEventListener("touchcancel",cancel);
+  document.removeEventListener("pointermove",pointerMove);
+  document.removeEventListener("pointerup",pointerEnd);
+  document.removeEventListener("pointercancel",cancel);
+  press=null;
+ };
+ const swap=async(other)=>{
+  const items=scope==="admin"?S.admin?.folders:scope==="personal"?S.personal:S.folders;
+  if(!Array.isArray(items))return;
+  const from=items.findIndex(x=>String(x.id)===String(id));
+  const to=items.findIndex(x=>String(x.id)===String(other));
+  if(from<0||to<0||from===to)return;
+  [items[from],items[to]]=[items[to],items[from]];
+  const render=scope==="admin"?previewAdmin:scope==="personal"?renderPersonalFolders:renderFolders;
+  render();
+  try{
+   const ids=items.map(x=>Number(x.id));
+   if(scope==="admin")await api("admin-folder-order",{ids});
+   else await api("folder-order",{kind:scope,ids});
+   notice("Orden de carpetas guardado.");
+  }catch(e){
+   [items[from],items[to]]=[items[to],items[from]];
+   render();
+   notice("No se guardó el orden: "+e.message);
+  }
+ };
+ const move=(x,y,event)=>{
+  if(!press)return;
+  const distance=Math.hypot(x-press.x,y-press.y);
+  if(!press.held){
+   if(distance>10)cancel();
+   return;
+  }
+  event?.preventDefault?.();
+  if(press.candidate)press.candidate.classList.remove("folder-sort-target");
+  const target=targetAt(x,y);
+  press.candidate=target&&target!==node?target:null;
+  if(press.candidate)press.candidate.classList.add("folder-sort-target");
+ };
+ const finish=(x,y,event)=>{
+  if(!press)return;
+  const held=press.held;
+  const target=held?targetAt(x,y):null;
+  if(held){
+   event?.preventDefault?.();
+   ignoreClickUntil=Date.now()+700;
+  }
+  clean();
+  if(held&&target&&target!==node)
+   swap(target.dataset.folderSwapId).catch(e=>notice(e.message));
+ };
+ function cancel(){clean();}
+ function touchMove(event){
+  const touch=event.touches?.[0];
+  if(touch)move(touch.clientX,touch.clientY,event);
+ }
+ function touchEnd(event){
+  const touch=event.changedTouches?.[0];
+  if(touch)finish(touch.clientX,touch.clientY,event);else clean();
+ }
+ function pointerMove(event){
+  if(press&&press.pointer===event.pointerId)move(event.clientX,event.clientY,event);
+ }
+ function pointerEnd(event){
+  if(press&&press.pointer===event.pointerId)finish(event.clientX,event.clientY,event);
+ }
+ function begin(x,y,pointer=null){
+  if(press)return;
+  press={x,y,pointer,held:false,candidate:null,timer:null};
+  press.timer=setTimeout(()=>{
+   if(!press)return;
+   press.held=true;
+   node.classList.add("folder-sort-held");
+  },430);
+  if(pointer===null){
+   document.addEventListener("touchmove",touchMove,{passive:false});
+   document.addEventListener("touchend",touchEnd,{passive:false});
+   document.addEventListener("touchcancel",cancel);
+  }else{
+   document.addEventListener("pointermove",pointerMove,{passive:false});
+   document.addEventListener("pointerup",pointerEnd);
+   document.addEventListener("pointercancel",cancel);
+  }
+ }
+ node.addEventListener("touchstart",e=>{
+  const interactive=e.target.closest?.("button,a,input,select,textarea");
+  if(interactive&&interactive!==node)return;
+  const touch=e.touches?.[0];
+  if(touch)begin(touch.clientX,touch.clientY);
+ },{passive:true});
+ node.addEventListener("pointerdown",e=>{
+  if(e.pointerType==="touch"||e.button!==0)return;
+  const interactive=e.target.closest?.("button,a,input,select,textarea");
+  if(interactive&&interactive!==node)return;
+  begin(e.clientX,e.clientY,e.pointerId);
+ });
+ node.addEventListener("contextmenu",e=>{if(press?.held)e.preventDefault();});
+ node.addEventListener("click",e=>{
+  if(Date.now()<ignoreClickUntil){
+   e.preventDefault();e.stopImmediatePropagation();
+  }
+ },true);
+}
+
 function renderFolders(){
  $("folder-counter").textContent=pretty(S.folders.length)+" carpetas";
  const root=$("folders");root.replaceChildren();
@@ -696,6 +820,7 @@ function renderFolders(){
   }
   card.onclick=()=>openFolder(folder);
   card.onkeydown=e=>{if(e.key==="Enter")openFolder(folder);};
+  bindFolderSwap(card,"public",folder.id);
   root.append(card);
  }
  if(!S.folders.length)root.innerHTML='<div class="empty">El administrador todavía no ha publicado carpetas.</div>';
@@ -736,6 +861,7 @@ function renderPersonalFolders(){
   const count=document.createElement("small");count.textContent=pretty(folder.count)+" archivos";
   text.append(title,count);main.append(text);
   main.onclick=()=>{setPersonalMenuOpen(false);openFolder({...folder,personal:true});};
+  bindFolderSwap(main,"personal",folder.id);
   const tools=document.createElement("div");tools.className="personal-folder-tools";
   const change=document.createElement("button");change.type="button";
   change.textContent="▧";change.title="Cambiar portada";change.setAttribute("aria-label","Cambiar portada de "+folder.name);
@@ -1949,6 +2075,7 @@ function previewAdmin(){
    if(open)S.adminExpanded.add(f.id);else S.adminExpanded.delete(f.id);
    setExpanded(open);
   };
+  bindFolderSwap(trigger,"admin",f.id);
   setExpanded(S.adminExpanded.has(f.id));
   card.append(trigger,details);root.append(card);
  }
