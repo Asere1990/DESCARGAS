@@ -122,13 +122,13 @@ async def verified_reader(g,uid,peer):
     accounts in DATOS/DESCARGAS. Verification happens before changing cursors.
     """
     import asyncio
-    from descargas_app.account_chat import connected
+    from .reader_sessions import gallery_connected
     source=g.s if uid>0 else getattr(g.s,"datos",None)
     if source is None or (uid<0 and not getattr(source,"ready",False)):
         raise web.HTTPConflict(text="El sistema de esa cuenta no está disponible.")
     try:
         async with asyncio.timeout(35):
-            async with connected(source,abs(uid)) as client:
+            async with gallery_connected(g,uid) as client:
                 # Prefer a cached peer: one message query validates membership
                 # without enumerating thousands of other dialogs.
                 cached=None
