@@ -10,6 +10,7 @@ from .permissions import is_admin,is_tester
 from . import moderation
 from .core import DEFAULTS,ASSET_MIME,MAX_ASSET,identifier
 from .covers import ALLOWED_MIME,MAX_UPLOAD,optimized_cover,temporary_cover
+from . import folder_sources
 
 async def linked_source_account(g, uid, system="descargas"):
     """Validate the intended registry, with no cross-database writes."""
@@ -92,6 +93,8 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op=="admin-folder-add-source":
+        return await folder_sources.add(g,uid,data)
     if op.startswith("admin-notices-"):
         from . import broadcasts
         return await broadcasts.admin_operation(g,uid,op,data)
@@ -156,6 +159,11 @@ async def admin_op(g,uid,op,data):
         for entry in reasons:
             reason_map.setdefault(entry["folder"],[]).append({
               "code":entry["error"] or "sin_motivo","count":entry["amount"]})
+        source_links=await db.fetch("""
+          SELECT parent_folder,source_folder FROM wg_folder_sources
+          ORDER BY parent_folder,source_folder
+        """)
+        folders=folder_sources.combine_admin_rows(folders,source_links)
         remote=await db.fetchval("SELECT value FROM wg_config WHERE key='backup_status'")
         if isinstance(remote,str):
             remote=json.loads(remote)
@@ -177,7 +185,13 @@ async def admin_op(g,uid,op,data):
             else:
                 folder["cover"]=None
             folder.pop("automatic_cover",None)
-            folder["missing_reasons"]=reason_map.get(folder["id"],[])
+            combined_reasons={}
+            for source in folder["sources"]:
+                for entry in reason_map.get(source["id"],[]):
+                    code=entry["code"]
+                    combined_reasons[code]=combined_reasons.get(code,0)+int(entry["count"])
+            folder["missing_reasons"]=[
+                {"code":code,"count":count} for code,count in combined_reasons.items()]
             result_folders.append(folder)
         return {"folders":result_folders,
             "users":[],  # Never preload thousands of visitors on overview.
@@ -214,6 +228,11 @@ async def admin_op(g,uid,op,data):
         try:peer=int(data.get("peer",0))
         except (ValueError,TypeError,OverflowError):raise web.HTTPBadRequest(text="ID incorrecto.")
         if not -2**63<peer<0:raise web.HTTPBadRequest(text="Escribe el ID completo negativo del grupo o canal.")
+        if await db.fetchval("""
+            SELECT 1 FROM wg_folders f
+            JOIN wg_folder_sources s ON s.source_folder=f.id
+            WHERE f.peer=$1""",peer):
+            raise web.HTTPConflict(text="Ese grupo ya está asociado a otra carpeta.")
         name=str(data.get("name","")).strip()
         if not name or len(name)>100:raise web.HTTPBadRequest(text="Nombre interno incorrecto.")
         public_name=data.get("public_name")
