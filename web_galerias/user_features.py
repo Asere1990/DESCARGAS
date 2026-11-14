@@ -45,8 +45,11 @@ async def collections(g,uid):
         SELECT r.folder,r.media,r.updated,
           COALESCE(NULLIF(f.public_name,''),'Galería '||f.id::text) AS name
         FROM wg_view_progress r
-        JOIN wg_media m ON m.id=r.media AND m.folder=r.folder
-        JOIN wg_folders f ON f.id=m.folder
+        JOIN wg_media m ON m.id=r.media
+        JOIN wg_folders origin ON origin.id=m.folder AND origin.active
+        LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+        JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
+                           AND r.folder=f.id
         LEFT JOIN wg_user_prefs p ON p.uid=$1
         WHERE r.uid=$1 AND """+_visible_clause()+"""
         ORDER BY r.updated DESC LIMIT 100
@@ -55,7 +58,9 @@ async def collections(g,uid):
         SELECT COUNT(*)::int
         FROM wg_favorites fav
         JOIN wg_media m ON m.id=fav.media
-        JOIN wg_folders f ON f.id=m.folder
+        JOIN wg_folders origin ON origin.id=m.folder AND origin.active
+        LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+        JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
         LEFT JOIN wg_user_prefs p ON p.uid=$1
         WHERE fav.uid=$1 AND """+_visible_clause(),uid,admin)
     return {"resume":[dict(r) for r in rows],
@@ -66,9 +71,12 @@ async def save_progress(g,uid,data):
     from .core import identifier
     target=identifier(data.get("media"))
     row=await g.db().fetchrow("""
-       SELECT folder FROM wg_media
-       WHERE id=$1 AND state IN ('preview','ready')""",target)
-    if not row or not await g.permitted(uid,row["folder"]):
+       SELECT COALESCE(s.parent_folder,m.folder) AS folder,
+              m.folder AS source_folder
+       FROM wg_media m
+       LEFT JOIN wg_folder_sources s ON s.source_folder=m.folder
+       WHERE m.id=$1 AND m.state IN ('preview','ready')""",target)
+    if not row or not await g.permitted(uid,row["source_folder"]):
         raise web.HTTPForbidden(text="Archivo no disponible en tus galerías.")
     await g.db().execute("""
       INSERT INTO wg_view_progress(uid,folder,media,updated)
@@ -92,9 +100,12 @@ async def set_favorite(g,uid,data):
             "DELETE FROM wg_favorites WHERE uid=$1 AND media=$2",uid,target)
         return {"ok":True,"favorite":False,"media":target}
     row=await g.db().fetchrow("""
-       SELECT folder FROM wg_media
-       WHERE id=$1 AND state IN ('preview','ready')""",target)
-    if not row or not await g.permitted(uid,row["folder"]):
+       SELECT COALESCE(s.parent_folder,m.folder) AS folder,
+              m.folder AS source_folder
+       FROM wg_media m
+       LEFT JOIN wg_folder_sources s ON s.source_folder=m.folder
+       WHERE m.id=$1 AND m.state IN ('preview','ready')""",target)
+    if not row or not await g.permitted(uid,row["source_folder"]):
         raise web.HTTPForbidden(text="Archivo no disponible en tus galerías.")
     await g.db().execute("""
        INSERT INTO wg_favorites(uid,media,created)
@@ -119,7 +130,9 @@ async def items(g,uid,data):
         m.width,m.height,m.size,m.state,m.thumb_key
       FROM wg_favorites fav
       JOIN wg_media m ON m.id=fav.media
-      JOIN wg_folders f ON f.id=m.folder
+      JOIN wg_folders origin ON origin.id=m.folder AND origin.active
+      LEFT JOIN wg_folder_sources link ON link.source_folder=m.folder
+      JOIN wg_folders f ON f.id=COALESCE(link.parent_folder,m.folder)
       LEFT JOIN wg_user_prefs p ON p.uid=$1
       WHERE fav.uid=$1 AND """+_visible_clause()+"""
         AND ($3::text='all' OR m.kind=$3)
