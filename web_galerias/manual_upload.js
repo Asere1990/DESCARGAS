@@ -16,7 +16,71 @@
   };
   let busy = false;
   let lastFolders = "";
+  const captionPanel = $("manual-r2-caption-panel");
+  const captionTitle = $("manual-r2-caption-title");
+  const captionCount = $("manual-r2-caption-count");
+  const captionText = $("manual-r2-caption-text");
+  const captionStatus = $("manual-r2-caption-status");
+  const captionSave = $("manual-r2-caption-save");
+  const captionSkip = $("manual-r2-caption-skip");
+  let pendingUploads = [];
   const setStatus = (message) => { status.textContent = message; };
+
+  function closeCaptionPrompt(message) {
+    pendingUploads = [];
+    captionPanel.classList.add("hidden");
+    captionText.value = "";
+    captionStatus.textContent = "";
+    go.disabled = busy;
+    if (message) setStatus(message);
+  }
+
+  function promptCaption(uploads) {
+    pendingUploads = [...new Set(uploads)].filter(Boolean);
+    if (!pendingUploads.length) return;
+    const number = pendingUploads.length;
+    captionTitle.textContent = "¿Agregar caption a este lote?";
+    captionCount.textContent = number + " archivo" + (number === 1 ? "" : "s") +
+      " publicado" + (number === 1 ? "" : "s") +
+      ". Puedes asociar un mismo texto para encontrarlos en Buscar.";
+    captionText.value = "";
+    captionStatus.textContent = "";
+    captionPanel.classList.remove("hidden");
+    go.disabled = true;
+    captionPanel.scrollIntoView({behavior: "smooth", block: "center"});
+  }
+
+  captionSave.addEventListener("click", async () => {
+    if (!pendingUploads.length) return;
+    const caption = captionText.value.trim();
+    if (!caption) {
+      captionStatus.textContent = "Escribe el caption o elige No agregar caption.";
+      return;
+    }
+    captionSave.disabled = true;
+    captionSkip.disabled = true;
+    captionStatus.textContent = "Guardando el caption en todos los archivos del lote…";
+    try {
+      const result = await api("admin-manual-caption", {
+        uploads: pendingUploads, caption
+      });
+      if (result.updated !== pendingUploads.length)
+        throw Error("No se confirmó el caption para todos los archivos.");
+      closeCaptionPrompt("✓ Caption asociado a " + result.updated +
+        " archivos. Ya se pueden encontrar desde Buscar.");
+    } catch (error) {
+      captionStatus.textContent = "No se pudo guardar: " + error.message +
+        " Los archivos siguen publicados; puedes reintentar.";
+    } finally {
+      captionSave.disabled = false;
+      captionSkip.disabled = false;
+    }
+  });
+
+  captionSkip.addEventListener("click", () => {
+    if (!pendingUploads.length || captionSave.disabled) return;
+    closeCaptionPrompt("✓ Archivos publicados sin caption. Se mantienen sus nombres buscables.");
+  });
   function keyOf(file, folderId) {
     return cachePrefix + [folderId, file.name, file.size, file.lastModified].join(":");
   }
@@ -147,7 +211,7 @@
     if (session.status === "ready") {
       remember(cacheKey, null);
       report("✓ " + file.name + " ya está publicado.");
-      return;
+      return session.upload;
     }
     if (session.thumb_url) {
       report("Enviando miniatura de " + file.name + "…");
@@ -193,6 +257,7 @@
     await api("admin-manual-complete", {upload: session.upload});
     remember(cacheKey, null);
     report("✓ Publicado: " + file.name);
+    return session.upload;
   }
 
   function refreshed(admin) {
@@ -209,6 +274,11 @@
   }
 
   go.addEventListener("click", async () => {
+    if (pendingUploads.length) {
+      setStatus("Primero guarda el caption del lote anterior o pulsa No agregar caption.");
+      captionPanel.scrollIntoView({behavior: "smooth", block: "center"});
+      return;
+    }
     if (busy || !S.me?.admin || !folder.value || !picker.files?.length) {
       setStatus("Selecciona la galería y los archivos que quieres publicar.");
       return;
@@ -225,15 +295,17 @@
       if (!config.ready) throw Error(config.reason || "Cloudflare no está listo.");
       let next = 0, done = 0, failed = 0;
       const notes = [];
+      const publishedUploads = [];
       const workers = Array.from({length: Math.min(3, files.length)}, async () => {
         while (next < files.length) {
           const index = next++;
           const file = files[index];
           try {
-            await sendFile(file, Number(folder.value),
+            const uploaded = await sendFile(file, Number(folder.value),
               (index + 1) + "/" + files.length, text => {
                 setStatus(text + " · Finalizados " + done + "/" + files.length);
               });
+            if (uploaded) publishedUploads.push(uploaded);
           } catch (error) {
             failed++;
             notes.push(file.name + ": " + error.message);
@@ -245,6 +317,7 @@
         }
       });
       await Promise.all(workers);
+      if (publishedUploads.length) promptCaption(publishedUploads);
       if (!failed) {
         picker.value = "";
         setStatus("✓ " + done + " archivos publicados. Ya aparecen en Web Galerías.");
@@ -257,7 +330,7 @@
     } catch (error) {
       setStatus("No se pudo iniciar la carga: " + error.message);
     } finally {
-      busy = false; go.disabled = false;
+      busy = false; go.disabled = Boolean(pendingUploads.length);
     }
   });
 
