@@ -16,7 +16,7 @@ from telethon import errors
 
 from .core import identifier
 from .downloads import temporary_link
-from . import sync
+from . import sync, folder_sources
 
 log = logging.getLogger("web-galerias-priority")
 
@@ -421,6 +421,10 @@ async def _process(g, media):
                         media,str(exc)[:75])
         await _defer(g, media, type(exc).__name__, 8)
     except ValueError as exc:
+        if uid is not None and folder_sources.revoked_error(exc):
+            await folder_sources.mark_revoked(g,uid)
+            await g.db().execute("DELETE FROM wg_media_priority WHERE media=$1",media)
+            return
         if media in (132224,132225):
             log.warning("Video recovery invalid id=%s reason=%s",
                         media,str(exc)[:90])
@@ -431,6 +435,10 @@ async def _process(g, media):
         await _defer(g, media, "invalid_or_incomplete_original",
                      min(600,60*2**min(4,int(attempts or 0))))
     except Exception as exc:
+        if uid is not None and folder_sources.revoked_error(exc):
+            await folder_sources.mark_revoked(g,uid)
+            await g.db().execute("DELETE FROM wg_media_priority WHERE media=$1",media)
+            return
         count = await g.db().fetchval(
             "SELECT attempts FROM wg_media_priority WHERE media=$1", media)
         delay = min(600, 15 * 2 ** min(5, int(count or 0)))
