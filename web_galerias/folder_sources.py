@@ -129,6 +129,8 @@ def combine_admin_rows(rows,links):
 
 def public_sources_sql(field='folder',placeholder='$1'):
     """Use indexed per-source folder IDs; media row IDs remain globally unique."""
-    return (f"({field}={placeholder} OR {field} IN ("
+    return (f"(({field}={placeholder} OR {field} IN ("
             f"SELECT source_folder FROM wg_folder_sources "
-            f"WHERE parent_folder={placeholder}))")
+            f"WHERE parent_folder={placeholder})) AND EXISTS ("
+            f"SELECT 1 FROM wg_folders origin "
+            f"WHERE origin.id={field} AND origin.active))")
