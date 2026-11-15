@@ -170,3 +170,9 @@
  .account-card>.account-favorite-star{right:52px}
  .account-card>.account-contact-add{right:7px;width:37px;height:29px}
 }
+
+/* ADD for account favorites only; other types of favorites are unchanged. */
+.favorite-contact-add{width:39px;height:32px;flex:0 0 auto;border-radius:9px;
+ border:1px solid #9dc7e8;background:#e7f4ff;color:#0673bb;
+ font-size:11px;font-weight:800;line-height:1;display:grid;place-items:center;padding:0}
+.favorite-contact-add:disabled{opacity:.4;cursor:not-allowed}
