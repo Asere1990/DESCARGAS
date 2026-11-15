@@ -451,7 +451,7 @@ function contactVCard(a){
 async function addPhoneContact(a){
  if(!contactPhone(a))throw Error('Esta cuenta no tiene un teléfono disponible.');
  // Safari/iOS reconoce un .vcf servido con MIME text/vcard y disposition
- // inline. No usar navigator.share: abre el menú Compartir, NO Contactos.
+ // inline. No abrir el menú Compartir, que no ofrece agregar a Contactos.
  // El enlace conserva la cookie del panel y se atiende exclusivamente mediante
  // SELECT de los metadatos cifrados de esa cuenta; no se abre sesión Telethon.
  const link=document.createElement('a');
