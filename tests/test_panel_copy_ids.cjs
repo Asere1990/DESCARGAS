@@ -59,6 +59,31 @@ test('linked-account header shows the existing phone beneath the Telegram ID',()
  assert.match(source,/\$\('account-phone'\)\.hidden=false/);
  assert.match(css,/\.account-context \.account-phone\{/);
 });
+test('linked-account detail shows existing @username or dash without altering account sessions',()=>{
+ const name=html.indexOf('id="account-name"');
+ const telegramId=html.indexOf('id="account-telegram-id"',name);
+ const username=html.indexOf('id="account-username"',telegramId);
+ const phone=html.indexOf('id="account-phone"',username);
+ assert.ok(name>=0&&telegramId>name&&username>telegramId&&phone>username);
+ const begin=source.indexOf("$('account-username').textContent=");
+ const end=source.indexOf("$('account-phone').textContent=",begin);
+ assert.ok(begin>=0&&end>begin);
+ const fragment=source.slice(begin,end);
+ assert.match(fragment,/\$\('account-username'\)\.hidden=false/);
+ for(const [usernameValue,expected] of [
+   ['cubana','Username: @cubana'],
+   ['@cubana','Username: @cubana'],
+   ['', 'Username: -'],
+   [null, 'Username: -']
+ ]){
+   const field={hidden:true,textContent:''};
+   const context={$:name=>{assert.equal(name,'account-username');return field;},
+     a:{username:usernameValue}};
+   vm.runInNewContext(fragment,context);
+   assert.equal(field.textContent,expected);
+   assert.equal(field.hidden,false);
+ }
+});
 test('groups and channels have separate copy buttons; ordinary chat opening stays unchanged',()=>{
  assert.match(source,/const showPeerId=panelAdmin&&\(c\.type==='group'\|\|c\.type==='channel'\)/);
  assert.match(source,/body\.append\(el\('small','ID: '\+c\.id\)\)/);
@@ -102,4 +127,59 @@ test('clipboard failures never show a false success and user can still manually 
  await context.copyTelegramId('123456789');
  assert.match(notices.at(-1),/No se pudo copiar/);
  assert.doesNotMatch(notices.at(-1),/copiado al portapapeles/);
+});
+
+
+function contactHelpers(){
+ const begin=source.indexOf('function contactPhone(a){');
+ const end=source.indexOf('function createAccountCard(a,skipProfile=false){',begin);
+ assert.ok(begin>=0&&end>begin,'Funciones de contacto disponibles solo en el panel');
+ const section=source.slice(begin,end);
+ const context={};
+ vm.createContext(context);
+ vm.runInContext(section+'\nthis.contactPhone=contactPhone;this.contactVCard=contactVCard;',context);
+ return {contactPhone:context.contactPhone,contactVCard:context.contactVCard,section};
+}
+
+test('ADD produces an importable vCard using existing name phone username and Telegram ID',()=>{
+ const {contactVCard,section}=contactHelpers();
+ const record={id:'7461848707',name:'Cuenta de prueba',phone:'+1 213-410-6305',username:'cuenta_demo'};
+ const card=contactVCard(record);
+ assert.ok(card.startsWith('BEGIN:VCARD\r\nVERSION:3.0\r\n'));
+ assert.ok(card.endsWith('END:VCARD\r\n'));
+ assert.match(card,/FN:Cuenta de prueba\r\n/);
+ assert.match(card,/TEL;TYPE=CELL:\+12134106305\r\n/);
+ assert.match(card,/NOTE:Telegram ID: 7461848707\\nTelegram: @cuenta_demo\r\n/);
+ assert.doesNotMatch(section,/api\(|client\.|get_me|TelegramClient/);
+});
+
+test('contact button stays disabled without phone and does not invent contact details',()=>{
+ const {contactPhone,contactVCard}=contactHelpers();
+ assert.equal(contactPhone({phone:''}),'');
+ assert.equal(contactPhone({phone:'No disponible'}),'');
+ assert.throws(()=>contactVCard({id:'123',name:'Sin teléfono',phone:''}),/teléfono/);
+ const v=contactVCard({id:'123',name:'Sin username',phone:'+34 600 00 00 00',username:''});
+ assert.match(v,/FN:Sin username/);
+ assert.doesNotMatch(v,/Telegram: @/);
+});
+
+test('vCard escapes newlines and commas in names, without injecting another contact',()=>{
+ const {contactVCard}=contactHelpers();
+ const v=contactVCard({id:'123',name:'Nombre,\nBEGIN:VCARD',phone:'+14155551234',username:'test'});
+ assert.match(v,/FN:Nombre\\,\\nBEGIN:VCARD\r\n/);
+ assert.equal((v.match(/(?:^|\r\n)BEGIN:VCARD\r\n/g)||[]).length,1);
+});
+
+test('ADD is next to favorite star, independent from account navigation',()=>{
+ const start=source.indexOf('function createAccountCard(a,skipProfile=false){');
+ const end=source.indexOf('// Short-lived, administrator-only',start);
+ assert.ok(start>=0&&end>start);
+ const card=source.slice(start,end);
+ assert.match(card,/wrapper\.append\(b,favorite,addContact,checked,check\)/);
+ assert.match(card,/addContact\.onclick=e=>\{e\.preventDefault\(\);e\.stopPropagation\(\);/);
+ assert.match(card,/addContact\.className='account-contact-add'/);
+ assert.match(css,/\.account-card>.account-contact-add\{/);
+ assert.match(css,/\.account-card>.account-favorite-star\{right:/);
+ assert.match(source,/if\(isAccount\)\{\s*const cached=overviewAccounts/);
+ assert.match(source,/entry\.append\(add\)/);
 });

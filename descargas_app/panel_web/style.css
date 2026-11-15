@@ -153,3 +153,26 @@
 .chat-row-shell{display:flex;align-items:center;width:100%;min-width:0}
 .chat-row-shell>.chat-row{width:auto;flex:1;min-width:0;padding-right:4px}
 .chat-row-shell>.copy-id{margin-right:12px}
+
+/* ADD beside the existing favorite star; exports a local vCard only. */
+.account-card>.account{padding-right:94px}
+.account-card>.account-favorite-star{right:60px}
+.account-card>.account-contact-add{
+ position:absolute;right:10px;top:13px;z-index:2;display:grid;place-items:center;
+ width:42px;height:31px;padding:0;border:1px solid #9dc7e8;border-radius:9px;
+ background:#e7f4ff;color:#0673bb;font-size:11px;font-weight:800;line-height:1;
+ letter-spacing:.15px;touch-action:manipulation
+}
+.account-card>.account-contact-add:active:not(:disabled){background:#d3eaff}
+.account-card>.account-contact-add:disabled{opacity:.4;cursor:not-allowed}
+@media(max-width:420px){
+ .account-card>.account{padding-right:88px}
+ .account-card>.account-favorite-star{right:52px}
+ .account-card>.account-contact-add{right:7px;width:37px;height:29px}
+}
+
+/* ADD for account favorites only; other types of favorites are unchanged. */
+.favorite-contact-add{width:39px;height:32px;flex:0 0 auto;border-radius:9px;
+ border:1px solid #9dc7e8;background:#e7f4ff;color:#0673bb;
+ font-size:11px;font-weight:800;line-height:1;display:grid;place-items:center;padding:0}
+.favorite-contact-add:disabled{opacity:.4;cursor:not-allowed}
