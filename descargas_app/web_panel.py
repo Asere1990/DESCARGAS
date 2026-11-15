@@ -44,6 +44,25 @@ def account_label(profile,directory=None):
             return value[:160]
     return '@'+str(profile['username'])[:100] if profile.get('username') else 'Cuenta de Telegram'
 
+
+def contact_vcard_content(uid,display_name,phone,username=''):
+    """Tarjeta vCard: representación de metadatos existentes, sin conectar Telegram."""
+    number=re.sub(r'[^0-9+]', '', str(phone or ''))
+    if not re.fullmatch(r'\+?[0-9]{6,15}',number):
+        raise ValueError('Esta cuenta no tiene un número telefónico válido.')
+    def vescape(value):
+        return (str(value or '').replace('\\','\\\\')
+                .replace('\r\n','\n').replace('\r','\n')
+                .replace('\n','\\n').replace(';','\\;').replace(',','\\,'))
+    display=str(display_name or '').strip() or 'Cuenta Telegram'
+    handle=str(username or '').strip().lstrip('@')
+    note=f'Telegram ID: {uid}' + (f'\nTelegram: @{handle}' if handle else '')
+    return ('\r\n'.join([
+        'BEGIN:VCARD','VERSION:3.0','N:;'+vescape(display)+';;;',
+        'FN:'+vescape(display),'TEL;TYPE=CELL:'+number,
+        'NOTE:'+vescape(note),'END:VCARD',''
+    ])).encode('utf-8')
+
 def peer_data(entity,uid):
     if isinstance(entity,types.User):return {'kind':'self' if entity.id==uid else 'user','id':entity.id,'hash':entity.access_hash or 0,'is_bot':bool(getattr(entity,'bot',False)),'username':getattr(entity,'username',None) or ''}
     if isinstance(entity,types.Channel):return {'kind':'channel','id':entity.id,'hash':entity.access_hash or 0}
@@ -406,6 +425,31 @@ class TelegramPanel:
             except (ConnectionResetError,asyncio.CancelledError):raise
             finally:await iterator.close()
             await response.write_eof();return response
+    async def contact_vcard_response(self,actor,uid):
+        """La respuesta HTTP se abre como ficha nativa, nunca como hoja Compartir."""
+        if not authorized(actor):
+            raise web.HTTPForbidden()
+        await require_account(self.s,uid,actor)
+        row=await self.s.repo.pool.fetchrow(
+            '''SELECT a.profile,d.name FROM descarga_accounts a
+               LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2
+               WHERE a.uid=$1 AND a.session IS NOT NULL''',
+            uid,self.s.bot_id)
+        if not row:
+            raise ValueError('Cuenta vinculada no disponible.')
+        profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
+        directory=self.s.repo.decode(row['name']) if row.get('name') else {}
+        from .panel_accounts import metadata
+        phone=metadata(profile,directory).get('phone') or profile.get('phone')
+        card=contact_vcard_content(
+            uid,account_label(profile,directory),phone,profile.get('username',''))
+        return web.Response(
+            body=card,
+            content_type='text/vcard',charset='utf-8',
+            headers={**HEADERS,
+                'Content-Disposition':f'inline; filename="telegram-{uid}.vcf"',
+            })
+
     async def handle(self,request):
         try:
             if not self.s.ready:return web.json_response({'error':'El servicio está iniciándose.'},status=503,headers=HEADERS)
@@ -427,7 +471,7 @@ class TelegramPanel:
                 from .panel_batch import download
                 return await download(self,request,actor,data)
             if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
-            uid=integer(request.query.get('account')) if op in ('purchases','purchase-media','purchase-thumb','saved-chat','account-status','accounts-search','chats','messages','gallery','member-list','gallery-count','chat-counts','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
+            uid=integer(request.query.get('account')) if op in ('purchases','purchase-media','purchase-thumb','saved-chat','account-status','contact.vcf','accounts-search','chats','messages','gallery','member-list','gallery-count','chat-counts','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
             if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
             if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf'],'reviewer':reviewer(actor),'admin':police(actor),'zip_limit':10 if reviewer(actor) else 500},headers=HEADERS)
             if op=='logout' and post:
@@ -500,6 +544,7 @@ class TelegramPanel:
             if request.method!='GET':raise web.HTTPNotFound()
             if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
             elif op=='account-status':result=await self.overview.check(actor,uid)
+            elif op=='contact.vcf':return await self.contact_vcard_response(actor,uid)
             elif op=='purchases':
                 from .panel_purchases import listing
                 result=await listing(self,actor,uid,request.query.get('cursor',''))
