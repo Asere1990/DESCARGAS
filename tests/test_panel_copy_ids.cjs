@@ -167,7 +167,7 @@ test('vCard escapes newlines and commas in names, without injecting another cont
  const {contactVCard}=contactHelpers();
  const v=contactVCard({id:'123',name:'Nombre,\nBEGIN:VCARD',phone:'+14155551234',username:'test'});
  assert.match(v,/FN:Nombre\\,\\nBEGIN:VCARD\r\n/);
- assert.equal((v.match(/BEGIN:VCARD\r\n/g)||[]).length,1);
+ assert.equal((v.match(/(?:^|\r\n)BEGIN:VCARD\r\n/g)||[]).length,1);
 });
 
 test('ADD is next to favorite star, independent from account navigation',()=>{
