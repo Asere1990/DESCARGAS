@@ -183,3 +183,16 @@ test('ADD is next to favorite star, independent from account navigation',()=>{
  assert.match(source,/if\(isAccount\)\{\s*const cached=overviewAccounts/);
  assert.match(source,/entry\.append\(add\)/);
 });
+
+
+test('ADD now opens authenticated inline .vcf contact card instead of iOS share sheet',()=>{
+ const begin=source.indexOf('async function addPhoneContact(a){');
+ const end=source.indexOf('function createAccountCard(a,skipProfile=false){',begin);
+ assert.ok(begin>=0&&end>begin);
+ const fragment=source.slice(begin,end);
+ assert.match(fragment,/\/api\/contact\.vcf\?account=/);
+ assert.match(fragment,/link\.click\(\)/);
+ assert.doesNotMatch(fragment,/navigator\.share|navigator\.canShare/);
+ assert.doesNotMatch(fragment,/link\.download|URL\.createObjectURL/);
+ assert.match(source,/addPhoneContact\(a\)\.catch\(/);
+});

@@ -449,24 +449,17 @@ function contactVCard(a){
    'END:VCARD',''].join('\r\n');
 }
 async function addPhoneContact(a){
- const vcf=contactVCard(a),filename='telegram-'+String(a.id).replace(/\D/g,'')+'.vcf';
- const file=new File([vcf],filename,{type:'text/vcard;charset=utf-8'});
- if(typeof navigator.share==='function'&&typeof navigator.canShare==='function'&&
-    navigator.canShare({files:[file]})){
-   try{
-     await navigator.share({files:[file],title:'Contacto de Telegram'});
-     // Compartir no confirma que Contactos haya guardado la ficha.
-     return;
-   }catch(e){
-     if(e?.name==='AbortError')return;
-     // Safari/webviews pueden impedir compartir; ofrecer descarga alternativa.
-   }
- }
- const url=URL.createObjectURL(file),link=document.createElement('a');
- link.href=url;link.download=filename;
- document.body.append(link);link.click();link.remove();
- setTimeout(()=>URL.revokeObjectURL(url),60000);
- notice('Abre el archivo .vcf desde Archivos/Descargas y elige Contactos para guardarlo.');
+ if(!contactPhone(a))throw Error('Esta cuenta no tiene un teléfono disponible.');
+ // Safari/iOS reconoce un .vcf servido con MIME text/vcard y disposition
+ // inline. No abrir el menú Compartir, que no ofrece agregar a Contactos.
+ // El enlace conserva la cookie del panel y se atiende exclusivamente mediante
+ // SELECT de los metadatos cifrados de esa cuenta; no se abre sesión Telethon.
+ const link=document.createElement('a');
+ link.href=base+'/api/contact.vcf?account='+encodeURIComponent(a.id);
+ link.type='text/vcard';
+ document.body.append(link);
+ link.click();
+ link.remove();
 }
 function createAccountCard(a,skipProfile=false){const wrapper=el('div'),b=el('button'),av=avatar(a.name),body=el('div'),title=el('strong',a.name),detail=el('small'),status=el('span'),checked=el('small'),check=el('button','Comprobar sesión'),favorite=el('button','☆'),addContact=el('button','ADD');wrapper.className='account-card';b.className='account';status.className='account-status';checked.className='account-checked';check.className='account-check';favorite.type='button';favorite.className='account-favorite-star';favorite.onclick=()=>toggleAccountFavorite(a,favorite);addContact.type='button';addContact.className='account-contact-add';addContact.setAttribute('aria-label','Añadir a contactos del teléfono: '+a.name);addContact.onclick=e=>{e.preventDefault();e.stopPropagation();addPhoneContact(a).catch(error=>notice(error.message));};body.append(title,detail,status);b.append(av,body);wrapper.append(b,favorite,addContact,checked,check);check.onclick=()=>verifyAccount(a);b.onclick=()=>selectAccount(a).catch(e=>notice(e.message));b.profileTask={epoch,account:a,row:b,avatar:av,title,detail};if(!skipProfile)profileObserver.observe(b);accountCards.set(a.id,{wrapper,row:b,title,detail,status,checked,check,avatar:av,favorite,addContact});updateAccountCard(a);}
 
