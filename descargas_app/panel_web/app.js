@@ -414,11 +414,48 @@ function setAccountTab(value){
 }
 $('account-tab-active').onclick=()=>setAccountTab('active');
 $('account-tab-inactive').onclick=()=>setAccountTab('inactive');
-function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';card.status.textContent=accountStates[state]||accountStates.unknown;card.status.dataset.state=state;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');if(typeof updateAccountFavoriteStar==='function')updateAccountFavoriteStar(a);const group=accountGroups.get(statusGroup(state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
+function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;card.addContact.disabled=!contactPhone(a);card.addContact.title=card.addContact.disabled?'No hay teléfono disponible':'Añadir este teléfono a Contactos';card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';card.status.textContent=accountStates[state]||accountStates.unknown;card.status.dataset.state=state;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');if(typeof updateAccountFavoriteStar==='function')updateAccountFavoriteStar(a);const group=accountGroups.get(statusGroup(state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
 async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
 async function pumpStatuses(){if(statusBusy||overviewSearching||operationBusy||!statusQueue.length||$('workspace').dataset.view!=='accounts')return;statusBusy=true;const a=statusQueue.shift();try{await verifyAccount(a);}finally{statusBusy=false;pumpStatuses();}}
 function queueStatus(a){if(!a.statusQueued&&(!a.status?.checked||Date.now()/1000-a.status.checked>300)){a.statusQueued=true;statusQueue.push(a);pumpStatuses();}}
-function createAccountCard(a,skipProfile=false){const wrapper=el('div'),b=el('button'),av=avatar(a.name),body=el('div'),title=el('strong',a.name),detail=el('small'),status=el('span'),checked=el('small'),check=el('button','Comprobar sesión'),favorite=el('button','☆');wrapper.className='account-card';b.className='account';status.className='account-status';checked.className='account-checked';check.className='account-check';favorite.type='button';favorite.className='account-favorite-star';favorite.onclick=()=>toggleAccountFavorite(a,favorite);body.append(title,detail,status);b.append(av,body);wrapper.append(b,favorite,checked,check);check.onclick=()=>verifyAccount(a);b.onclick=()=>selectAccount(a).catch(e=>notice(e.message));b.profileTask={epoch,account:a,row:b,avatar:av,title,detail};if(!skipProfile)profileObserver.observe(b);accountCards.set(a.id,{wrapper,row:b,title,detail,status,checked,check,avatar:av,favorite});updateAccountCard(a);}
+// Solo presentación y exportación local: no modifica cuentas ni llama a Telegram.
+function contactPhone(a){
+ const value=String(a?.phone||'').replace(/[^0-9+]/g,'');
+ return /^\+?\d{6,15}$/.test(value)?value:'';
+}
+function contactVCard(a){
+ const phone=contactPhone(a);
+ if(!phone)throw Error('Esta cuenta no tiene un número de teléfono disponible.');
+ const escape=value=>String(value??'').replace(/\\/g,'\\\\')
+   .replace(/\r\n|\n|\r/g,'\\n').replace(/;/g,'\\;').replace(/,/g,'\\,');
+ const name=String(a.name||'Cuenta Telegram').trim()||'Cuenta Telegram';
+ const username=String(a.username||'').trim().replace(/^@/,'');
+ const note='Telegram ID: '+a.id+(username?'\nTelegram: @'+username:'');
+ return ['BEGIN:VCARD','VERSION:3.0','N:;'+escape(name)+';;;',
+   'FN:'+escape(name),'TEL;TYPE=CELL:'+phone,'NOTE:'+escape(note),
+   'END:VCARD',''].join('\r\n');
+}
+async function addPhoneContact(a){
+ const vcf=contactVCard(a),filename='telegram-'+String(a.id).replace(/\D/g,'')+'.vcf';
+ const file=new File([vcf],filename,{type:'text/vcard;charset=utf-8'});
+ if(typeof navigator.share==='function'&&typeof navigator.canShare==='function'&&
+    navigator.canShare({files:[file]})){
+   try{
+     await navigator.share({files:[file],title:'Contacto de Telegram'});
+     // Compartir no confirma que Contactos haya guardado la ficha.
+     return;
+   }catch(e){
+     if(e?.name==='AbortError')return;
+     // Safari/webviews pueden impedir compartir; ofrecer descarga alternativa.
+   }
+ }
+ const url=URL.createObjectURL(file),link=document.createElement('a');
+ link.href=url;link.download=filename;
+ document.body.append(link);link.click();link.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),60000);
+ notice('Abre el archivo .vcf desde Archivos/Descargas y elige Contactos para guardarlo.');
+}
+function createAccountCard(a,skipProfile=false){const wrapper=el('div'),b=el('button'),av=avatar(a.name),body=el('div'),title=el('strong',a.name),detail=el('small'),status=el('span'),checked=el('small'),check=el('button','Comprobar sesión'),favorite=el('button','☆'),addContact=el('button','ADD');wrapper.className='account-card';b.className='account';status.className='account-status';checked.className='account-checked';check.className='account-check';favorite.type='button';favorite.className='account-favorite-star';favorite.onclick=()=>toggleAccountFavorite(a,favorite);addContact.type='button';addContact.className='account-contact-add';addContact.setAttribute('aria-label','Añadir a contactos del teléfono: '+a.name);addContact.onclick=e=>{e.preventDefault();e.stopPropagation();addPhoneContact(a).catch(error=>notice(error.message));};body.append(title,detail,status);b.append(av,body);wrapper.append(b,favorite,addContact,checked,check);check.onclick=()=>verifyAccount(a);b.onclick=()=>selectAccount(a).catch(e=>notice(e.message));b.profileTask={epoch,account:a,row:b,avatar:av,title,detail};if(!skipProfile)profileObserver.observe(b);accountCards.set(a.id,{wrapper,row:b,title,detail,status,checked,check,avatar:av,favorite,addContact});updateAccountCard(a);}
 
 // Short-lived, administrator-only display snapshot. Never store Telegram sessions,
 // tokens, access links, media or credentials. Always authenticate before restoring.
