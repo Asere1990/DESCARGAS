@@ -175,7 +175,8 @@ function renderFavoritesMenu(){
   if(isAccount){
    const cached=overviewAccounts.get(String(item.id))||overviewAccounts.get(item.id);
    const add=el('button','ADD');add.type='button';add.className='favorite-contact-add';
-   add.disabled=!contactPhone(cached);
+   const contactDigits=String(cached?.phone||'').replace(/[^0-9+]/g,'');
+   add.disabled=!/^\+?\d{6,15}$/.test(contactDigits);
    add.title=add.disabled?'Abre la ficha de esta cuenta para obtener su teléfono':'Añadir este número a Contactos';
    add.setAttribute('aria-label','Añadir contacto telefónico: '+item.name);
    add.onclick=e=>{
