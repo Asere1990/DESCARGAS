@@ -172,6 +172,18 @@ function renderFavoritesMenu(){
    }catch(e){star.disabled=false;notice(e.message);}
   };
   entry.append(open,star);
+  if(isAccount){
+   const cached=overviewAccounts.get(String(item.id))||overviewAccounts.get(item.id);
+   const add=el('button','ADD');add.type='button';add.className='favorite-contact-add';
+   add.disabled=!contactPhone(cached);
+   add.title=add.disabled?'Abre la ficha de esta cuenta para obtener su teléfono':'Añadir este número a Contactos';
+   add.setAttribute('aria-label','Añadir contacto telefónico: '+item.name);
+   add.onclick=e=>{
+    e.preventDefault();e.stopPropagation();
+    addPhoneContact(cached).catch(error=>notice(error.message));
+   };
+   entry.append(add);
+  }
   list.append(entry);
  }
 }
