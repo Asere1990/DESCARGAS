@@ -59,6 +59,31 @@ test('linked-account header shows the existing phone beneath the Telegram ID',()
  assert.match(source,/\$\('account-phone'\)\.hidden=false/);
  assert.match(css,/\.account-context \.account-phone\{/);
 });
+test('linked-account detail shows existing @username or dash without altering account sessions',()=>{
+ const name=html.indexOf('id="account-name"');
+ const telegramId=html.indexOf('id="account-telegram-id"',name);
+ const username=html.indexOf('id="account-username"',telegramId);
+ const phone=html.indexOf('id="account-phone"',username);
+ assert.ok(name>=0&&telegramId>name&&username>telegramId&&phone>username);
+ const begin=source.indexOf("$('account-username').textContent=");
+ const end=source.indexOf("$('account-phone').textContent=",begin);
+ assert.ok(begin>=0&&end>begin);
+ const fragment=source.slice(begin,end);
+ assert.match(fragment,/\$\('account-username'\)\.hidden=false/);
+ for(const [usernameValue,expected] of [
+   ['cubana','Username: @cubana'],
+   ['@cubana','Username: @cubana'],
+   ['', 'Username: -'],
+   [null, 'Username: -']
+ ]){
+   const field={hidden:true,textContent:''};
+   const context={$:name=>{assert.equal(name,'account-username');return field;},
+     a:{username:usernameValue}};
+   vm.runInNewContext(fragment,context);
+   assert.equal(field.textContent,expected);
+   assert.equal(field.hidden,false);
+ }
+});
 test('groups and channels have separate copy buttons; ordinary chat opening stays unchanged',()=>{
  assert.match(source,/const showPeerId=panelAdmin&&\(c\.type==='group'\|\|c\.type==='channel'\)/);
  assert.match(source,/body\.append\(el\('small','ID: '\+c\.id\)\)/);
