@@ -1,0 +1,33 @@
+name: Panel ADD — tarjeta de contacto iPhone
+on:
+  pull_request:
+    paths:
+      - 'descargas_app/web_panel.py'
+      - 'descargas_app/panel_web/app.js'
+      - 'tests/test_panel_contact_vcard.py'
+      - 'tests/test_panel_copy_ids.cjs'
+      - '.github/workflows/panel-contact-vcard.yml'
+permissions:
+  contents: read
+jobs:
+  contact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dependencias existentes
+        run: pip install -r requirements.txt
+      - name: Validar sintaxis Python y JS
+        run: |
+          python -m py_compile descargas_app/web_panel.py
+          node --check descargas_app/panel_web/app.js
+      - name: Tarjeta vCard autorizada y sin Telegram
+        run: python -m unittest discover -s tests -p 'test_panel_contact_vcard.py' -v
+      - name: ADD, copiado de IDs y favoritos
+        run: node --test tests/test_panel_copy_ids.cjs
