@@ -193,6 +193,7 @@ class GalleryCore:
         self.task=None
         self.sync_task=None
         self.priority_task=None
+        self.bot_feed_task=None
         # Set only after this CLOUDFLARE instance owns the priority lock.
         self.priority_leader_ready=asyncio.Event()
         self.intro_poster_task=None
@@ -274,6 +275,16 @@ class GalleryCore:
                             log.warning("On-demand video priority inactive (%s)",
                                         type(exc).__name__)
                         self.sync_task=asyncio.create_task(run(self))
+                    # TOKEN_WEB owns a separate bot and an independent queue.
+                    # No shared Telegram sessions, changes to current sync,
+                    # priority, billing, or client playback.
+                    if os.getenv("TOKEN_WEB", "").strip():
+                        try:
+                            from . import bot_feed
+                            self.bot_feed_task=asyncio.create_task(bot_feed.run(self))
+                        except Exception as exc:
+                            log.warning("Optional TOKEN_WEB feed inactive (%s)",
+                                        type(exc).__name__)
                     return
                 except asyncio.CancelledError:raise
                 except Exception as exc:

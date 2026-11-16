@@ -94,6 +94,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op in ("admin-bot-feed-set", "admin-bot-feed-remove"):
+        from . import bot_feed
+        return await bot_feed.route_operation(g,uid,op,data)
     if op.startswith("admin-manual-"):
         from . import manual_upload
         return await manual_upload.operation(g,uid,op,data)
@@ -212,7 +215,17 @@ async def admin_op(g,uid,op,data):
             folder["missing_reasons"]=[
                 {"code":code,"count":count} for code,count in combined_reasons.items()]
             result_folders.append(folder)
+        # A bot feed error must not delay traditional admin gallery browsing.
+        from . import bot_feed
+        try:
+            bot_routes=await bot_feed.routes(g)
+        except Exception as exc:
+            log_module=__import__("logging").getLogger("web-galerias")
+            log_module.warning("Optional bot route listing unavailable (%s)",
+                               type(exc).__name__)
+            bot_routes=[]
         return {"folders":result_folders,
+            "bot_routes":bot_routes,"bot_enabled":bool(bot_feed.token()),
             "users":[],  # Never preload thousands of visitors on overview.
             "storage_ready":g.storage.ready or bool(remote.get("storage") and running),
             "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",

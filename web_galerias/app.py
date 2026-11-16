@@ -321,7 +321,7 @@ def mount(app,service):
         g.task=asyncio.create_task(g.setup())
     async def cleanup(_):
         g.closed=True
-        tasks=(g.sync_task,g.priority_task,g.intro_poster_task,g.customer_bridge_task,
+        tasks=(g.sync_task,g.priority_task,g.bot_feed_task,g.intro_poster_task,g.customer_bridge_task,
                g.dedupe_task,g.risk_task,g.moderation_task,g.broadcast_task,
                g.media_text_task,g.ocr_task,g.video_diagnostic_task,g.task)
         for task in tasks:

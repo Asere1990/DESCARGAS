@@ -2004,6 +2004,57 @@ function previewAdmin(){
     line.append(heading,status,actions);
     sourceControls.append(line);
   }
+  // Optional, independent Telegram BOT feed: distinct from linked accounts.
+  const botRoute=(S.admin.bot_routes||[]).find(x=>Number(x.folder)===Number(f.id));
+  const botFeed=document.createElement("section");
+  botFeed.className="admin-source-controls";
+  const botTitle=document.createElement("h4");
+  botTitle.textContent="Bot automático · TOKEN_WEB";
+  const botStatus=document.createElement("p");
+  botStatus.className="muted";
+  botStatus.textContent=botRoute?
+    "Group ID: "+botRoute.group_id+" · contenido nuevo a esta carpeta":
+    "Sin Group ID asignado. No modifica las fuentes actuales.";
+  botFeed.append(botTitle,botStatus);
+  const botAssign=document.createElement("button");
+  botAssign.type="button";botAssign.className="small-btn";
+  botAssign.textContent=botRoute?"Cambiar Group ID del bot":"＋ Agregar nuevo Group ID";
+  botAssign.onclick=async()=>{
+    if(!S.admin.bot_enabled)
+      return notice("Primero configura TOKEN_WEB en CLOUDFLARE.");
+    const value=prompt("Group ID del grupo donde estará el bot (ej.: -1001234567890)",
+                       String(botRoute?.group_id||""));
+    if(value===null)return;
+    if(!/^-[1-9][0-9]{2,18}$/.test(value.trim()))
+      return notice("Escribe el Group ID negativo completo.");
+    if(!confirm("¿Asignar el grupo "+value.trim()+" a «"+
+      (f.public_name||f.name)+"»? Los archivos existentes se conservan."))return;
+    botAssign.disabled=true;
+    try{
+      await api("admin-bot-feed-set",{folder:f.id,group_id:value.trim()});
+      await loadAdmin();await refresh(true);
+      notice("Bot vinculado: lo nuevo de ese grupo alimentará esta carpeta.");
+    }catch(e){notice(e.message);}
+    finally{botAssign.disabled=false;}
+  };
+  botFeed.append(botAssign);
+  if(botRoute){
+    const botRemove=document.createElement("button");
+    botRemove.type="button";botRemove.className="small-btn";
+    botRemove.textContent="Quitar Group ID";
+    botRemove.onclick=async()=>{
+      if(!confirm("¿Desvincular este Group ID? Se conservarán fotos y videos ya guardados."))return;
+      botRemove.disabled=true;
+      try{
+        await api("admin-bot-feed-remove",{folder:f.id});
+        await loadAdmin();await refresh(true);
+        notice("Group ID desvinculado; el contenido guardado permanece.");
+      }catch(e){notice(e.message);}
+      finally{botRemove.disabled=false;}
+    };
+    botFeed.append(botRemove);
+  }
+  sourceControls.append(botFeed);
   const addSource=document.createElement("button");addSource.type="button";
   addSource.className="small-btn";addSource.textContent="＋ Agregar grupo o canal";
   addSource.setAttribute("aria-label","Agregar otro grupo o canal a esta carpeta");
