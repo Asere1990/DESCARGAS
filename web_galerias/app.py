@@ -291,6 +291,10 @@ def mount(app,service):
         return web.json_response(result,headers={"Cache-Control":"no-store"})
     async def notice_media(request):
         return await broadcasts.media(g,request)
+    async def token_web_hook(request):
+        # Private path for Telegram's authenticated Bot API; never user-facing.
+        from . import bot_feed
+        return await bot_feed.handle_webhook(g,request)
     app.router.add_get("/web-galerias",page)
     app.router.add_get("/web-galerias/",page)
     app.router.add_get("/web-galerias/admin",page)
@@ -310,6 +314,7 @@ def mount(app,service):
     app.router.add_post("/web-galerias/admin/notice-upload",notices_upload)
     app.router.add_get("/web-galerias/notice-media/{notice}",notice_media)
     app.router.add_post("/web-galerias/api",api)
+    app.router.add_post("/web-galerias/telegram-feed",token_web_hook)
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
     app.router.add_get("/web-galerias/cover/{folder}",cover)
     app.router.add_get("/web-galerias/personal-cover/{folder}",personal_cover)

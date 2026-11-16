@@ -6,6 +6,8 @@ assignments are atomic and server-side unique, and existing R2 media persists.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import io
 import logging
 import os
@@ -23,6 +25,7 @@ LOG = logging.getLogger("web-galerias-bot-feed")
 MAX_FILE_BYTES = 20_000_000 - 1
 MAX_THUMB_BYTES = 2 * 1024 * 1024
 LOCK_ID = 721_804_332_198
+BOT_WEBHOOK_URL = "https://cloudflare-t2gf.onrender.com/web-galerias/telegram-feed"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS wg_bot_feed_routes(
   folder BIGINT PRIMARY KEY REFERENCES wg_folders(id) ON DELETE CASCADE,
@@ -79,6 +82,14 @@ def token():
     return os.getenv("TOKEN_WEB", "").strip()
 
 
+def webhook_secret(bot_token):
+    # Separate Telegram webhook authentication from the public URL.
+    # A bot-token change automatically invalidates the previous secret.
+    return hashlib.sha256(
+        ("wg-exclusive-telegram-feed-v1:" + bot_token).encode("utf-8")
+    ).hexdigest()
+
+
 def receiver_status(g):
     """Read-only operational status. Never send the Telegram bot token to JS."""
     return {
@@ -86,6 +97,9 @@ def receiver_status(g):
                         if token() else "not_configured"),
         "webhook_host": getattr(g, "_bot_feed_webhook_host", ""),
         "privacy_disabled": getattr(g, "_bot_feed_privacy_disabled", None),
+        "last_update_at": getattr(g, "_bot_feed_last_update_at", 0),
+        "last_media_queued_at": getattr(g, "_bot_feed_last_media_queued_at", 0),
+        "bot_verified": bool(getattr(g, "_bot_feed_bot_id", 0)),
     }
 
 
@@ -122,6 +136,13 @@ async def activate_receiver(g, data):
             ) as session:
                 hook = await telegram(session, bot_token, "getWebhookInfo")
                 old_host = _safe_webhook_host(hook.get("url"))
+                # ZEUS (Conserje) is explicitly protected, even when a
+                # different admin explicitly confirms. Never modify it.
+                if old_host == "conserjee.onrender.com":
+                    raise web.HTTPConflict(text=(
+                        "Ese token pertenece a un webhook de ZEUS. "
+                        "Configura un bot nuevo en TOKEN_WEB."
+                    ))
                 if hook.get("url"):
                     # Leave Telegram's queued messages in place; do not revoke
                     # or replace the original bot token.
@@ -625,6 +646,70 @@ async def consumer(g, session, bot_token):
             LOG.warning("Bot feed queue unavailable (%s)", type(exc).__name__)
             await asyncio.sleep(5)
 
+
+async def ingest_update(g, update):
+    """Durable per-message inbox. Acknowledge Telegram only after DB commit."""
+    if not isinstance(update, dict):
+        raise web.HTTPBadRequest(text="Actualización inválida.")
+    item = media_from_update(update)
+    g._bot_feed_last_update_at = time.time()
+    if item is None:
+        # Ignore commands, texts, account messages and unsupported documents.
+        return False
+
+    await schema(g)
+    now = time.time()
+    async with g.db().acquire() as conn:
+        async with conn.transaction():
+            route = await conn.fetchrow(
+                """SELECT group_id,folder,revision,linked_at
+                   FROM wg_bot_feed_routes
+                   WHERE group_id=$1""", item["group_id"])
+            if not route or float(item["message_date"])+1 < float(route["linked_at"]):
+                return False
+            outcome = await conn.execute(
+                """INSERT INTO wg_bot_feed_items(
+                     group_id,message_id,folder,revision,message_date,
+                     file_id,thumb_file_id,file_size,caption,grouped,
+                     kind,source_type,mime,filename,width,height,
+                     created,updated)
+                   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+                          $11,$12,$13,$14,$15,$16,$17,$17)
+                   ON CONFLICT(group_id,message_id) DO NOTHING""",
+                item["group_id"], item["message_id"], route["folder"],
+                route["revision"], item["message_date"], item["file_id"],
+                item["thumb_file_id"], item["file_size"], item["caption"],
+                item["grouped"], item["kind"], item["source_type"],
+                item["mime"], item["filename"], item["width"], item["height"], now)
+    # Telegram may retry the same webhook update: rely on primary-key dedup.
+    if outcome == "INSERT 0 1":
+        g._bot_feed_last_media_queued_at = time.time()
+        LOG.info("TOKEN_WEB media queued in folder %s", route["folder"])
+        return True
+    return False
+
+
+async def handle_webhook(g, request):
+    """Secret-authenticated Bot API push, isolated from gallery user endpoints."""
+    bot_token = token()
+    if not bot_token:
+        raise web.HTTPServiceUnavailable(text="TOKEN_WEB no configurado.")
+    supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not hmac.compare_digest(supplied, webhook_secret(bot_token)):
+        raise web.HTTPForbidden(text="Telegram webhook no autorizado.")
+    if request.content_length and request.content_length > 450_000:
+        raise web.HTTPRequestEntityTooLarge(
+            max_size=450_000, actual_size=request.content_length)
+    try:
+        update = await request.json()
+    except (ValueError, TypeError):
+        raise web.HTTPBadRequest(text="Actualización inválida.") from None
+    if not isinstance(update,dict) or type(update.get("update_id")) is not int:
+        raise web.HTTPBadRequest(text="Actualización inválida.")
+    accepted = await ingest_update(g, update)
+    return web.json_response({"ok": True, "queued": bool(accepted)},
+                             headers={"Cache-Control": "no-store"})
+
 async def polling(g, session, bot_token, bot_id):
     await g.db().execute("""
       INSERT INTO wg_bot_feed_state(bot_id,cursor) VALUES($1,0)
@@ -688,10 +773,13 @@ async def polling(g, session, bot_token, bot_id):
             await asyncio.sleep(5)
 
 async def run(g):
-    """Standalone optional bot consumer. Never starts/changes traditional sync."""
+    """Exclusive TOKEN_WEB webhook and R2 worker; never touches ZEUS or readers."""
     bot_token = token()
     if not bot_token:
+        g._bot_feed_receiver_state = "not_configured"
+        LOG.warning("TOKEN_WEB is absent from CLOUDFLARE environment")
         return
+    LOG.warning("TOKEN_WEB receiver initializing on CLOUDFLARE")
     while not g.closed:
         try:
             await schema(g)
@@ -700,45 +788,55 @@ async def run(g):
             )) as session:
                 me = await telegram(session, bot_token, "getMe")
                 bot_id = int(me["id"])
+                g._bot_feed_bot_id = bot_id
                 g._bot_feed_privacy_disabled = bool(
                     me.get("can_read_all_group_messages", False))
                 hook = await telegram(session, bot_token, "getWebhookInfo")
-                if hook.get("url"):
-                    g._bot_feed_webhook_host = _safe_webhook_host(hook["url"])
+                existing = str(hook.get("url") or "").strip()
+                if existing and existing != BOT_WEBHOOK_URL:
+                    g._bot_feed_webhook_host = _safe_webhook_host(existing)
                     g._bot_feed_receiver_state = "webhook_conflict"
                     LOG.warning(
-                        "TOKEN_WEB receiving blocked by an existing Telegram webhook "
-                        "on host %s; manual admin activation required",
+                        "TOKEN_WEB refuses to replace existing webhook on %s",
                         g._bot_feed_webhook_host or "(unknown)")
                     return
-                g._bot_feed_webhook_host = ""
-                g._bot_feed_receiver_state = "starting"
+
+                # A *new exclusive* bot without a webhook is registered
+                # automatically on CLOUDFLARE. If it already points here,
+                # re-apply our current signed secret without deleting updates.
+                await telegram(session, bot_token, "setWebhook", {
+                    "url": BOT_WEBHOOK_URL,
+                    "secret_token": webhook_secret(bot_token),
+                    "allowed_updates": ["message", "channel_post"],
+                    "drop_pending_updates": False,
+                    "max_connections": 4,
+                })
+                g._bot_feed_webhook_host = _safe_webhook_host(BOT_WEBHOOK_URL)
+                g._bot_feed_receiver_state = "webhook"
+                LOG.warning(
+                    "TOKEN_WEB webhook connected to CLOUDFLARE; "
+                    "bot_id=%s group_privacy_disabled=%s",
+                    bot_id, g._bot_feed_privacy_disabled)
+
+                # Keep only one R2 writer, even during overlapping deployments.
                 async with g.db().acquire() as lock:
-                    owned = await lock.fetchval("SELECT pg_try_advisory_lock($1)", LOCK_ID)
+                    owned = await lock.fetchval(
+                        "SELECT pg_try_advisory_lock($1)", LOCK_ID)
                     if not owned:
                         g._bot_feed_receiver_state = "standby"
+                        LOG.info("TOKEN_WEB receiver in standby; other writer holds lock")
                         await asyncio.sleep(6)
                         continue
                     try:
-                        g._bot_feed_receiver_state = "polling"
-                        LOG.info("Dedicated TOKEN_WEB feed receiver ready")
-                        receiver = asyncio.create_task(polling(g, session, bot_token, bot_id))
-                        worker = asyncio.create_task(consumer(g, session, bot_token))
-                        try:
-                            done, pending = await asyncio.wait(
-                                (receiver, worker),
-                                return_when=asyncio.FIRST_EXCEPTION)
-                            for task in done:
-                                task.result()
-                        finally:
-                            receiver.cancel()
-                            worker.cancel()
-                            await asyncio.gather(receiver, worker, return_exceptions=True)
+                        g._bot_feed_receiver_state = "webhook"
+                        await consumer(g, session, bot_token)
                     finally:
-                        await lock.fetchval("SELECT pg_advisory_unlock($1)", LOCK_ID)
+                        await lock.fetchval(
+                            "SELECT pg_advisory_unlock($1)", LOCK_ID)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             g._bot_feed_receiver_state = "error"
-            LOG.warning("TOKEN_WEB feed startup deferred (%s)", type(exc).__name__)
+            LOG.warning(
+                "TOKEN_WEB receiver startup deferred (%s)", type(exc).__name__)
         await asyncio.sleep(10)

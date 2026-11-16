@@ -2028,6 +2028,14 @@ function previewAdmin(){
       "a otro webhook"+(receiver.webhook_host?" ("+receiver.webhook_host+")":"")+
       ". La carpeta está asociada, pero no llegarán archivos mientras siga así.";
     botFeed.append(warning);
+    if(receiver.webhook_host==="conserjee.onrender.com"){
+      const protectedBot=document.createElement("p");
+      protectedBot.className="muted";
+      protectedBot.textContent="Protección ZEUS: este webhook NO se puede desconectar. "+
+        "Configura exclusivamente el token del bot nuevo en TOKEN_WEB "+
+        "de CLOUDFLARE y reinicia ese servicio.";
+      botFeed.append(protectedBot);
+    }else{
     const activate=document.createElement("button");
     activate.type="button";activate.className="small-btn";
     activate.textContent="Activar recepción TOKEN_WEB en CLOUDFLARE";
@@ -2047,13 +2055,17 @@ function previewAdmin(){
       finally{activate.disabled=false;}
     };
     botFeed.append(activate);
-  }else if(receiver.mode==="polling"){
+    }
+  }else if(receiver.mode==="webhook"||receiver.mode==="polling"){
     const working=document.createElement("p");
     working.className="muted";
-    working.textContent="Recepción Telegram activa. "+
+    working.textContent="Recepción Telegram conectada a CLOUDFLARE. "+
+      (receiver.last_media_queued_at?"Último archivo recibido: "+
+       new Date(receiver.last_media_queued_at*1000).toLocaleTimeString()+". ":"")+
+      "Para importar publicaciones de otros bots, activa "+
+      "Bot-to-Bot Communication Mode y desactiva Group Privacy en BotFather."+
       (receiver.privacy_disabled===false?
-       "Si otro bot publica, desactiva privacidad y habilita Bot-to-Bot "+
-       "Communication en BotFather.":"");
+       " Actualmente Group Privacy está activado.":"");
     botFeed.append(working);
   }else if(receiver.mode==="starting"||receiver.mode==="standby"||
            receiver.mode==="error"){
