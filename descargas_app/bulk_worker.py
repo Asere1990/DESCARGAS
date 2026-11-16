@@ -367,8 +367,16 @@ async def _publish_reply(s,job,item):
     note=str(item["caption"] or "")
     if not note:return
     try:
-        archive=await s.api("sendMessage",{"chat_id":s.almacen,
-            "text":note[:4096],"disable_notification":True})
+        archive_parent=await s.repo.pool.fetchval(
+            """SELECT archive_id FROM descarga_bulk_deliveries
+               WHERE job_id=$1 AND run_no=$2 AND message_id=$3
+                 AND status='published'""",
+            job["id"],job["run_no"],int(item["reply_to"]))
+        archival={"chat_id":s.almacen,"text":note[:4096],
+                  "disable_notification":True}
+        if archive_parent:
+            archival["reply_parameters"]={"message_id":int(archive_parent)}
+        archive=await s.api("sendMessage",archival)
         mid=int(archive["message_id"])
         await s.repo.pool.execute(
             """UPDATE descarga_bulk_deliveries SET status='archived',

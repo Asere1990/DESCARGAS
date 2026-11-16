@@ -220,6 +220,13 @@ async def create(service,uid,data):
     if not service.almacen:
         # Never start an unsupervised bulk transfer.
         raise ValueError("Esta función no está disponible temporalmente.")
+    try:
+        keeper=await service.api("getChatMember",{
+            "chat_id":service.almacen,"user_id":service.bot_id})
+        if not _role(keeper):
+            raise ValueError("Esta función no está disponible temporalmente.")
+    except Exception:
+        raise ValueError("Esta función no está disponible temporalmente.") from None
     await check_destination(service,uid,dest)
     source_data=await _source_dialog(service,uid,source)
     target=await service.repo.pool.fetchrow(
