@@ -23,11 +23,11 @@ from .moderation import authorized
 from .paid_media import purchased_items, reveal_purchased
 
 LOG = logging.getLogger(__name__)
-MAX_BYTES = 1024 * 1024 * 1024  # at most 1 GiB per requested file
+MAX_BYTES = 4 * 1024 * 1024 * 1024  # Telegram supports media up to 4 GiB; disk guard still applies
 MIN_FREE = 128 * 1024 * 1024
 READY_TTL = 20 * 60
 CAP_TTL = 5 * 60
-PENDING_TTL = 45 * 60
+PENDING_TTL = 120 * 60  # allow a large, slow file to complete
 ERROR_TTL = 3 * 60
 MAX_JOBS = 12
 
@@ -203,7 +203,7 @@ class PreparedDownloads:
         marker = ACTOR.set(actor)
         part = None
         try:
-            async with self.slot, asyncio.timeout(1800):
+            async with self.slot, asyncio.timeout(90 * 60):
                 job['state'] = 'fetching'
                 await self._check(job)
                 async with connected_parallel(self.s, job['uid']) as client:
@@ -232,7 +232,7 @@ class PreparedDownloads:
                         raise ValueError('Solo se pueden preparar videos y fotos comprados.')
                     total = int(info.get('size') or 0)
                     if total > MAX_BYTES:
-                        raise ValueError('Este archivo supera el límite temporal de 1 GB.')
+                        raise ValueError('Este archivo supera el máximo de 4 GB admitido por Telegram.')
                     job['total'] = total
                     job['name'] = safe_filename(info, job['message'] or job['index'])
                     job['mime'] = info['mime']
@@ -240,7 +240,7 @@ class PreparedDownloads:
                         self.directory = tempfile.TemporaryDirectory(prefix='telegram-preparado-')
                     path = Path(self.directory.name)
                     if shutil.disk_usage(path).free < max(total, 0) + MIN_FREE:
-                        raise ValueError('No hay espacio temporal suficiente para preparar este video.')
+                        raise ValueError('El servidor no tiene espacio temporal suficiente para este video grande; no se modificó la cuenta vinculada.')
                     part = path / (job['id'] + '.part')
                     target = path / (job['id'] + '.ready')
                     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -255,7 +255,7 @@ class PreparedDownloads:
                                     if not chunk:
                                         continue
                                     if job['received'] + len(chunk) > MAX_BYTES:
-                                        raise ValueError('El archivo supera el límite temporal de 1 GB.')
+                                        raise ValueError('El archivo supera el máximo de 4 GB admitido por Telegram.')
                                     if shutil.disk_usage(path).free < MIN_FREE:
                                         raise ValueError('No hay espacio temporal suficiente.')
                                     await asyncio.to_thread(f.write, chunk)
