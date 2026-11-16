@@ -18,6 +18,7 @@ from telethon import types,utils,errors,functions
 from .moderation import authorized
 from .creator_access import ACTOR,require_account,require_source,reviewer,police
 from .account_chat import connected, connected_parallel
+from .paid_media import purchased_items, reveal_purchased
 from .protected import require_entity
 from .panel_features import extra_message
 
@@ -94,11 +95,22 @@ def media_info(message):
 
 def message_data(m,protected=False):
     if getattr(m,'ttl_period',None) or getattr(getattr(m,'media',None),'ttl_seconds',None):return None
-    info=media_info(m);sender=getattr(m,'sender',None)
+    paid=isinstance(getattr(m,'media',None),types.MessageMediaPaidMedia)
+    pieces=[]
+    if paid:
+        try:owned=purchased_items(m)
+        except ValueError:owned=[]
+        for item in owned:
+            detail=media_info(item)
+            if detail and detail['type'] in ('photo','video'):pieces.append(detail)
+    info=pieces[0] if paid and pieces else None if paid else media_info(m)
+    sender=getattr(m,'sender',None)
     return {'id':m.id,'date':m.date.timestamp() if m.date else 0,'out':bool(m.out),'text':str(getattr(m,'message','') or '')[:16000],
       'sender':name(sender) if sender else '', 'sender_id':getattr(m,'sender_id',None),
       'reply':getattr(getattr(m,'reply_to',None),'reply_to_msg_id',None),'grouped':str(m.grouped_id) if getattr(m,'grouped_id',None) else None,
-      'media':info,'protected':bool(protected or getattr(m,'noforwards',False)),
+      'media':info,'paid_media':pieces if paid else None,
+      'paid_stars':getattr(m.media,'stars_amount',0) if paid else None,
+      'protected':bool(protected or getattr(m,'noforwards',False)),
       'reply_external':bool(getattr(getattr(m,'reply_to',None),'reply_to_peer_id',None)),**extra_message(m)}
 
 async def access_link(s,actor):
@@ -109,7 +121,7 @@ async def access_link(s,actor):
 
 class TelegramPanel:
     def __init__(self,service):
-        self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2);self.profiles={};self.profile_slots=asyncio.Semaphore(2)
+        self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2);self.profiles={};self.profile_slots=asyncio.Semaphore(2);self._paid_checked={}
         from .web_actions import PanelActions
         self.actions=PanelActions(self)
         from .panel_features import PanelFeatures
@@ -365,9 +377,11 @@ class TelegramPanel:
             entity=await self.target(actor,uid,generation,client,handle)
             kwargs={'limit':61,'offset_id':before}
             if topic:kwargs['reply_to']=topic
-            if gallery:kwargs['filter']=types.InputMessagesFilterPhotoVideo()
+            # The server's PhotoVideo filter omits paid-media posts, including
+            # purchases already unlocked for this exact account.
             if query:kwargs['search']=query[:100]
             rows=[m async for m in client.iter_messages(entity,**kwargs)]
+            await reveal_purchased(client,entity,rows[:60],self._paid_checked,(uid,generation))
             items=[v for m in rows[:60] if (v:=message_data(m,bool(getattr(entity,'noforwards',False))))]
             if gallery:items=[v for v in items if v['media'] and v['media']['type'] in ('photo','video')]
             else:
@@ -376,7 +390,7 @@ class TelegramPanel:
             try:await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
             except ValueError:raise web.HTTPForbidden() from None
             return {'items':list(reversed(items)),'next':rows[59].id if len(rows)>60 else None,'title':name(entity),'status':self.features.status(entity)}
-    async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False,purchase=None,index=0):
+    async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False,purchase=None,index=0,paid_index=None):
         # Transfers are streamed and never saved to the download queue, ALMACEN or Dropbox.
         async with self.transfers,self.account(actor,uid,timeout=300) as (client,generation):
             entity=await self.target(actor,uid,generation,client,handle)
@@ -391,6 +405,18 @@ class TelegramPanel:
                 m=await resolve(self,actor,uid,generation,client,entity,purchase,index)
             else:
                 m=await client.get_messages(entity,ids=mid)
+                if m and isinstance(getattr(m,'media',None),types.MessageMediaPaidMedia):
+                    await reveal_purchased(client,entity,[m],self._paid_checked,(uid,generation))
+                    try:owned=purchased_items(m)
+                    except ValueError:
+                        raise ValueError('Esta cuenta no tiene acceso al contenido completo comprado con Estrellas.') from None
+                    if paid_index is None:
+                        paid_index=0 if len(owned)==1 else None
+                    if paid_index is None or not 0<=paid_index<len(owned):
+                        raise ValueError('Selecciona un archivo comprado válido.')
+                    m=owned[paid_index]
+                elif paid_index is not None:
+                    raise ValueError('El mensaje seleccionado no contiene archivos comprados.')
             if not m:raise ValueError('Archivo no disponible.')
             info=media_info(m)
             if not info:raise ValueError('Archivo no disponible o temporal.')
@@ -589,7 +615,9 @@ class TelegramPanel:
                 return web.Response(body=out.getvalue(),content_type='image/jpeg',headers=HEADERS)
             elif op=='chats':result=await self.chats(actor,uid,request.query.get('cursor',''))
             elif op in ('messages','gallery'):result=await self.messages(actor,uid,request.query.get('peer',''),integer(request.query.get('before','0'),0),op=='gallery',request.query.get('q',''),integer(request.query.get('topic','0'),0))
-            elif op in ('media','thumb','avatar'):return await self.media(request,actor,uid,request.query.get('peer',''),integer(request.query.get('message','1')),op=='thumb',op=='avatar')
+            elif op in ('media','thumb','avatar'):
+                paid_index=integer(request.query['paid_index'],0) if 'paid_index' in request.query else None
+                return await self.media(request,actor,uid,request.query.get('peer',''),integer(request.query.get('message','1')),op=='thumb',op=='avatar',paid_index=paid_index)
             else:raise web.HTTPNotFound()
             if not authorized(actor):raise web.HTTPForbidden()
             return web.json_response(result,headers=HEADERS)
