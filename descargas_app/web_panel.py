@@ -24,7 +24,7 @@ from .panel_features import extra_message
 
 ROOT=Path(__file__).with_name('panel_web')
 HEADERS={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','X-Frame-Options':'DENY',
- 'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"}
+ 'Content-Security-Policy':"default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; img-src 'self' data: blob:; media-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"}
 
 def integer(value,minimum=1):
     try:n=int(value)
@@ -138,6 +138,8 @@ class TelegramPanel:
         self.favorites=PanelFavorites(self)
         from .panel_reports import TelegramReports
         self.reports=TelegramReports(self)
+        from .panel_prepared import PreparedDownloads
+        self.prepared=PreparedDownloads(self)
     def pack(self,purpose,**values):return self.s.cipher.encrypt(json.dumps({'purpose':purpose,'bot':self.s.bot_id,**values},separators=(',',':')).encode()).decode()
     def unpack(self,value,kind):
         if not isinstance(value,str) or len(value)>4000:raise ValueError('Acceso no válido.')
@@ -500,6 +502,8 @@ class TelegramPanel:
         try:
             if not self.s.ready:return web.json_response({'error':'El servicio está iniciándose.'},status=503,headers=HEADERS)
             op=request.match_info['op'];post=request.method=='POST'
+            if op=='prepared-file' and request.method in ('GET','HEAD'):
+                return await self.prepared.serve(request)
             if post:
                 expected=urlsplit(self.s.url)
                 if request.headers.get('Origin')!=f'{expected.scheme}://{expected.netloc}':raise web.HTTPForbidden()
@@ -572,6 +576,9 @@ class TelegramPanel:
                 result=(await self.reports.begin(actor,data) if op=='report-begin'
                         else await self.reports.next(actor,data))
                 return web.json_response(result,headers=HEADERS)
+            if post and op=='prepare-start':
+                return web.json_response(await self.prepared.begin(
+                    actor,session['version'],await request.json()),headers=HEADERS)
             if post and op=='deliver-selection':
                 from .panel_delivery import enqueue
                 data=await request.json()
@@ -589,6 +596,9 @@ class TelegramPanel:
                 return web.json_response(await self.actions.execute(actor,input),headers=HEADERS)
             if request.method!='GET':raise web.HTTPNotFound()
             if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
+            elif op=='prepare-status':
+                result=await self.prepared.status(
+                    actor,session['version'],request.query.get('job',''))
             elif op=='account-status':result=await self.overview.check(actor,uid)
             elif op=='contact.vcf':return await self.contact_vcard_response(actor,uid)
             elif op=='purchases':
@@ -638,8 +648,12 @@ class TelegramPanel:
 def mount_panel(app,service):
     panel=TelegramPanel(service)
     async def stop_live(app):await panel.live.close()
+    async def start_prepared(app):await panel.prepared.start()
+    async def stop_prepared(app):await panel.prepared.close()
+    app.on_startup.append(start_prepared)
     app.on_startup.append(panel.background_search.start)
     app.on_shutdown.append(panel.background_search.stop)
+    app.on_shutdown.append(stop_prepared)
     app.on_shutdown.append(stop_live)
     async def index(request):
         base=request.path.rstrip('/')

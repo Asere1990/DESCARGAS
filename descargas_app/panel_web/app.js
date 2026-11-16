@@ -40,6 +40,91 @@ async function api(op,data,raw=false){const r=await network(base+'/api/'+op,{cac
 const view=v=>{$('workspace').dataset.view=v;if(v==='accounts')setTimeout(pumpStatuses,0);};
 function avatar(title){const a=el('div',title.split(/\s+/).slice(0,2).map(v=>v[0]).join('').toUpperCase());a.className='avatar';return a;}
 function fileUrl(op,m){return base+'/api/'+op+'?account='+account.id+'&peer='+encodeURIComponent(chat.handle)+(m?'&message='+m.id+(Number.isInteger(m.paid_index)?'&paid_index='+m.paid_index:''):'');}
+const preparedDownloadJobs=new Map();
+function preparedDownloadControl(payload,defaultName='archivo'){
+ const wrap=el('section');wrap.className='prepared-download';
+ const start=el('button','↓ Preparar descarga prioritaria');
+ start.type='button';start.className='download';
+ const status=el('p','El archivo se preparará primero y podrás guardarlo después.');
+ status.className='prepared-status';status.setAttribute('role','status');
+ const meter=el('progress');meter.max=100;meter.value=0;meter.hidden=true;
+ meter.setAttribute('aria-label','Progreso de preparación');
+ const save=el('a','↓ Guardar en mi teléfono');save.className='download prepared-save';
+ save.hidden=true;save.setAttribute('rel','noopener noreferrer');
+ const safari=el('a','Abrir archivo en Safari si no se guarda');
+ safari.className='prepared-fallback';safari.hidden=true;safari.target='_blank';
+ safari.rel='noopener noreferrer';
+ const note=el('small','El enlace temporal caduca; no se modifica ninguna cuenta vinculada.');
+ note.hidden=true;
+ wrap.append(start,status,meter,save,safari,note);
+ const key=JSON.stringify([payload.account,payload.peer,payload.purchase||payload.message,payload.index??payload.paid_index??0]);
+ let job=preparedDownloadJobs.get(key)||null;
+ let timer=null;
+ const mb=n=>(Number(n||0)/1048576).toFixed(1);
+ const next=()=>{
+  clearTimeout(timer);
+  if(!wrap.isConnected||!job)return;
+  timer=setTimeout(refresh,1800);
+ };
+ const render=data=>{
+  const phase=data.state;
+  meter.hidden=!['queued','fetching'].includes(phase);
+  meter.value=Number(data.progress)||0;
+  if(phase==='queued'){
+   start.hidden=true;status.textContent='En espera de la vía prioritaria…';next();
+  }else if(phase==='fetching'){
+   start.hidden=true;
+   status.textContent='Preparando video: '+meter.value+'% · '+mb(data.received)+' MB'+
+    (data.total?' de '+mb(data.total)+' MB':'');
+   next();
+  }else if(phase==='ready'){
+   start.hidden=true;meter.hidden=true;
+   const url=base+'/api/prepared-file?token='+encodeURIComponent(data.file_token);
+   save.href=url;save.download=data.name||defaultName;
+   safari.href=url;
+   status.textContent='Preparación completada (100 %). Ahora pulsa Guardar en mi teléfono.';
+   save.hidden=false;safari.hidden=false;note.hidden=false;
+   // Refresh short-lived capabilities while this view remains open.
+   clearTimeout(timer);
+   if(wrap.isConnected)timer=setTimeout(refresh,35000);
+  }else{
+   preparedDownloadJobs.delete(key);job=null;
+   start.hidden=false;save.hidden=true;safari.hidden=true;meter.hidden=true;note.hidden=true;
+   start.textContent='↻ Volver a preparar';
+   status.textContent=data.error||'No se pudo completar la preparación.';
+  }
+ };
+ async function refresh(){
+  timer=null;
+  if(!job||!wrap.isConnected)return;
+  try{render(await api('prepare-status?job='+encodeURIComponent(job)));}
+  catch(error){render({state:'error',error:error.message});}
+ }
+ start.onclick=async()=>{
+  if(!account||String(account.id)!==String(payload.account))return notice('La cuenta cambió. Abre este archivo nuevamente.');
+  start.disabled=true;status.textContent='Solicitando preparación prioritaria…';
+  try{
+   const data=await api('prepare-start',payload);
+   job=data.job;preparedDownloadJobs.set(key,job);render(data);
+  }catch(error){status.textContent=error.message;start.hidden=false;}
+  finally{start.disabled=false;}
+ };
+ save.onclick=event=>{
+  const webapp=window.Telegram?.WebApp;
+  if(webapp?.initData&&typeof webapp.downloadFile==='function'&&
+      (!webapp.isVersionAtLeast||webapp.isVersionAtLeast('8.0'))&&location.protocol==='https:'){
+   event.preventDefault();
+   const url=new URL(save.href,location.href).href;
+   webapp.downloadFile({url,file_name:save.download},accepted=>{
+    if(!accepted)status.textContent='Telegram no inició el guardado. Usa «Abrir archivo en Safari».';
+   });
+  }
+  // Outside a Telegram Mini App, let Safari handle the ordinary native
+  // attachment link; never fetch a huge video into JavaScript memory.
+ };
+ if(job)refresh();
+ return wrap;
+}
 function currentFavorite(){return favoriteItems.some(f=>String(f.account_id)===String(account?.id)&&String(f.id)===String(chat?.id));}
 function updateFavoriteStar(){
  const button=$('favorite-toggle');button.hidden=!account||!chat;if(button.hidden)return;
@@ -257,7 +342,9 @@ function mediaList(){return [...messages.values()].flatMap(mediaParts).filter(vi
 function stopMediaPlayback(){for(const player of $('media-content').querySelectorAll('video,audio')){player.pause();player.removeAttribute('src');player.load();}}
 function updateMediaNavigation(){const index=mediaItems.findIndex(m=>mediaKey(m)===mediaKey(mediaCurrent)),more=mediaGallery&&!!before;$('media-previous').disabled=mediaPaging||index<=0;$('media-next').disabled=mediaPaging||index<0||(index>=mediaItems.length-1&&!more);$('media-position').textContent=mediaPaging?'Cargando más…':(index+1)+' de '+mediaItems.length+(more?' cargados':'');$('media-navigation').hidden=!visualMedia(mediaCurrent||{});$('media-to-chat').disabled=mediaPaging||operationBusy;}
 function openMedia(m){mediaGallery=mode==='gallery';mediaItems=visualMedia(m)?mediaList():[m];if(!mediaItems.some(item=>mediaKey(item)===mediaKey(m)))mediaItems.push(m);mediaPaging=false;modal=true;showMedia(m);if(!$('media-dialog').open)$('media-dialog').showModal();}
-function showMedia(m){if(typeof panelAdmin!=='undefined'&&typeof chat!=='undefined')reportMediaButton.hidden=!panelAdmin||!chat||chat.type==='private'||!!m.out;const render=++mediaRender;mediaCurrent=m;mediaGesture=null;stopMediaPlayback();const info=m.media,box=$('media-content');box.replaceChildren();box.classList.toggle('protected-media',!!m.protected);$('media-name').textContent=info.name||labels[info.type];$('media-note').textContent='';const url=fileUrl('media',m),current=()=>modal&&mediaRender===render&&mediaKey(mediaCurrent)===mediaKey(m);const fileSave=$('download'),purchased=Number.isInteger(m.paid_index);fileSave.hidden=false;fileSave.setAttribute('aria-disabled','false');fileSave.removeAttribute('href');fileSave.removeAttribute('download');fileSave.removeAttribute('target');fileSave.textContent=purchased?'↓ Guardar en mi teléfono':'Enviar descarga';if(purchased){fileSave.href=url+'&download=1';fileSave.setAttribute('download',info.name||'archivo');}box.oncontextmenu=null;if(info.type==='photo'||(info.mime||'').startsWith('image/')){const img=el('img');img.alt=m.text||'Foto';img.draggable=false;networkTail.then(()=>{if(current())img.src=url;});img.onerror=()=>{if(current())$('media-note').textContent='No se pudo abrir la imagen. Puedes pasar al siguiente archivo o intentarlo de nuevo.';};box.append(img);}else if(['video','voice','audio'].includes(info.type)){const player=el(info.type==='video'?'video':'audio');player.controls=true;player.preload='metadata';player.playsInline=true;player.src=url;player.onerror=()=>{if(!current())return;const code=player.error?.code;$('media-note').textContent=code===2?'Se interrumpió la transferencia del video. Puedes reintentarlo.':code===3?'Este navegador no pudo decodificar el video.':(m.protected?'No se pudo reproducir este archivo en el navegador.':'No se pudo reproducir: la transferencia falló o el navegador no admite el formato. Puedes descargarlo.');const retry=el('button','Reintentar');retry.type='button';retry.className='media-to-chat';retry.onclick=()=>{if(current())showMedia(m);};$('media-note').append(retry);};box.append(player);}else box.append(el('p','Usa Descargar archivo para abrir este documento.'));updateMediaNavigation();}
+function showMedia(m){if(typeof panelAdmin!=='undefined'&&typeof chat!=='undefined')reportMediaButton.hidden=!panelAdmin||!chat||chat.type==='private'||!!m.out;const render=++mediaRender;mediaCurrent=m;mediaGesture=null;stopMediaPlayback();const info=m.media,box=$('media-content');box.replaceChildren();box.classList.toggle('protected-media',!!m.protected);$('media-name').textContent=info.name||labels[info.type];$('media-note').textContent='';const url=fileUrl('media',m),current=()=>modal&&mediaRender===render&&mediaKey(mediaCurrent)===mediaKey(m);const fileSave=$('download'),purchased=Number.isInteger(m.paid_index);fileSave.hidden=false;fileSave.setAttribute('aria-disabled','false');fileSave.removeAttribute('href');fileSave.removeAttribute('download');fileSave.removeAttribute('target');fileSave.textContent='Enviar descarga';if(purchased){fileSave.hidden=true;}box.oncontextmenu=null;if(info.type==='photo'||(info.mime||'').startsWith('image/')){const img=el('img');img.alt=m.text||'Foto';img.draggable=false;networkTail.then(()=>{if(current())img.src=url;});img.onerror=()=>{if(current())$('media-note').textContent='No se pudo abrir la imagen. Puedes pasar al siguiente archivo o intentarlo de nuevo.';};box.append(img);}else if(['video','voice','audio'].includes(info.type)){const player=el(info.type==='video'?'video':'audio');player.controls=true;player.preload='metadata';player.playsInline=true;player.src=url;player.onerror=()=>{if(!current())return;const code=player.error?.code;$('media-note').textContent=code===2?'Se interrumpió la transferencia del video. Puedes reintentarlo.':code===3?'Este navegador no pudo decodificar el video.':(m.protected?'No se pudo reproducir este archivo en el navegador.':'No se pudo reproducir: la transferencia falló o el navegador no admite el formato. Puedes descargarlo.');const retry=el('button','Reintentar');retry.type='button';retry.className='media-to-chat';retry.onclick=()=>{if(current())showMedia(m);};$('media-note').append(retry);};box.append(player);}else box.append(el('p','Usa Descargar archivo para abrir este documento.'));if(purchased){box.append(preparedDownloadControl(
+  {account:account.id,peer:chat.handle,message:m.id,paid_index:m.paid_index},info.name||'video.mp4'));
+ }updateMediaNavigation();}
 async function navigateMedia(direction){if(!modal||!mediaCurrent||mediaPaging||!visualMedia(mediaCurrent))return;const id=mediaKey(mediaCurrent),chosen=mediaRender,viewerEpoch=epoch;let index=mediaItems.findIndex(m=>mediaKey(m)===id),target=index+direction;if(target>=mediaItems.length&&direction>0&&mediaGallery&&before){mediaPaging=true;updateMediaNavigation();try{await loadMessages(true);if(!modal||mediaRender!==chosen||epoch!==viewerEpoch)return;mediaItems=mediaList();index=mediaItems.findIndex(m=>mediaKey(m)===id);target=index+direction;}finally{if(mediaRender===chosen){mediaPaging=false;updateMediaNavigation();}}}if(!modal||mediaRender!==chosen||epoch!==viewerEpoch||index<0||target<0||target>=mediaItems.length)return;showMedia(mediaItems[target]);}
 function closeMedia(){mediaRender++;stopMediaPlayback();$('media-content').replaceChildren();mediaCurrent=null;mediaItems=[];mediaPaging=false;mediaGesture=null;modal=false;pumpThumbs();}
 $('close-media').onclick=()=>$('media-dialog').close();$('media-dialog').addEventListener('close',closeMedia);
@@ -1149,7 +1236,9 @@ async function openPurchases(){
    for(const id of group.items){const item=purchases.get(id),card=el('article');card.className='purchase-card';card.append(el('strong',item.title),el('p',date(item.date)+' · '+item.media.length+' archivos'));
     if(item.link){const link=el('a','Abrir mensaje original en Telegram');link.href=item.link;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}else card.append(el('small','Este chat no tiene un enlace público al mensaje.'));
     if(item.message){const jump=el('button','Ver mensaje en el panel');jump.onclick=async()=>{stopMedia();$('management').close();try{await openChat(item.chat);await jumpToMessage(item.message);}catch(e){notice(e.message);}};card.append(jump);}
-    for(const media of item.media){const row=el('div'),show=el('button',(media.type==='video'?'▶ Ver video':'🖼 Ver foto')+' '+(media.index+1));row.className='purchase-media';show.onclick=()=>{const node=el(media.type==='video'?'video':'img');node.className='purchase-preview';if(media.type==='video'){node.controls=true;node.playsInline=true;node.preload='metadata';}else node.alt='Foto comprada';node.src=url('purchase-media',item,media.index);node.onerror=()=>notice('No se pudo cargar este archivo. Vuelve a abrir Comprados para actualizarlo.');show.replaceWith(node);};const save=el('a','↓ Guardar en mi teléfono');save.className='download purchase-download';save.href=url('purchase-media',item,media.index)+'&download=1';save.download=media.name||(media.type==='video'?'video.mp4':'foto.jpg');row.append(show,save);card.append(row);}
+    for(const media of item.media){const row=el('div'),show=el('button',(media.type==='video'?'▶ Ver video':'🖼 Ver foto')+' '+(media.index+1));row.className='purchase-media';show.onclick=()=>{const node=el(media.type==='video'?'video':'img');node.className='purchase-preview';if(media.type==='video'){node.controls=true;node.playsInline=true;node.preload='metadata';}else node.alt='Foto comprada';node.src=url('purchase-media',item,media.index);node.onerror=()=>notice('No se pudo cargar este archivo. Vuelve a abrir Comprados para actualizarlo.');show.replaceWith(node);};const control=preparedDownloadControl({account:selected.id,peer:item.chat.handle,
+  purchase:item.token,index:media.index},media.name||(media.type==='video'?'video.mp4':'foto.jpg'));
+  row.append(show,control);card.append(row);}
     list.append(card);
    }
   }
