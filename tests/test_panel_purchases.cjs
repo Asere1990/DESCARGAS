@@ -19,7 +19,8 @@ function setup(api){
  }
  const nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);};
  const context={$,el:node,account:{id:'22',name:'Cuenta'},operationBusy:false,base:'/panel',api,
-  date:()=> 'Hoy',notice(){},setTimeout:()=>0,clearTimeout:()=>{},panelNavSave(){},panelNavPush(){},purchasesLeaving:false,management(){ $('management').open=true;return $('management-body');},
+  date:()=> 'Hoy',notice(){},setTimeout:()=>0,clearTimeout:()=>{},panelNavSave(){},panelNavPush(){},
+  panelNavEntries:new Map(),panelNavSteps:[],panelNavIndex:0,queueResume(){},purchasesLeaving:false,management(){ $('management').open=true;return $('management-body');},
   openChat:async c=>{context.opened=c;},jumpToMessage:async id=>{context.jumped=id;}};
  vm.createContext(context);vm.runInContext(code+'\nthis.openPurchases=openPurchases;',context);
  return {context,$,root:()=>$('management-body').children[0]};
