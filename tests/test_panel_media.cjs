@@ -24,6 +24,19 @@ function setup({before=null,load=async()=>{}}={}){
  const swipe=(dx,dy=0,count=1)=>{const t=$('media-content');t.listeners.touchstart({touches:Array.from({length:count},()=>({clientX:200,clientY:200}))});t.listeners.touchend({touches:[],changedTouches:[{clientX:200+dx,clientY:200+dy}]});};
  return {context,$,photo,swipe};
 }
+test('purchased media viewer uses the native same-page download instead of a blocked new tab',async()=>{
+ const state=setup();
+ const m={...state.photo(3),paid_index:0};
+ state.context.openMedia(m);
+ const download=state.$('download');
+ assert.match(download.href,/download=1/);
+ assert.equal(download.target,undefined);
+ assert.equal(download.download,'3.jpg');
+ let prevented=0;
+ await download.onclick({preventDefault(){prevented++;}});
+ assert.equal(prevented,0);
+ assert.equal(state.$('media-content').children[0].tagName,'IMG');
+});
 test('horizontal finger swipes move both ways; vertical drags, short taps and pinch do not navigate',()=>{
  const {$,context,swipe}=setup();context.openMedia(context.messages.get(3));
  swipe(-100);assert.equal($('media-name').textContent,'2.jpg');
