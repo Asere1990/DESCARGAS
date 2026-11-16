@@ -443,8 +443,218 @@ class TelegramPanel:
                 status=206
                 if start>end or start>=size:raise web.HTTPRequestRangeNotSatisfiable(headers={'Content-Range':f'bytes */{size}'})
             safe=bool(re.fullmatch(r'(?:image/(?:jpeg|png|webp|gif)|video/(?:mp4|webm|quicktime|x-m4v)|audio/(?:ogg|mpeg|mp4|aac|wav|webm))',info['mime']))
+            # iPhone recognises saved files by extension. Telegram often supplies
+            # a generic name such as "archivo" even for an MP4 or MOV.
+            filename=re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])[:150] or 'archivo'
+            if request.query.get('download')=='1' and not re.search(r'\.[a-zA-Z0-9]{2,6}            if size:headers['Content-Length']=str(end-start+1)
+            if status==206:headers['Content-Range']=f'bytes {start}-{end}/{size}'
+            response=web.StreamResponse(status=status,headers=headers);await response.prepare(request)
+            aligned=start-start%4096;position=aligned;checked=0
+            try:
+                iterator=client.iter_download(m.media,offset=aligned,request_size=262144,chunk_size=262144)
+                async for chunk in iterator:
+                    if not authorized(actor):break
+                    if time.monotonic()-checked>5:
+                        await require_account(self.s,uid,actor)
+                        await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
+                        checked=time.monotonic()
+                    left=max(0,start-position);right=min(len(chunk),end-position+1) if size else len(chunk)
+                    if right>left:await response.write(chunk[left:right])
+                    position+=len(chunk)
+                    if size and position>end:break
+            except (ConnectionResetError,asyncio.CancelledError):raise
+            finally:await iterator.close()
+            await response.write_eof();return response
+    async def contact_vcard_response(self,actor,uid):
+        """La respuesta HTTP se abre como ficha nativa, nunca como hoja Compartir."""
+        if not authorized(actor):
+            raise web.HTTPForbidden()
+        await require_account(self.s,uid,actor)
+        row=await self.s.repo.pool.fetchrow(
+            '''SELECT a.profile,d.name FROM descarga_accounts a
+               LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2
+               WHERE a.uid=$1 AND a.session IS NOT NULL''',
+            uid,self.s.bot_id)
+        if not row:
+            raise ValueError('Cuenta vinculada no disponible.')
+        profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
+        directory=self.s.repo.decode(row['name']) if row.get('name') else {}
+        from .panel_accounts import metadata
+        phone=metadata(profile,directory).get('phone') or profile.get('phone')
+        card=contact_vcard_content(
+            uid,account_label(profile,directory),phone,profile.get('username',''))
+        return web.Response(
+            body=card,
+            content_type='text/vcard',charset='utf-8',
+            headers={**HEADERS,
+                'Content-Disposition':f'inline; filename="telegram-{uid}.vcf"',
+            })
+
+    async def handle(self,request):
+        try:
+            if not self.s.ready:return web.json_response({'error':'El servicio está iniciándose.'},status=503,headers=HEADERS)
+            op=request.match_info['op'];post=request.method=='POST'
+            if post:
+                expected=urlsplit(self.s.url)
+                if request.headers.get('Origin')!=f'{expected.scheme}://{expected.netloc}':raise web.HTTPForbidden()
+            if op=='login' and post:
+                self.rate('login:'+str(request.remote),15);body=await request.json();data=self.unpack(body.get('token'),'access');actor=integer(data.get('actor'))
+                if not authorized(actor) or data.get('version')!=(await self.s.repo.setting(f'web-panel-version:{self.s.bot_id}:{actor}') or '0'):raise web.HTTPUnauthorized()
+                csrf=secrets.token_urlsafe(32);value=self.pack('session',actor=actor,version=data['version'],csrf=csrf)
+                response=web.json_response({'ok':True},headers=HEADERS);response.set_cookie('descargas_panel',value,httponly=True,secure=expected.scheme=='https',samesite='Strict',max_age=400*86400,path=request.path.split('/api/')[0] or '/');return response
+            try:session=await self.session(request)
+            except ValueError:raise web.HTTPUnauthorized()
+            actor=session['actor'];self.rate('actor:'+str(actor),240)
+            if post and op=='batch-download':
+                data=await request.post()
+                if not secrets.compare_digest(data.get('csrf',''),session['csrf']):raise web.HTTPForbidden()
+                from .panel_batch import download
+                return await download(self,request,actor,data)
+            if post and not secrets.compare_digest(request.headers.get('X-Panel-CSRF',''),session['csrf']):raise web.HTTPForbidden()
+            uid=integer(request.query.get('account')) if op in ('purchases','purchase-media','purchase-thumb','saved-chat','account-status','contact.vcf','accounts-search','chats','messages','gallery','member-list','gallery-count','chat-counts','media','thumb','avatar','account-profile','account-avatar','permissions','administrators','user-info','group-details','context','global-search','folders','topics','scheduled','library','library-thumb','events','changes','emoji') else None
+            if op=='events' and request.method=='GET':return await self.live.stream(request,session,uid,request.query.get('peer',''))
+            if op=='me' and request.method=='GET':return web.json_response({'actor':str(actor),'csrf':session['csrf'],'reviewer':reviewer(actor),'admin':police(actor),'zip_limit':10 if reviewer(actor) else 500},headers=HEADERS)
+            if op=='logout' and post:
+                response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
+            if op=='revoke' and post:
+                await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
+            if op=='account-name-search' and request.method=='GET':
+                result=await self.account_name_search(actor,request.query.get('q',''),
+                    integer(request.query.get('after','0'),0))
+                return web.json_response(result,headers=HEADERS)
+            if op=='favorites' and request.method=='GET':
+                return web.json_response(await self.favorites.listing(actor),headers=HEADERS)
+            if op=='favorite-accounts' and request.method=='GET':
+                return web.json_response(
+                    {'accounts':await self.favorites.account_listing(actor)},headers=HEADERS)
+            if post and op in ('favorite-toggle','favorite-remove',
+                               'favorite-account-toggle'):
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Favorito no válido.')
+                if op=='favorite-toggle':
+                    result=await self.favorites.toggle(actor,data)
+                elif op=='favorite-account-toggle':
+                    result=await self.favorites.toggle_account(actor,data)
+                else:
+                    result=await self.favorites.remove(actor,
+                        integer(data.get('account')),int(data.get('source')))
+                return web.json_response(result,headers=HEADERS)
+            if post and op=='search-job-clear':
+                return web.json_response(
+                    await self.background_search.clear(actor,session['version']),
+                    headers=HEADERS)
+            if post and op in ('search-job-start','search-job-control'):
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Solicitud de búsqueda no válida.')
+                if op=='search-job-start':
+                    result=await self.background_search.begin(actor,session['version'],
+                        data.get('mode'),data.get('query'))
+                else:
+                    result=await self.background_search.control(actor,session['version'],
+                        str(data.get('id','')),data.get('action'))
+                return web.json_response(result,headers=HEADERS)
+            if op=='search-job-status' and request.method=='GET':
+                return web.json_response(await self.background_search.status(
+                    actor,session['version'],request.query.get('id','')),headers=HEADERS)
+            if op=='search-job-results' and request.method=='GET':
+                return web.json_response(await self.background_search.results(
+                    actor,session['version'],request.query.get('id',''),
+                    integer(request.query.get('after','0'),0)),headers=HEADERS)
+            if post and op in ('report-begin','report-step'):
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Reporte no válido.')
+                result=(await self.reports.begin(actor,data) if op=='report-begin'
+                        else await self.reports.next(actor,data))
+                return web.json_response(result,headers=HEADERS)
+            if post and op=='deliver-selection':
+                from .panel_delivery import enqueue
+                data=await request.json()
+                if not isinstance(data,dict):raise ValueError('Solicitud no válida.')
+                return web.json_response(await enqueue(self,actor,data),headers=HEADERS)
+            if post and op in ('action','upload','resolve'):
+                if op=='upload':
+                    input,file=await self.actions.read_upload(request)
+                    try:return web.json_response(await self.actions.execute(actor,input,file),headers=HEADERS)
+                    finally:file['close']()
+                input=await request.json()
+                if not isinstance(input,dict):raise ValueError('Solicitud no válida.')
+                if op=='resolve':return web.json_response(await self.actions.resolve(actor,input),headers=HEADERS)
+                if input.get('action') in ('typing','reaction','vote','poll','saved-media','scheduled-send','scheduled-delete'):return web.json_response(await self.features.perform(actor,input),headers=HEADERS)
+                return web.json_response(await self.actions.execute(actor,input),headers=HEADERS)
+            if request.method!='GET':raise web.HTTPNotFound()
+            if op=='accounts':result=await self.accounts(actor,integer(request.query.get('after','0'),0))
+            elif op=='account-status':result=await self.overview.check(actor,uid)
+            elif op=='contact.vcf':return await self.contact_vcard_response(actor,uid)
+            elif op=='purchases':
+                from .panel_purchases import listing
+                result=await listing(self,actor,uid,request.query.get('cursor',''))
+            elif op in ('purchase-media','purchase-thumb'):
+                return await self.media(request,actor,uid,request.query.get('peer',''),1,thumb=op=='purchase-thumb',purchase=request.query.get('purchase',''),index=integer(request.query.get('index','0'),0))
+            elif op=='saved-chat':result=await self.saved_chat(actor,uid)
+            elif op=='accounts-search':result=await self.features.overview_search(actor,uid,request.query.get('q',''),request.query.get('cursor',''))
+            elif op=='account-profile':
+                profile=await self.account_profile(actor,uid);result={k:profile[k] for k in ('name','username')};result['avatar']=bool(profile['file'])
+            elif op=='account-avatar':return await self.account_avatar(actor,uid)
+            elif op in ('permissions','administrators','user-info','group-details'):result=await self.actions.inspect(actor,uid,request.query.get('peer',''),op=='administrators',request.query.get('target') if op=='user-info' else None,op=='group-details')
+            elif op=='emoji':
+                mime,data=await self.emoji.asset(actor,uid,request.query.get('peer',''),integer(request.query.get('message')),integer(request.query.get('document')));return web.Response(body=data,content_type=mime,headers=HEADERS)
+            elif op=='changes':result=await self.features.changes(actor,uid,request.query.get('peer',''),request.query.get('ids',''))
+            elif op=='chat-counts':result=await self.features.chat_counts(actor,uid,request.query.get('peer',''))
+            elif op=='member-list':result=await self.features.member_list(actor,uid,request.query.get('peer',''),request.query.get('kind','members'),request.query.get('cursor',''))
+            elif op=='gallery-count':result=await self.features.gallery_count(actor,uid,request.query.get('peer',''),integer(request.query.get('topic','0'),0))
+            elif op=='context':result=await self.features.context(actor,uid,request.query.get('peer',''),integer(request.query.get('message')))
+            elif op=='global-search':result=await self.features.search(actor,uid,request.query.get('q',''),request.query.get('cursor',''))
+            elif op=='folders':result=await self.features.folders(actor,uid)
+            elif op=='topics':result=await self.features.topics(actor,uid,request.query.get('peer',''),request.query.get('cursor',''))
+            elif op=='scheduled':result=await self.features.scheduled(actor,uid,request.query.get('peer',''))
+            elif op=='library':result=await self.features.library(actor,uid,request.query.get('kind','stickers'))
+            elif op=='library-thumb':
+                data=await self.features.library_thumb(actor,uid,request.query.get('document',''))
+                if not data:return web.Response(status=204,headers=HEADERS)
+                with Image.open(io.BytesIO(data)) as picture:
+                    picture.thumbnail((256,256));out=io.BytesIO();picture.convert('RGB').save(out,format='JPEG',quality=80)
+                return web.Response(body=out.getvalue(),content_type='image/jpeg',headers=HEADERS)
+            elif op=='chats':result=await self.chats(actor,uid,request.query.get('cursor',''))
+            elif op in ('messages','gallery'):result=await self.messages(actor,uid,request.query.get('peer',''),integer(request.query.get('before','0'),0),op=='gallery',request.query.get('q',''),integer(request.query.get('topic','0'),0))
+            elif op in ('media','thumb','avatar'):
+                paid_index=integer(request.query['paid_index'],0) if 'paid_index' in request.query else None
+                return await self.media(request,actor,uid,request.query.get('peer',''),integer(request.query.get('message','1')),op=='thumb',op=='avatar',paid_index=paid_index)
+            else:raise web.HTTPNotFound()
+            if not authorized(actor):raise web.HTTPForbidden()
+            return web.json_response(result,headers=HEADERS)
+        except errors.FloodWaitError as exc:return web.json_response({'error':f'Telegram pide esperar {exc.seconds} segundos.','retry':exc.seconds},status=429,headers=HEADERS)
+        except ValueError as exc:return web.json_response({'error':str(exc)},status=409,headers=HEADERS)
+        except web.HTTPException as exc:return web.json_response({'error':{401:'Abre tu panel desde /menu en Telegram.',403:'Acceso no autorizado.',404:'Opción no disponible.',429:'Espera un momento antes de repetir.',416:'Rango no disponible.'}.get(exc.status,'Solicitud no válida.')},status=exc.status,headers=HEADERS)
+        except errors.RPCError as exc:return web.json_response({'error':'Telegram rechazó la operación: '+type(exc).__name__},status=409,headers=HEADERS)
+        except TimeoutError:return web.json_response({'error':'La consulta tardó demasiado. Puedes reintentar.'},status=504,headers=HEADERS)
+        except Exception:return web.json_response({'error':'No se pudo completar la consulta. Reintenta en un momento.'},status=503,headers=HEADERS)
+
+def mount_panel(app,service):
+    panel=TelegramPanel(service)
+    async def stop_live(app):await panel.live.close()
+    app.on_startup.append(panel.background_search.start)
+    app.on_shutdown.append(panel.background_search.stop)
+    app.on_shutdown.append(stop_live)
+    async def index(request):
+        base=request.path.rstrip('/')
+        return web.Response(text=(ROOT/'index.html').read_text().replace('__PANEL_BASE__',html.escape(base,quote=True)),content_type='text/html',headers=HEADERS)
+    async def asset(request):
+        filename=request.match_info['name']
+        if filename not in ('app.js','style.css','wallpaper.svg','lottie-light.js','lottie-LICENSE.txt'):raise web.HTTPNotFound()
+        return web.FileResponse(ROOT/filename,headers=HEADERS)
+    prefixes={'/panel',urlsplit(service.url).path.rstrip('/')+'/panel'}
+    for prefix in prefixes:
+        app.router.add_get(prefix,index);app.router.add_get(prefix+'/',index)
+        app.router.add_get(prefix+'/assets/{name}',asset);app.router.add_route('*',prefix+'/api/{op}',panel.handle)
+    return panel
+
+,filename):
+                suffix={'video/mp4':'.mp4','video/quicktime':'.mov','video/webm':'.webm',
+                    'video/x-m4v':'.m4v','image/jpeg':'.jpg','image/png':'.png',
+                    'image/webp':'.webp','image/gif':'.gif'}.get(info['mime'],'')
+                filename+=suffix
             headers={**HEADERS,'Content-Type':info['mime'] if safe else 'application/octet-stream','Accept-Ranges':'bytes',
-             'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])+'"'}
+             'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+filename+'"'}
             if size:headers['Content-Length']=str(end-start+1)
             if status==206:headers['Content-Range']=f'bytes {start}-{end}/{size}'
             response=web.StreamResponse(status=status,headers=headers);await response.prepare(request)
