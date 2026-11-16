@@ -47,7 +47,7 @@ function setup(){
   openPurchases:async()=>{element('management').open=true;},
  };
  vm.createContext(ctx);
- vm.runInContext(code+'\nthis.panelNavInit=panelNavInit;this.panelNavSave=panelNavSave;this.panelNavPush=panelNavPush;this.panelNavDismiss=panelNavDismiss;this.panelNavBackTo=panelNavBackTo;this.panelNavKind=panelNavKind;this.view=view;',ctx);
+ vm.runInContext(code+'\nthis.panelNavInit=panelNavInit;this.panelNavSave=panelNavSave;this.panelNavPush=panelNavPush;this.panelNavDismiss=panelNavDismiss;this.panelNavBackTo=panelNavBackTo;this.panelNavKind=panelNavKind;this.navReady=()=>panelNavReady;this.view=view;',ctx);
  const flush=()=>new Promise(setImmediate);
  return {ctx,history,element,flush,records,historyStack};
 }
@@ -111,7 +111,7 @@ test('if the embedded browser rejects pushState, closing video cannot navigate o
  const {ctx,history}=setup();
  ctx.panelNavInit();history.failPush=true;
  ctx.account=user;ctx.view('chats');
- assert.equal(ctx.panelNavReady,false);
+ assert.equal(ctx.navReady(),false);
  ctx.panelNavDismiss('media');
  assert.equal(history.backCount,0);
 });
