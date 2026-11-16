@@ -443,10 +443,16 @@ class TelegramPanel:
                 status=206
                 if start>end or start>=size:raise web.HTTPRequestRangeNotSatisfiable(headers={'Content-Range':f'bytes */{size}'})
             safe=bool(re.fullmatch(r'(?:image/(?:jpeg|png|webp|gif)|video/(?:mp4|webm|quicktime|x-m4v)|audio/(?:ogg|mpeg|mp4|aac|wav|webm))',info['mime']))
-            # iPhone recognises saved files by extension. Telegram often supplies
-            # a generic name such as "archivo" even for an MP4 or MOV.
+            # Safari needs the actual extension when Telegram supplies a generic filename.
             filename=re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])[:150] or 'archivo'
-            if request.query.get('download')=='1' and not re.search(r'\.[a-zA-Z0-9]{2,6}            if size:headers['Content-Length']=str(end-start+1)
+            if request.query.get('download')=='1' and not re.search(r'\.[a-zA-Z0-9]{2,6}\Z',filename):
+                suffix={'video/mp4':'.mp4','video/quicktime':'.mov','video/webm':'.webm',
+                    'video/x-m4v':'.m4v','image/jpeg':'.jpg','image/png':'.png',
+                    'image/webp':'.webp','image/gif':'.gif'}.get(info['mime'],'')
+                filename+=suffix
+            headers={**HEADERS,'Content-Type':info['mime'] if safe else 'application/octet-stream','Accept-Ranges':'bytes',
+             'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+filename+'"'}
+            if size:headers['Content-Length']=str(end-start+1)
             if status==206:headers['Content-Range']=f'bytes {start}-{end}/{size}'
             response=web.StreamResponse(status=status,headers=headers);await response.prepare(request)
             aligned=start-start%4096;position=aligned;checked=0
