@@ -120,6 +120,10 @@ async function panelNavRestore(entry){
     if(!s.accountRef)return;
     await selectAccount(s.accountRef);
    }
+   if(s.view==='chats'&&$('workspace').dataset.view!=='chats'){
+    stopLive();resetComposer();epoch++;chat=null;contextMode=false;
+    view('chats',false);startLive();
+   }
    await openPurchases(entry.source??null);
    $('management').scrollTop=s.modalScroll||0;
    return;
@@ -1443,6 +1447,10 @@ async function openPurchases(initialSource=null){
    for(const id of group.items){const item=purchases.get(id),card=el('article');card.className='purchase-card';card.append(el('strong',item.title),el('p',date(item.date)+' · '+item.media.length+' archivos'));
     if(item.link){const link=el('a','Abrir mensaje original en Telegram');link.href=item.link;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}else card.append(el('small','Este chat no tiene un enlace público al mensaje.'));
     if(item.message){const jump=el('button','Ver mensaje en el panel');jump.onclick=async()=>{
+  const entry=panelNavEntries.get(panelNavSteps[panelNavIndex]);
+  if(entry?.kind==='purchases'){
+   entry.source=selectedSource;entry.snapshot.modalScroll=$('management').scrollTop;
+  }
   purchasesLeaving=true;stopMedia();$('management').close();
   try{await openChat(item.chat);await jumpToMessage(item.message);panelNavPush('view');}
   catch(e){notice(e.message);}
