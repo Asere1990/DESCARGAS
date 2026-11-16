@@ -1,13 +1,14 @@
 name: Web Galerías — bot TOKEN_WEB aislado
 on:
   push:
-    branches: [web-galerias-bot-feed-aislado-20261116, web-galerias-token-web-receiver-fix-20261116]
+    branches: [web-galerias-bot-feed-aislado-20261116, web-galerias-token-web-receiver-fix-20261116, web-galerias-token-web-webhook-20261116]
     paths:
       - 'web_galerias/**'
       - 'galerias_standalone.py'
       - 'tests/test_web_galerias_bot_feed.py'
       - 'tests/test_web_galerias_bot_feed_pipeline.py'
       - 'tests/test_web_galerias_bot_receiver.py'
+      - 'tests/test_web_galerias_bot_webhook.py'
       - '.github/workflows/web-galerias-bot-feed.yml'
   workflow_dispatch:
 jobs:
@@ -32,6 +33,7 @@ jobs:
           python -m unittest discover -s tests -p test_web_galerias_bot_feed.py -v
           python -m unittest discover -s tests -p test_web_galerias_bot_feed_pipeline.py -v
           python -m unittest discover -s tests -p test_web_galerias_bot_receiver.py -v
+          python -m unittest discover -s tests -p test_web_galerias_bot_webhook.py -v
       - name: Traditional gallery untouched regression tests
         run: |
           python -m unittest discover -s tests -p test_web_galerias_manual_r2_upload.py -v
