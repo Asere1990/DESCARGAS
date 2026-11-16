@@ -22,10 +22,6 @@ from .protected import require_entity
 LOG=logging.getLogger("descargas.bulk.worker")
 PAGE=80
 LEASE=900
-KIND_SQL = " OR ".join(
-    f"(i.category='{kind}' AND i.ordinal>$%s AND i.ordinal<=$%s)"
-    for kind in bulk.KINDS
-)
 
 class ReviewRequired(Exception):pass
 
@@ -152,10 +148,10 @@ async def scan_one(s,job):
                updated=$5 WHERE id=$1 AND lease=$2""",
             job["id"],job["lease"],cursor,json.dumps(current),time.time())
 
-def _range_query(ranges):
+def _range_query(ranges,first_param=3):
     parts=[];params=[]
     for i,kind in enumerate(bulk.KINDS):
-        left=3+i*2;right=left+1
+        left=first_param+i*2;right=left+1
         parts.append(f"(i.category='{kind}' AND i.ordinal>\${left} AND i.ordinal<=\${right})")
         params.extend(map(int,ranges[kind]))
     return " OR ".join(parts),params
@@ -174,7 +170,7 @@ async def _candidate(s,job,ranges):
 
 async def _batch(s,job,first,ranges):
     if not first["album"]:return [first]
-    predicates,values=_range_query(ranges)
+    predicates,values=_range_query(ranges,4)
     rows=await s.repo.pool.fetch(
         f"""SELECT i.* FROM descarga_bulk_items i
             WHERE i.job_id=$1 AND i.album=$3 AND ({predicates})
@@ -184,7 +180,6 @@ async def _batch(s,job,first,ranges):
                    AND d.message_id=i.message_id)
             ORDER BY i.message_id LIMIT 10""",
         job["id"],job["run_no"],str(first["album"]),*values)
-    # $3 is reserved for album, so offsets in predicates must start at $4.
     return rows or [first]
 
 async def _inflight(s,job):
@@ -301,7 +296,6 @@ async def _copy_to_target(s,job,items,archived):
 
 async def send_media(s,job,items):
     ids=[int(item["message_id"]) for item in items]
-    await _claim_entries(s,job,items)
     await s.repo.pace("bulk-upload",2.8*max(1,len(items)))
     await bulk.check_destination(s,int(job["uid"]),int(job["target_id"]))
     async with s.repo.account_lock(int(job["uid"]),wait=False):
@@ -322,6 +316,9 @@ async def send_media(s,job,items):
                 async def prepare(path,item):
                     return await prepare_media_for_bot(s.bot,client,path,item)
                 media=await prepare_album(client,ordered,temp,prepare,MAX_FILE,MAX_ALBUM)
+                # Claim immediately before Telegram posting, not before
+                # acquiring the user's session. A busy account is retryable.
+                await _claim_entries(s,job,items)
                 # The archive is the durable first stop. A failed archive
                 # never causes a file to be sent to the user destination.
                 archive_peer=await _storage_peer(s)
@@ -465,6 +462,11 @@ async def run(s):
             try:await _state(s,claimed,"review",str(exc))
             except Exception:LOG.warning("Could not persist bulk review")
         except ValueError as exc:
+            if "transferencia en curso" in str(exc).lower():
+                # The normal downloader owns the linked session; back off,
+                # never label the user job broken for this temporary conflict.
+                await asyncio.sleep(4)
+                continue
             try:await _state(s,claimed,"error",str(exc))
             except Exception:LOG.warning("Could not persist bulk validation error")
         except Exception as exc:
