@@ -9,7 +9,7 @@ function setup(){
  const node=id=>{if(!nodes.has(id))nodes.set(id,{dataset:{view:'conversation'},hidden:false,open:false,textContent:'',value:'',scrollTop:45,addEventListener(){},replaceChildren(){}});return nodes.get(id);};
  const ctx={$:node,base:'/panel',Date,Number,JSON,Map,Array,Math,setTimeout,clearTimeout,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
  document:{querySelector:node,querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener:(k,v)=>events[k]=v},
- account:{id:'123',generation:2},chat:{id:'456',handle:'opaque',name:'Chat',type:'group'},mode:'messages',query:'',filter:'all',topic:0,contextMode:false,contextFocus:null,before:1,epoch:1,
+ accountTab:'active',account:{id:'123',generation:2},chat:{id:'456',handle:'opaque',name:'Chat',type:'group'},mode:'messages',query:'',filter:'all',topic:0,contextMode:false,contextFocus:null,before:1,epoch:1,
  messages:new Map(Array.from({length:250},(_,i)=>[i+1,{id:i+1,text:'message '+i,protected:i===149}])),captureAnchor:()=>({id:'150',offset:-12}),requestAnimationFrame:fn=>fn(),restoreAnchor:()=>true,
  tabs(){},renderMessages(){ctx.renders++;},renders:0,api:async()=>{ctx.validated=true;return {};},applyLiveChanges:async ids=>{ctx.checked=ids;},loadMessages:async()=>{ctx.refreshed=true;},loadGalleryCount(){},previousScrollTop:0,notice(){},view(){},startLive(){},modal:false};
  vm.createContext(ctx);vm.runInContext(block+"\nresumeKey='test';resumeReady=true;this.saveResume=saveResume;this.readResume=readResume;this.forgetResume=forgetResume;this.restoreConversation=restoreConversation;",ctx);return {ctx,storage,events};
