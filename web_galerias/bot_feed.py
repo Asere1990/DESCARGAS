@@ -446,7 +446,17 @@ async def process_item(g, session, bot_token, item):
     from .core import normal
     label = str(item["caption"] or "")
     name = str(item["filename"])
-    search = normal((label + " " + name).strip())
+    # Albums often carry the caption only on their first photo. Index the
+    # album caption for every member without overwriting each photo's real
+    # original caption or modifying the current gallery search engine.
+    album_caption = ""
+    if item["grouped"]:
+        album_caption = str(await g.db().fetchval("""
+          SELECT caption FROM wg_bot_feed_items
+          WHERE group_id=$1 AND grouped=$2 AND caption<>'' AND caption IS NOT NULL
+          ORDER BY message_id LIMIT 1
+        """, item["group_id"], item["grouped"]) or "")
+    search = normal((label + " " + album_caption + " " + name).strip())
     now = time.time()
     async with g.db().acquire() as conn:
         async with conn.transaction():
