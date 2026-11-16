@@ -9,7 +9,7 @@ const viewer=helpers+source.slice(source.indexOf('let mediaCurrent='),source.ind
 function setup({before=null,load=async()=>{}}={}){
  const nodes=new Map();
  function node(tag='div'){
-  return {tagName:tag.toUpperCase(),children:[],listeners:{},classList:{toggle(){}},open:false,
+  return {tagName:tag.toUpperCase(),children:[],listeners:{},dataset:{view:'conversation'},classList:{toggle(){}},open:false,
    append(n){this.children.push(n);},replaceChildren(){this.children=[];},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},
    querySelectorAll(selector){return selector==='video,audio'?this.children.filter(n=>['VIDEO','AUDIO'].includes(n.tagName)):[];},
    addEventListener(type,handler){this.listeners[type]=handler;},pause(){this.paused=true;},load(){this.loads=(this.loads||0)+1;},
