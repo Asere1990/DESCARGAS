@@ -303,6 +303,32 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         transfer=Download();self.client.iter_download=lambda *args,**kwargs:transfer
         await self.setup_http();r=await self.http.get('/panel/api/media',params={'account':'22','peer':self.peer,'message':'9','download':'1'},headers={'Range':'bytes=5-12'})
         self.assertIn('attachment',r.headers['Content-Disposition']);self.assertEqual(r.status,206);self.assertEqual(r.headers['Content-Range'],'bytes 5-12/26');self.assertEqual(await r.read(),payload[5:13]);self.assertTrue(transfer.closed)
+    async def test_stars_video_streams_native_iphone_download_with_mp4_filename(self):
+        from descargas_app import panel_purchases
+        payload=b'0123456789'
+        m=message(77,N(ttl_seconds=None))
+        m.document=N(size=len(payload),mime_type='video/mp4',
+            attributes=[types.DocumentAttributeVideo(duration=2,w=16,h=16)],thumbs=[])
+        class Download:
+            def __init__(self):self.closed=False
+            def __aiter__(self):return self
+            async def __anext__(self):
+                if getattr(self,'done',False):raise StopAsyncIteration
+                self.done=True;return payload
+            async def close(self):self.closed=True
+        transfer=Download()
+        self.client.iter_download=lambda *args,**kwargs:transfer
+        await self.setup_http()
+        with patch.object(panel_purchases,'resolve',AsyncMock(return_value=m)):
+            response=await self.http.get('/panel/api/purchase-media',
+                params={'account':'22','peer':self.peer,'purchase':'owned','index':'0','download':'1'})
+        self.assertEqual(response.status,200)
+        self.assertIn('attachment',response.headers['Content-Disposition'])
+        self.assertIn('filename="archivo.mp4"',response.headers['Content-Disposition'])
+        self.assertEqual(response.headers['Content-Type'],'video/mp4')
+        self.assertEqual(await response.read(),payload)
+        self.assertTrue(transfer.closed)
+
     async def test_changed_privacy_during_thumbnail_download_prevents_returning_bytes(self):
         m=message(9,N(ttl_seconds=None));m.photo=N(sizes=[]);self.client.get_messages.return_value=m
         async def download(*args,**kwargs):self.allowed.clear();return b'PRIVATE'
