@@ -240,9 +240,9 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         photo=types.Photo(id=10,access_hash=12,file_reference=b'a',
             date=datetime.now(timezone.utc),sizes=[types.PhotoSize('m',64,64,900)],dc_id=2)
         media=types.MessageMediaPhoto(photo=photo)
-        post=message(77,text='Comprado')
-        post.media=types.MessageMediaPaidMedia(stars_amount=15,extended_media=[
-            types.MessageExtendedMedia(media=media),types.MessageExtendedMedia(media=media)])
+        post=types.Message(id=77,peer_id=types.PeerUser(55),date=datetime.now(timezone.utc),
+            message='Comprado',media=types.MessageMediaPaidMedia(stars_amount=15,extended_media=[
+            types.MessageExtendedMedia(media=media),types.MessageExtendedMedia(media=media)]))
         # The same Telegram account owns the unlocked files; no new payment.
         self.msgs=[post];self.client.get_messages.return_value=post
         for gallery in (False,True):
@@ -263,9 +263,9 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r.status,409)
 
     async def test_unbought_stars_preview_is_not_exposed_as_media(self):
-        post=message(78,text='Sin comprar')
-        post.media=types.MessageMediaPaidMedia(stars_amount=20,extended_media=[
-            types.MessageExtendedMediaPreview(w=100,h=100)])
+        post=types.Message(id=78,peer_id=types.PeerUser(55),date=datetime.now(timezone.utc),
+            message='Sin comprar',media=types.MessageMediaPaidMedia(stars_amount=20,
+            extended_media=[types.MessageExtendedMediaPreview(w=100,h=100)]))
         self.msgs=[post]
         # Telegram does not return a paid-media update for an unbought post.
         class NoPurchase:
