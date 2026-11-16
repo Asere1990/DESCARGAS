@@ -2059,13 +2059,11 @@ function previewAdmin(){
   }else if(receiver.mode==="webhook"||receiver.mode==="polling"){
     const working=document.createElement("p");
     working.className="muted";
+    // Privacy flags from getMe are a snapshot taken at process startup,
+    // not a live BotFather setting. Never display a stale privacy verdict.
     working.textContent="Recepción Telegram conectada a CLOUDFLARE. "+
       (receiver.last_media_queued_at?"Último archivo recibido: "+
-       new Date(receiver.last_media_queued_at*1000).toLocaleTimeString()+". ":"")+
-      "Para importar publicaciones de otros bots, activa "+
-      "Bot-to-Bot Communication Mode y desactiva Group Privacy en BotFather."+
-      (receiver.privacy_disabled===false?
-       " Actualmente Group Privacy está activado.":"");
+       new Date(receiver.last_media_queued_at*1000).toLocaleTimeString()+". ":"");
     botFeed.append(working);
   }else if(receiver.mode==="starting"||receiver.mode==="standby"||
            receiver.mode==="error"){
