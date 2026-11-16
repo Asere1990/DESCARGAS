@@ -114,9 +114,11 @@ class BulkPostgresTests(unittest.IsolatedAsyncioTestCase):
                     await bulk.create(svc,uid,
                         {"source":-100777,"destination":targets[0]})
                 await bulk.disconnect(svc,uid,{"id":successes[0]["id"]})
-                # A disconnected slot is reusable without changing any old session.
+                # The rejected destination is whichever concurrency request lost.
+                rejected_target=targets[next(i for i,x in enumerate(outcomes)
+                                            if isinstance(x,ValueError))]
                 created=await bulk.create(svc,uid,
-                    {"source":-100777,"destination":targets[20]})
+                    {"source":-100777,"destination":rejected_target})
                 self.assertTrue(created["id"])
                 self.assertEqual(len((await bulk.list_jobs(svc,uid))["jobs"]),20)
         finally:
