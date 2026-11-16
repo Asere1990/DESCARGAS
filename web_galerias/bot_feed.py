@@ -19,7 +19,7 @@ import asyncpg
 from aiohttp import web
 
 LOG = logging.getLogger("web-galerias-bot-feed")
-MAX_FILE_BYTES = 20 * 1024 * 1024 - 1
+MAX_FILE_BYTES = 20_000_000 - 1
 MAX_THUMB_BYTES = 2 * 1024 * 1024
 LOCK_ID = 721_804_332_198
 SCHEMA = """
@@ -226,6 +226,19 @@ async def route_operation(g, actor, op, data):
     gid = group_id(data.get("group_id"))
     if not token():
         raise web.HTTPServiceUnavailable(text="Configura TOKEN_WEB en CLOUDFLARE primero.")
+    # A traditional Telegram source may already belong to another folder.
+    # A new Group ID must not break the one-group/one-folder rule even when
+    # that group is supplied via the existing, untouchable reader route.
+    legacy_owner = await g.db().fetchval("""
+      SELECT COALESCE(link.parent_folder, f.id)
+      FROM wg_folders f
+      LEFT JOIN wg_folder_sources link ON link.source_folder=f.id
+      WHERE f.peer=$1 AND f.active LIMIT 1
+    """, gid)
+    if legacy_owner is not None and int(legacy_owner) != folder:
+        raise web.HTTPConflict(text=(
+            "Ese Group ID ya alimenta otra carpeta por la vía tradicional."
+        ))
     current = await g.db().fetchrow(
         "SELECT group_id FROM wg_bot_feed_routes WHERE folder=$1", folder)
     if current and int(current["group_id"]) == gid:
@@ -259,9 +272,19 @@ async def route_operation(g, actor, op, data):
 
 async def routes(g):
     await schema(g)
-    rows = await g.db().fetch(
-        "SELECT folder,group_id FROM wg_bot_feed_routes ORDER BY folder")
-    return [dict(folder=int(r["folder"]), group_id=int(r["group_id"])) for r in rows]
+    rows = await g.db().fetch("""
+      SELECT r.folder,r.group_id,
+        count(i.message_id) FILTER (WHERE i.status='ready')::int AS ready,
+        count(i.message_id) FILTER (WHERE i.status IN ('pending','processing'))::int AS queued,
+        count(i.message_id) FILTER (WHERE i.status='skipped')::int AS skipped,
+        count(i.message_id) FILTER (WHERE i.status='failed')::int AS failed
+      FROM wg_bot_feed_routes r
+      LEFT JOIN wg_bot_feed_items i ON i.group_id=r.group_id
+      GROUP BY r.folder,r.group_id ORDER BY r.folder
+    """)
+    return [dict(folder=int(r["folder"]),group_id=int(r["group_id"]),
+                 ready=int(r["ready"]), queued=int(r["queued"]),
+                 skipped=int(r["skipped"]),failed=int(r["failed"])) for r in rows]
 
 def storage_keys(item):
     gid = abs(int(item["group_id"]))
