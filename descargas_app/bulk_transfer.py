@@ -321,12 +321,41 @@ async def begin(service,uid,data):
                WHERE id=$1""",row["id"],run_no,selected,time.time())
     return {"ok":True,"run_no":run_no,"selected":selected}
 
+
 async def pause(service,uid,data):
     row=await _owner(service,uid,data.get("id"))
     await service.repo.pool.execute(
-        """UPDATE descarga_bulk_jobs SET status='paused',updated=$2
-           WHERE id=$1 AND status='publishing'""",row["id"],time.time())
+        """UPDATE descarga_bulk_jobs SET
+             status=CASE WHEN status IN ('scanning','waiting_scan')
+                         THEN 'paused_scan' ELSE 'paused' END,
+             pause_until=0,updated=$2
+           WHERE id=$1 AND status IN ('scanning','waiting_scan',
+                                     'publishing','waiting_send')""",
+        row["id"],time.time())
     return {"ok":True}
+
+
+async def resume(service,uid,data):
+    row=await _owner(service,uid,data.get("id"))
+    if row["status"] not in ("paused","paused_scan"):
+        raise ValueError("Esta transferencia no está pausada.")
+    if row["lease"] and float(row["lease_until"])>time.time():
+        raise ValueError("La transferencia anterior todavía está terminando.")
+    if float(row["pause_until"])>time.time():
+        raise ValueError("Telegram exige esperar antes de reanudar.")
+    await ensure_allowed(service,uid,int(row["source_id"]))
+    if row["status"]=="paused":
+        await check_destination(service,uid,int(row["target_id"]))
+    new="scanning" if row["status"]=="paused_scan" else "publishing"
+    updated=await service.repo.pool.fetchval(
+        """UPDATE descarga_bulk_jobs SET status=$3,error='',updated=$4
+           WHERE id=$1 AND bot_id=$2 AND status=$5
+             AND (lease IS NULL OR lease_until<=$4)
+           RETURNING 1""",
+        row["id"],service.bot_id,new,time.time(),row["status"])
+    if not updated:raise ValueError("Actualiza el progreso antes de reanudar.")
+    return {"ok":True,"status":new}
+
 
 async def disconnect(service,uid,data):
     row=await _owner(service,uid,data.get("id"))
@@ -351,6 +380,27 @@ async def admin(service,uid,data):
                          "status":r["status"],"published":int(r["run_done"]),
                          "total":int(r["run_total"]),"audited":int(r["audited"]),
                          "error":str(r["error"] or "")[:180]} for r in rows]}
+    if op=="details":
+        ident=str(data.get("id") or "")
+        try:job_id=uuid.UUID(ident)
+        except ValueError:raise ValueError("Trabajo no válido.") from None
+        row=await service.repo.pool.fetchrow(
+            "SELECT id,uid,source_title,target_title FROM descarga_bulk_jobs WHERE bot_id=$1 AND id=$2",
+            service.bot_id,job_id)
+        if not row:raise ValueError("Trabajo no encontrado.")
+        records=await service.repo.pool.fetch(
+            """SELECT run_no,message_id,source_id,target_id,archive_id,
+                      destination_id,original_author,caption,original_reply
+               FROM descarga_bulk_audit WHERE job_id=$1
+               ORDER BY created DESC LIMIT 70""",job_id)
+        return {"uid":int(row["uid"]),"source":row["source_title"],
+                "destination":row["target_title"],
+                "audit":[{"run":int(r["run_no"]),"original_id":int(r["message_id"]),
+                          "archive_id":int(r["archive_id"]),
+                          "destination_id":int(r["destination_id"] or 0),
+                          "author":int(r["original_author"] or 0),
+                          "reply_to":int(r["original_reply"]),
+                          "caption":str(r["caption"] or "")[:320]} for r in records]}
     if op in ("stop","ban"):
         target=_int(data.get("uid"))
         if op=="ban":
@@ -371,6 +421,7 @@ async def dispatch(service,uid,operation,data):
     if operation=="bulk-status":return await current(service,uid)
     if operation=="bulk-begin":return await begin(service,uid,data)
     if operation=="bulk-pause":return await pause(service,uid,data)
+    if operation=="bulk-resume":return await resume(service,uid,data)
     if operation=="bulk-disconnect":return await disconnect(service,uid,data)
     if operation=="bulk-admin":return await admin(service,uid,data)
     raise ValueError("Operación no disponible.")
