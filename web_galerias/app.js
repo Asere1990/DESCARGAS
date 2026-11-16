@@ -2013,7 +2013,11 @@ function previewAdmin(){
   const botStatus=document.createElement("p");
   botStatus.className="muted";
   botStatus.textContent=botRoute?
-    "Group ID: "+botRoute.group_id+" · contenido nuevo a esta carpeta":
+    "Group ID: "+botRoute.group_id+
+      " · respaldados "+pretty(botRoute.ready)+
+      " · en cola "+pretty(botRoute.queued)+
+      (botRoute.skipped?" · omitidos "+pretty(botRoute.skipped):"")+
+      (botRoute.failed?" · errores "+pretty(botRoute.failed):""):
     "Sin Group ID asignado. No modifica las fuentes actuales.";
   botFeed.append(botTitle,botStatus);
   const botAssign=document.createElement("button");
