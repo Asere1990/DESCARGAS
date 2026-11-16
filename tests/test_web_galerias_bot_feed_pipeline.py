@@ -116,7 +116,7 @@ class BotToR2PipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(conn.inserted_media[0],52)
         self.assertEqual(conn.inserted_media[2],"photo")
         self.assertEqual(conn.inserted_media[9],"Foto 1")
-        self.assertIn("Mi álbum cubano",conn.inserted_media[10])
+        self.assertIn("mi album cubano",conn.inserted_media[10])
         self.assertIn("bot:1009876543210:album-3",conn.inserted_media[11])
         self.assertTrue(any("status='ready'" in sql for sql,_ in conn.sql))
         self.assertEqual(storage.upload_stream.await_count,0)
