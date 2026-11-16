@@ -33,6 +33,22 @@ test('groups purchases and deduplicates pages without loading files automaticall
  const video=row.children[0];assert.equal(video.tagName,'VIDEO');assert.match(video.src,/purchase-media\?account=22/);
  s.$('management').close();assert.equal(video.paused,true);assert.equal(video.src,undefined);
 });
+test('already purchased video has a native same-tab iPhone download link, without losing playback',async()=>{
+ const s=setup(async()=>({items:[item()],next:null}));
+ await s.context.openPurchases();
+ const list=s.root().children[1];
+ list.children[0].onclick();
+ const card=list.children[2],row=card.children[4];
+ const save=row.children[1];
+ assert.equal(save.tagName,'A');
+ assert.match(save.href,/\/api\/purchase-media\?account=22/);
+ assert.match(save.href,/download=1/);
+ assert.equal(save.target,undefined); // Do not open a popup blocked by iPhone WebViews.
+ assert.equal(save.download,'video.mp4');
+ row.children[0].onclick();
+ assert.equal(row.children[0].tagName,'VIDEO');
+ assert.equal(row.children[1],save); // Native download is still offered while playing.
+});
 test('late account response cannot show another account purchases',async()=>{
  let release;const s=setup(()=>new Promise(r=>release=r));const pending=s.context.openPurchases();
  s.context.account={id:'23'};release({items:[item()],next:null});await pending;
