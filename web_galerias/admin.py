@@ -94,6 +94,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op=="admin-bot-feed-activate":
+        from . import bot_feed
+        return await bot_feed.activate_receiver(g,data)
     if op in ("admin-bot-feed-set", "admin-bot-feed-remove"):
         from . import bot_feed
         return await bot_feed.route_operation(g,uid,op,data)
@@ -226,6 +229,7 @@ async def admin_op(g,uid,op,data):
             bot_routes=[]
         return {"folders":result_folders,
             "bot_routes":bot_routes,"bot_enabled":bool(bot_feed.token()),
+            "bot_receiver":bot_feed.receiver_status(g),
             "users":[],  # Never preload thousands of visitors on overview.
             "storage_ready":g.storage.ready or bool(remote.get("storage") and running),
             "sync_enabled":running,"sync_phase":remote.get("phase") if running else "detenido",

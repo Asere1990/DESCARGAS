@@ -12,6 +12,7 @@ import os
 import re
 import time
 import uuid
+from urllib.parse import urlsplit
 from typing import Any
 
 import aiohttp
@@ -76,6 +77,70 @@ class BotAPIError(RuntimeError):
 
 def token():
     return os.getenv("TOKEN_WEB", "").strip()
+
+
+def receiver_status(g):
+    """Read-only operational status. Never send the Telegram bot token to JS."""
+    return {
+        "mode": getattr(g, "_bot_feed_receiver_state", "starting"
+                        if token() else "not_configured"),
+        "webhook_host": getattr(g, "_bot_feed_webhook_host", ""),
+        "privacy_disabled": getattr(g, "_bot_feed_privacy_disabled", None),
+    }
+
+
+def _safe_webhook_host(value):
+    # Report only the host: webhook URL paths can contain shared secrets.
+    try:
+        host = urlsplit(str(value)).hostname or ""
+    except ValueError:
+        host = ""
+    return host[:120]
+
+
+async def activate_receiver(g, data):
+    """Admin-confirmed takeover of this BOT only, preserving pending updates.
+
+    This is intentionally NOT automatic: the old webhook could belong to a
+    different service. The gallery's existing data and all other bots remain
+    untouched. An administrator explicitly confirms before the old webhook
+    is removed.
+    """
+    if data.get("confirm") is not True:
+        raise web.HTTPBadRequest(text="Confirma primero el cambio de recepción.")
+    bot_token = token()
+    if not bot_token:
+        raise web.HTTPServiceUnavailable(text="Configura TOKEN_WEB en CLOUDFLARE.")
+    guard = getattr(g, "_bot_feed_activation_lock", None)
+    if guard is None:
+        guard = asyncio.Lock()
+        g._bot_feed_activation_lock = guard
+    async with guard:
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as session:
+                hook = await telegram(session, bot_token, "getWebhookInfo")
+                old_host = _safe_webhook_host(hook.get("url"))
+                if hook.get("url"):
+                    # Leave Telegram's queued messages in place; do not revoke
+                    # or replace the original bot token.
+                    await telegram(session, bot_token, "deleteWebhook", {
+                        "drop_pending_updates": False
+                    })
+                g._bot_feed_webhook_host = ""
+                g._bot_feed_receiver_state = "starting"
+        except (aiohttp.ClientError, asyncio.TimeoutError, BotAPIError) as exc:
+            LOG.warning("TOKEN_WEB webhook transfer failed (%s)", type(exc).__name__)
+            raise web.HTTPServiceUnavailable(
+                text="Telegram no confirmó el cambio de recepción."
+            ) from None
+        task = getattr(g, "bot_feed_task", None)
+        if task is None or task.done():
+            g.bot_feed_task = asyncio.create_task(run(g))
+        return {"ok": True, "mode": "starting",
+                "pending_preserved": True, "previous_webhook_host": old_host}
+
 
 async def schema(g):
     if getattr(g, "_bot_feed_schema_ready", False):
@@ -635,16 +700,27 @@ async def run(g):
             )) as session:
                 me = await telegram(session, bot_token, "getMe")
                 bot_id = int(me["id"])
+                g._bot_feed_privacy_disabled = bool(
+                    me.get("can_read_all_group_messages", False))
                 hook = await telegram(session, bot_token, "getWebhookInfo")
                 if hook.get("url"):
-                    LOG.warning("TOKEN_WEB has an existing webhook; cannot poll safely")
+                    g._bot_feed_webhook_host = _safe_webhook_host(hook["url"])
+                    g._bot_feed_receiver_state = "webhook_conflict"
+                    LOG.warning(
+                        "TOKEN_WEB receiving blocked by an existing Telegram webhook "
+                        "on host %s; manual admin activation required",
+                        g._bot_feed_webhook_host or "(unknown)")
                     return
+                g._bot_feed_webhook_host = ""
+                g._bot_feed_receiver_state = "starting"
                 async with g.db().acquire() as lock:
                     owned = await lock.fetchval("SELECT pg_try_advisory_lock($1)", LOCK_ID)
                     if not owned:
+                        g._bot_feed_receiver_state = "standby"
                         await asyncio.sleep(6)
                         continue
                     try:
+                        g._bot_feed_receiver_state = "polling"
                         LOG.info("Dedicated TOKEN_WEB feed receiver ready")
                         receiver = asyncio.create_task(polling(g, session, bot_token, bot_id))
                         worker = asyncio.create_task(consumer(g, session, bot_token))
@@ -663,5 +739,6 @@ async def run(g):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            g._bot_feed_receiver_state = "error"
             LOG.warning("TOKEN_WEB feed startup deferred (%s)", type(exc).__name__)
         await asyncio.sleep(10)
