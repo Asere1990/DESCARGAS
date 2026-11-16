@@ -497,6 +497,9 @@ function showMedia(m){if(typeof panelAdmin!=='undefined'&&typeof chat!=='undefin
  }updateMediaNavigation();}
 async function navigateMedia(direction){if(!modal||!mediaCurrent||mediaPaging||!visualMedia(mediaCurrent))return;const id=mediaKey(mediaCurrent),chosen=mediaRender,viewerEpoch=epoch;let index=mediaItems.findIndex(m=>mediaKey(m)===id),target=index+direction;if(target>=mediaItems.length&&direction>0&&mediaGallery&&before){mediaPaging=true;updateMediaNavigation();try{await loadMessages(true);if(!modal||mediaRender!==chosen||epoch!==viewerEpoch)return;mediaItems=mediaList();index=mediaItems.findIndex(m=>mediaKey(m)===id);target=index+direction;}finally{if(mediaRender===chosen){mediaPaging=false;updateMediaNavigation();}}}if(!modal||mediaRender!==chosen||epoch!==viewerEpoch||index<0||target<0||target>=mediaItems.length)return;showMedia(mediaItems[target]);}
 function closeMedia(){
+ // A programmatic transition may clean up before the browser emits close.
+ // Ignore the second close event so it cannot pop another history entry.
+ if(!modal&&!mediaCurrent&&!mediaReturn)return;
  const skipBack=mediaSkipNextClose;mediaSkipNextClose=false;
  const back=mediaReturn;mediaReturn=null;
  mediaRender++;stopMediaPlayback();$('media-content').replaceChildren();
@@ -525,7 +528,7 @@ const reportMediaButton=$('report-media');reportMediaButton.onclick=()=>{
 $('media-to-chat').onclick=async()=>{
  if(!mediaCurrent||mediaPaging||operationBusy)return;
  const id=mediaCurrent.id;mediaSkipNextClose=true;
- panelNavSave();$('media-dialog').close();
+ panelNavSave();$('media-dialog').close();closeMedia();
  $('message-query').value='';$('message-search').hidden=true;
  try{await jumpToMessage(id,true);panelNavPush('view');}
  catch(e){notice(e.message);}
