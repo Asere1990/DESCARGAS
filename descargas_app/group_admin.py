@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime,timezone
 from telethon import errors, functions, types, utils
 from .moderation import authorized
-from .account_chat import connected
+from .account_chat import connected_parallel as connected
 
 ADMIN=(('change_info','Editar información'),('post_messages','Publicar mensajes'),
        ('edit_messages','Editar mensajes'),('delete_messages','Eliminar mensajes'),
@@ -179,7 +179,7 @@ async def callback(s,actor,query):
     row=await s.repo.pool.fetchrow('SELECT * FROM descarga_manual_boards WHERE bot_id=$1 AND token=$2',s.bot_id,parts[2])
     if not row or row['actor']!=actor or row['closed'] or row['source']>=0 or row['message_id']!=query['message']['message_id']:
         raise ValueError('Abre la botonera actual de ese grupo.')
-    if row['busy']:raise ValueError('Espera a que termine la descarga de esta cuenta.')
+    # Administration uses a separate verified Telegram connection and may run during a download.
     for field in ('manual-search','manual-number','manual-anchor'):
         await s.repo.set_setting(f'{field}:{s.bot_id}:{actor}','')
     await bind(s,actor,row)
@@ -256,7 +256,6 @@ async def execute(s,actor,state,action,target_id,update_id):
             async with connected(s,state['uid']) as client,asyncio.timeout(45):
                 client.flood_sleep_threshold=0
                 row=await validate(s,actor,state)
-                if row['busy']:raise ValueError('Espera a que termine la descarga de esta cuenta.')
                 active=await load(s,actor,key)
                 if not active or active['token']!=state['token']:raise ValueError('Cambió el grupo activo. Abre su menú de nuevo.')
                 entity=await entity_for(s,client,state)
