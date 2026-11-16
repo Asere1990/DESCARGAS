@@ -139,11 +139,14 @@ class GroupAdminTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await g.command(self.s,99,'/free 42',2))
         self.assertFalse(self.client.calls)
 
-    async def test_no_self_mutation_and_busy_download_not_interrupted(self):
+    async def test_no_self_mutation_and_admin_allowed_during_download(self):
         with self.assertRaisesRegex(ValueError,'propia cuenta'):await g.execute(self.s,99,self.state,'ban',12,50)
         await self.pool.execute('UPDATE descarga_manual_boards SET busy=TRUE')
-        with self.assertRaisesRegex(ValueError,'descarga'):await g.execute(self.s,99,self.state,'ban',42,51)
-        self.assertFalse(self.client.calls)
+        await g.execute(self.s,99,self.state,'ban',42,51)
+        self.assertEqual(len(self.client.calls),1)
+        self.assertIsInstance(self.client.calls[0],functions.channels.EditBannedRequest)
+        row=await self.row()
+        self.assertTrue(row['busy'])
 
     async def test_group_buttons_are_admin_private_and_stale_message_fenced(self):
         query={'data':'manual:ga:token:0','message':{'chat':{'id':99},'message_id':50}}

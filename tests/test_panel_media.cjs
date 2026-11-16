@@ -4,7 +4,8 @@ const vm=require('node:vm');
 const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../descargas_app/panel_web/app.js'),'utf8');
-const viewer=source.slice(source.indexOf('let mediaCurrent='),source.indexOf("$('more-accounts').onclick"));
+const helpers=source.slice(source.indexOf('function mediaParts('),source.indexOf('function renderMessages(){'));
+const viewer=helpers+source.slice(source.indexOf('let mediaCurrent='),source.indexOf("$('more-accounts').onclick"));
 function setup({before=null,load=async()=>{}}={}){
  const nodes=new Map();
  function node(tag='div'){

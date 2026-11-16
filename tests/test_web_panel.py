@@ -221,7 +221,66 @@ class PanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['items'][0]['id'],41);self.assertEqual(result['items'][-1]['id'],100);self.assertEqual(result['next'],41)
         result=await self.panel.messages(111,22,self.peer,before=41,gallery=True,query='viaje')
         self.assertEqual(result['items'],[]);self.assertEqual(self.kwargs[-1]['offset_id'],41);self.assertEqual(self.kwargs[-1]['search'],'viaje')
-        self.assertIsInstance(self.kwargs[-1]['filter'],types.InputMessagesFilterPhotoVideo)
+        self.assertNotIn('filter',self.kwargs[-1]) # Paid media must not be lost to PhotoVideo filter
+    async def test_account_panel_uses_independent_session_during_download(self):
+        @asynccontextmanager
+        async def locked(s,uid):
+            raise ValueError('Espera a que termine la transferencia en curso y vuelve a intentarlo.')
+            yield
+        @asynccontextmanager
+        async def parallel(s,uid):
+            self.assertEqual(uid,22)
+            yield self.client
+        with patch.object(p,'connected',locked),patch.object(p,'connected_parallel',parallel):
+            data=await self.panel.chats(111,22)
+        self.assertEqual(data['generation'],3)
+
+    async def test_bought_star_album_appears_in_chat_gallery_and_each_thumb(self):
+        from descargas_app.paid_media import purchased_items
+        photo=types.Photo(id=10,access_hash=12,file_reference=b'a',
+            date=datetime.now(timezone.utc),sizes=[types.PhotoSize('m',64,64,900)],dc_id=2)
+        media=types.MessageMediaPhoto(photo=photo)
+        post=types.Message(id=77,peer_id=types.PeerUser(55),date=datetime.now(timezone.utc),
+            message='Comprado',media=types.MessageMediaPaidMedia(stars_amount=15,extended_media=[
+            types.MessageExtendedMedia(media=media),types.MessageExtendedMedia(media=media)]))
+        # The same Telegram account owns the unlocked files; no new payment.
+        self.msgs=[post];self.client.get_messages.return_value=post
+        for gallery in (False,True):
+            response=await self.panel.messages(111,22,self.peer,gallery=gallery)
+            self.assertEqual(len(response['items']),1)
+            item=response['items'][0]
+            self.assertEqual([x['type'] for x in item['paid_media']],['photo','photo'])
+            self.assertEqual(item['media']['type'],'photo')
+            self.assertEqual(item['paid_stars'],15)
+        self.assertEqual(len(purchased_items(post)),2)
+        await self.setup_http()
+        r=await self.http.get('/panel/api/thumb',
+            params={'account':'22','peer':self.peer,'message':'77','paid_index':'1'})
+        self.assertEqual(r.status,200)
+        self.assertEqual(await r.read(),b'JPEG')
+        r=await self.http.get('/panel/api/thumb',
+            params={'account':'22','peer':self.peer,'message':'77','paid_index':'2'})
+        self.assertEqual(r.status,409)
+
+    async def test_unbought_stars_preview_is_not_exposed_as_media(self):
+        post=types.Message(id=78,peer_id=types.PeerUser(55),date=datetime.now(timezone.utc),
+            message='Sin comprar',media=types.MessageMediaPaidMedia(stars_amount=20,
+            extended_media=[types.MessageExtendedMediaPreview(w=100,h=100)]))
+        self.msgs=[post]
+        # Telegram does not return a paid-media update for an unbought post.
+        class NoPurchase:
+            async def __call__(self,req):
+                from types import SimpleNamespace
+                return SimpleNamespace(updates=[])
+        # The output must remain locked even after a refresh.
+        self.client=NoPurchase()
+        from descargas_app.paid_media import reveal_purchased
+        await reveal_purchased(self.client,self.entity,[post])
+        item=p.message_data(post)
+        self.assertIsNone(item['media'])
+        self.assertEqual(item['paid_media'],[])
+        self.assertEqual(item['paid_stars'],20)
+
     async def test_source_denial_applies_to_messages_thumbnails_avatars_and_full_files(self):
         self.guard.side_effect=ValueError('Origen protegido')
         await self.setup_http()
