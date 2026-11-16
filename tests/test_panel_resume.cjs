@@ -6,7 +6,7 @@ const source=fs.readFileSync(__dirname+'/../descargas_app/panel_web/app.js','utf
 const block=source.slice(source.indexOf('// Panel-only continuity.'),source.indexOf('(async()=>{try{const token=location.hash.slice(1);'));
 function setup(){
  const nodes=new Map(),storage=new Map(),events={};
- const node=id=>{if(!nodes.has(id))nodes.set(id,{dataset:{view:'conversation'},hidden:false,value:'',scrollTop:45,addEventListener(){},replaceChildren(){}});return nodes.get(id);};
+ const node=id=>{if(!nodes.has(id))nodes.set(id,{dataset:{view:'conversation'},hidden:false,open:false,textContent:'',value:'',scrollTop:45,addEventListener(){},replaceChildren(){}});return nodes.get(id);};
  const ctx={$:node,base:'/panel',Date,Number,JSON,Map,Array,Math,setTimeout,clearTimeout,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
  document:{querySelector:node,querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener:(k,v)=>events[k]=v},
  account:{id:'123',generation:2},chat:{id:'456',handle:'opaque',name:'Chat',type:'group'},mode:'messages',query:'',filter:'all',topic:0,contextMode:false,contextFocus:null,before:1,epoch:1,
@@ -29,6 +29,21 @@ test('authorization failure prevents cached conversation rendering',async()=>{
 test('authorized resume rechecks saved IDs then fetches new messages without a read action',async()=>{
  const {ctx}=setup();await ctx.restoreConversation({mode:'gallery',items:[{id:77,text:'cached'},{id:78,protected:true}],before:70});
  assert.equal(ctx.validated,true);assert.equal(ctx.mode,'gallery');assert.deepEqual([...ctx.checked],[77]);assert.equal(ctx.refreshed,true);assert.equal(ctx.messages.has(78),false);
+});
+test('Safari round trip remembers only purchased folder and position, not receipts or sessions',()=>{
+ const {ctx,storage}=setup();
+ ctx.$('management').open=true;
+ ctx.$('management-title').textContent='⭐ Comprados · Cuenta';
+ ctx.$('management').scrollTop=325;
+ vm.runInContext("activePurchaseSource='7'",ctx);
+ ctx.saveResume();
+ const saved=JSON.parse(storage.get('test'));
+ assert.equal(saved.purchaseOpen,true);
+ assert.equal(saved.purchaseSource,'7');
+ assert.equal(saved.purchaseScroll,325);
+ assert.equal(saved.account.id,'123');
+ assert.equal(saved.purchase,undefined);
+ assert.equal(saved.file_token,undefined);
 });
 test('logout/revocation cleanup removes snapshot and disables further saves',()=>{
  const {ctx,storage}=setup();ctx.saveResume();ctx.forgetResume();assert.equal(storage.size,0);ctx.saveResume();assert.equal(storage.size,0);
