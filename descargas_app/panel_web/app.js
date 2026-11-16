@@ -111,7 +111,8 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  };
  save.onclick=event=>{
   const webapp=window.Telegram?.WebApp;
-  if(typeof webapp?.downloadFile==='function'&&location.protocol==='https:'){
+  if(webapp?.initData&&typeof webapp.downloadFile==='function'&&
+      (!webapp.isVersionAtLeast||webapp.isVersionAtLeast('8.0'))&&location.protocol==='https:'){
    event.preventDefault();
    const url=new URL(save.href,location.href).href;
    webapp.downloadFile({url,file_name:save.download},accepted=>{
