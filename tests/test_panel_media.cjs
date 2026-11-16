@@ -20,6 +20,8 @@ function setup({before=null,load=async()=>{}}={}){
  const context={$,el:node,messages:new Map([photo(3),photo(2)].map(m=>[m.id,m])),modal:false,mode:'gallery',epoch:1,before,
   operationBusy:false,networkTail:Promise.resolve(),labels:{photo:'Foto',video:'Video'},fileUrl:(_,m)=>'/media/'+m.id,
   notice(){},pumpThumbs(){},loadMessages:load,
+  panelNavSave(){},panelNavPush(){},panelNavDismiss(){},requestAnimationFrame:fn=>fn(),
+  account:{id:'22'},chat:{id:'55',handle:'handle',type:'group'},previousScrollTop:0,
   preparedDownloadControl:(payload,name)=>{const x=node('section');x.preparation={payload,name};return x;},
   jumpToMessage:async(...args)=>{context.jump=args;}};
  vm.createContext(context);vm.runInContext(viewer+'\nthis.openMedia=openMedia;this.navigateMedia=navigateMedia;',context);
