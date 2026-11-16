@@ -18,6 +18,7 @@ LOG=logging.getLogger("descargas.bulk")
 KINDS=("photos","videos","gifs","photo_files","video_files")
 MAX_DIALOGS=1500
 MAX_DESTINATIONS=150
+MAX_USER_JOBS=20
 SCHEMA="""
 CREATE TABLE IF NOT EXISTS descarga_bulk_chats(
  bot_id BIGINT NOT NULL,chat_id BIGINT NOT NULL,title TEXT NOT NULL,
@@ -234,19 +235,31 @@ async def create(service,uid,data):
            WHERE bot_id=$1 AND chat_id=$2 AND active=TRUE""",
         service.bot_id,dest)
     if not target:raise ValueError("El bot todavía no ha registrado ese destino. Envía un mensaje allí.")
-    prior=await service.repo.pool.fetchval(
-        """SELECT 1 FROM descarga_bulk_jobs
-           WHERE bot_id=$1 AND uid=$2 AND status IN ('scanning','ready','publishing','paused','review')
-           LIMIT 1""",service.bot_id,uid)
-    if prior:raise ValueError("Desconecta primero tu transferencia anterior.")
+    # Each destination is an independent, resumable job. A short per-user
+    # advisory transaction prevents concurrent taps from exceeding the cap.
     job_id=uuid.uuid4();now=time.time()
-    await service.repo.pool.execute(
-        """INSERT INTO descarga_bulk_jobs
-           (id,bot_id,uid,generation,source_id,source_hash,source_title,
-            target_id,target_title,created,updated)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)""",
-        job_id,service.bot_id,uid,int(account["generation"]),source,
-        source_data["hash"],source_data["title"],dest,str(target["title"]),now)
+    async with service.repo.pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))",
+                f"descargas-bulk:{service.bot_id}:{uid}")
+            existing=await conn.fetchrow(
+                """SELECT count(*) AS active,
+                          bool_or(source_id=$3 AND target_id=$4) AS duplicate
+                   FROM descarga_bulk_jobs
+                   WHERE bot_id=$1 AND uid=$2 AND status<>'detached'""",
+                service.bot_id,uid,source,dest)
+            if int(existing["active"])>=MAX_USER_JOBS:
+                raise ValueError("Límite de 20 transferencias. Desconecta una para agregar otra.")
+            if existing["duplicate"]:
+                raise ValueError("Ese origen y destino ya tienen una transferencia configurada.")
+            await conn.execute(
+                """INSERT INTO descarga_bulk_jobs
+                   (id,bot_id,uid,generation,source_id,source_hash,source_title,
+                    target_id,target_title,created,updated)
+                   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)""",
+                job_id,service.bot_id,uid,int(account["generation"]),source,
+                source_data["hash"],source_data["title"],dest,str(target["title"]),now)
     return {"id":str(job_id),"status":"scanning"}
 
 async def _owner(service,uid,ident):
@@ -259,14 +272,31 @@ async def _owner(service,uid,ident):
         raise ValueError("Transferencia no disponible.")
     return row
 
-async def current(service,uid):
+async def list_jobs(service,uid):
+    """Only the requesting user may list their own transfer slots."""
     _int(uid)
-    # A detached newest job intentionally resets the user's Mini App.
-    # Older finished jobs remain in the DB for the administrator only.
-    row=await service.repo.pool.fetchrow(
-        """SELECT * FROM descarga_bulk_jobs
-           WHERE bot_id=$1 AND uid=$2
-           ORDER BY created DESC LIMIT 1""",service.bot_id,uid)
+    rows=await service.repo.pool.fetch(
+        """SELECT id,source_title,target_title,status,run_done,run_total
+           FROM descarga_bulk_jobs
+           WHERE bot_id=$1 AND uid=$2 AND status<>'detached'
+           ORDER BY created DESC LIMIT $3""",service.bot_id,uid,MAX_USER_JOBS)
+    return {"limit":MAX_USER_JOBS,
+            "jobs":[{"id":str(r["id"]),"source":r["source_title"],
+                     "destination":r["target_title"],"status":r["status"],
+                     "published":int(r["run_done"]),"total":int(r["run_total"])}
+                    for r in rows]}
+
+
+async def current(service,uid,ident=None):
+    _int(uid)
+    # Explicit selection is always owner-scoped; detached jobs are inaccessible.
+    if ident:
+        row=await _owner(service,uid,ident)
+    else:
+        row=await service.repo.pool.fetchrow(
+            """SELECT * FROM descarga_bulk_jobs
+               WHERE bot_id=$1 AND uid=$2
+               ORDER BY created DESC LIMIT 1""",service.bot_id,uid)
     if not row or row["status"]=="detached":return {"job":None}
     counts=_counts(row["counts"])
     ranges={}
@@ -440,7 +470,8 @@ async def dispatch(service,uid,operation,data):
     if operation=="bulk-origins":return await origins(service,uid)
     if operation=="bulk-destinations":return await destinations(service,uid)
     if operation=="bulk-create":return await create(service,uid,data)
-    if operation=="bulk-status":return await current(service,uid)
+    if operation=="bulk-list":return await list_jobs(service,uid)
+    if operation=="bulk-status":return await current(service,uid,data.get("id"))
     if operation=="bulk-begin":return await begin(service,uid,data)
     if operation=="bulk-pause":return await pause(service,uid,data)
     if operation=="bulk-resume":return await resume(service,uid,data)
