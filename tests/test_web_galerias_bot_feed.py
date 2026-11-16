@@ -189,8 +189,8 @@ class DownloadProtectionTests(unittest.IsolatedAsyncioTestCase):
         storage.object_size.assert_not_awaited()
 
     async def test_removed_route_aborts_before_telegram(self):
-        gallery=SimpleNamespace(db=lambda:SimpleNamespace(
-            execute=AsyncMock()))
+        db=SimpleNamespace(execute=AsyncMock())
+        gallery=SimpleNamespace(db=lambda:db)
         item={"folder":8,"group_id":-1001,"revision":"old",
               "message_id":3}
         with patch.object(feed,"route_current",new_callable=AsyncMock,
