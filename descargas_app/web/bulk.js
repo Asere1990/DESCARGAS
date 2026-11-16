@@ -10,7 +10,8 @@
     photo_files:"Archivos de fotos",video_files:"Archivos de videos"
   };
   const kinds=Object.keys(names);
-  const state={job:null,poll:null,loading:false,controls:{},admin:false,open:false};
+  const state={job:null,poll:null,loading:false,controls:{},admin:false,open:false,
+               selectedId:null,jobs:[],lastRun:null};
   const adminMode=new URLSearchParams(location.search).get("mode")==="bulk-admin";
   function say(txt){byId("bulk-source-status").textContent=txt;}
   function mk(tag,cls,content){
@@ -117,7 +118,7 @@
     const scanning=job?.status==="scanning"||job?.status==="waiting_scan";
     const ready=job&&["ready","paused","finished","error"].includes(job.status);
     const running=job&&["publishing","waiting_send"].includes(job.status);
-    byId("bulk-scan").disabled=Boolean(job);
+    byId("bulk-scan").disabled=Boolean(job)||state.jobs.length>=20;
     byId("bulk-source").disabled=Boolean(job);
     byId("bulk-target").disabled=Boolean(job);
     byId("bulk-pause").disabled=!job||!["scanning","publishing","waiting_scan","waiting_send"].includes(job.status);
@@ -156,15 +157,39 @@
       (job.error?" · "+job.error:"");
   }
   async function refresh(){
-    const result=await api("bulk-status");
+    if(state.selectedId==="new"){render(null);return;}
+    const result=await api("bulk-status",state.selectedId?{id:state.selectedId}:{});
     render(result.job);
+  }
+  async function listJobs(requested){
+    const response=await api("bulk-list");
+    state.jobs=response.jobs||[];
+    const menu=byId("bulk-job-select");
+    menu.replaceChildren();
+    const create=mk("option","",
+      "＋ Nueva transferencia ("+fmt(state.jobs.length)+"/20)");
+    create.value="new";menu.append(create);
+    for(const job of state.jobs){
+      const opt=mk("option","",job.source+" → "+job.destination+" · "+job.status);
+      opt.value=job.id;menu.append(opt);
+    }
+    let selected=requested||state.selectedId;
+    if(!selected||(selected!=="new"&&!state.jobs.some(x=>x.id===selected))){
+      selected=state.jobs[0]?.id||"new";
+    }
+    state.selectedId=selected;menu.value=selected;
+    state.lastRun=null;state.controls={};
+    await refresh();
+    if(selected==="new"&&state.jobs.length>=20){
+      say("Tienes 20 transferencias configuradas. Desconecta una para agregar otra.");
+    }
   }
   async function open(){
     state.open=!state.open;
     byId("bulk-user-panel").hidden=!state.open;
     if(!state.open){clearInterval(state.poll);state.poll=null;return;}
     await loadSelectors();
-    try{await refresh();}catch(error){say(error.message);}
+    try{await listJobs();}catch(error){say(error.message);}
     clearInterval(state.poll);
     state.poll=setInterval(()=>{if(state.open)refresh().catch(()=>{});},4500);
   }
@@ -178,9 +203,8 @@
     const button=byId("bulk-scan");button.disabled=true;
     say("Preparando el escaneo del grupo…");
     try{
-      await api("bulk-create",{source,destination});
-      state.lastRun=null;
-      await refresh();
+      const created=await api("bulk-create",{source,destination});
+      await listJobs(created.id);
       say("Escaneo iniciado. Se mostrarán las cantidades antes de transferir.");
     }catch(error){say(error.message);}
     finally{button.disabled=false;}
@@ -225,9 +249,9 @@
     try{
       await api("bulk-disconnect",{id:state.job.id});
       state.lastRun=null;state.controls={};
-      await refresh();
+      await listJobs("new");
       await loadSelectors();
-      say("Grupo desconectado. Puedes elegir otro origen y otro destino.");
+      say("Transferencia desconectada. Puedes configurar otro destino.");
     }catch(error){say(error.message);}
   }
   async function adminJobs(){
@@ -306,6 +330,11 @@
     }
   }
   byId("bulk-open").addEventListener("click",()=>open());
+  byId("bulk-job-select").addEventListener("change",()=>{
+    state.selectedId=byId("bulk-job-select").value;
+    state.lastRun=null;state.controls={};
+    refresh().catch(error=>say(error.message));
+  });
   byId("bulk-scan").addEventListener("click",()=>scan());
   byId("bulk-start").addEventListener("click",()=>begin());
   byId("bulk-pause").addEventListener("click",()=>pause());
