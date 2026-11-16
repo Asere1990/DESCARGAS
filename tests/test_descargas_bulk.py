@@ -99,6 +99,22 @@ class AccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("uid=$2",sql)
         self.assertEqual(params,[123,999])
 
+    async def test_transfer_list_only_includes_requester_and_has_no_admin_storage(self):
+        ident=uuid.uuid4()
+        pool=NS(fetch=AsyncMock(return_value=[{
+            "id":ident,"source_title":"Origen","target_title":"Destino",
+            "status":"ready","run_done":0,"run_total":0
+        }]))
+        svc=NS(bot_id=123,repo=NS(pool=pool))
+        result=await bulk.list_jobs(svc,999)
+        self.assertEqual(result["limit"],20)
+        self.assertEqual(result["jobs"][0]["id"],str(ident))
+        self.assertEqual(result["jobs"][0]["destination"],"Destino")
+        self.assertNotIn("archive_id",result["jobs"][0])
+        sql,*args=pool.fetch.await_args.args
+        self.assertIn("bot_id=$1 AND uid=$2",sql)
+        self.assertEqual(args,[123,999,20])
+
     async def test_create_refuses_unsupervised_transfer_before_source_read(self):
         svc=NS(almacen=None,bot_id=123,repo=NS(pool=NS()))
         with patch.object(bulk,"ensure_allowed",new_callable=AsyncMock),patch.object(
