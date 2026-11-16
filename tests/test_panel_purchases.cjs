@@ -4,7 +4,8 @@ const vm=require('node:vm');
 const fs=require('node:fs');
 const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../descargas_app/panel_web/app.js'),'utf8');
-const code=source.slice(source.indexOf("$('purchases').onclick"),source.indexOf('(async()=>{try{const token=location.hash.slice(1);'));
+const helpers=source.slice(source.indexOf('const preparedDownloadJobs='),source.indexOf('function currentFavorite(){'));
+const code=helpers+source.slice(source.indexOf("$('purchases').onclick"),source.indexOf('(async()=>{try{const token=location.hash.slice(1);'));
 function setup(api){
  function node(tag='div',text=''){
   return {tagName:tag.toUpperCase(),textContent:text,children:[],isConnected:true,listeners:{},
@@ -13,11 +14,12 @@ function setup(api){
    replaceWith(n){const i=this.parent.children.indexOf(this);this.parent.children[i]=n;n.parent=this.parent;},
    querySelectorAll(selector){return this.children.flatMap(c=>[...(c.tagName===selector.toUpperCase()?[c]:[]),...c.querySelectorAll(selector)]);},
    addEventListener(k,f){this.listeners[k]=f;},removeEventListener(k){delete this.listeners[k];},
-   close(){this.open=false;this.listeners.close?.();},pause(){this.paused=true;},load(){},removeAttribute(k){delete this[k];}};
+   close(){this.open=false;this.listeners.close?.();},pause(){this.paused=true;},load(){},
+   setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];}};
  }
  const nodes=new Map(),$=id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);};
  const context={$,el:node,account:{id:'22',name:'Cuenta'},operationBusy:false,base:'/panel',api,
-  date:()=> 'Hoy',notice(){},management(){ $('management').open=true;return $('management-body');},
+  date:()=> 'Hoy',notice(){},setTimeout:()=>0,clearTimeout:()=>{},management(){ $('management').open=true;return $('management-body');},
   openChat:async c=>{context.opened=c;},jumpToMessage:async id=>{context.jumped=id;}};
  vm.createContext(context);vm.runInContext(code+'\nthis.openPurchases=openPurchases;',context);
  return {context,$,root:()=>$('management-body').children[0]};
@@ -33,21 +35,46 @@ test('groups purchases and deduplicates pages without loading files automaticall
  const video=row.children[0];assert.equal(video.tagName,'VIDEO');assert.match(video.src,/purchase-media\?account=22/);
  s.$('management').close();assert.equal(video.paused,true);assert.equal(video.src,undefined);
 });
-test('already purchased video has a native same-tab iPhone download link, without losing playback',async()=>{
- const s=setup(async()=>({items:[item()],next:null}));
+test('purchased video starts priority preparation while its playback remains available',async()=>{
+ const requests=[];
+ const s=setup(async(op,body)=>{
+  requests.push({op,body});
+  if(op==='prepare-start')return {job:'job-1',state:'queued',progress:0,received:0,total:100};
+  return {items:[item()],next:null};
+ });
  await s.context.openPurchases();
- const list=s.root().children[1];
- list.children[0].onclick();
- const card=list.children[2],row=card.children[4];
- const save=row.children[1];
- assert.equal(save.tagName,'A');
- assert.match(save.href,/\/api\/purchase-media\?account=22/);
- assert.match(save.href,/download=1/);
- assert.equal(save.target,undefined); // Do not open a popup blocked by iPhone WebViews.
- assert.equal(save.download,'video.mp4');
+ const list=s.root().children[1];list.children[0].onclick();
+ const row=list.children[2].children[4],control=row.children[1];
+ assert.equal(control.tagName,'SECTION');
+ assert.equal(control.children[0].tagName,'BUTTON');
  row.children[0].onclick();
  assert.equal(row.children[0].tagName,'VIDEO');
- assert.equal(row.children[1],save); // Native download is still offered while playing.
+ await control.children[0].onclick();
+ assert.equal(requests[1].op,'prepare-start');
+ assert.equal(requests[1].body.account,'22');
+ assert.equal(requests[1].body.purchase,'token');
+ assert.equal(requests[1].body.index,0);
+ assert.equal(control.children[1].textContent,'En espera de la vía prioritaria…');
+ assert.equal(control.children[3].hidden,true);
+});
+test('prepared purchase displays a short-lived save link after it is ready',async()=>{
+ const key=JSON.stringify(['22','handle','token',0]);
+ const s=setup(async(op)=>{
+  if(op.startsWith('prepare-status?'))return {job:'cached',state:'ready',
+   name:'video.mp4',progress:100,file_token:'short-capability'};
+  return {items:[item()],next:null};
+ });
+ s.context.preparedDownloadJobs.set(key,'cached');
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ await new Promise(setImmediate);
+ const save=control.children[3];
+ assert.equal(save.tagName,'A');
+ assert.equal(save.hidden,false);
+ assert.match(save.href,/prepared-file\?token=short-capability/);
+ assert.equal(save.download,'video.mp4');
+ assert.equal(control.children[0].hidden,true);
 });
 test('late account response cannot show another account purchases',async()=>{
  let release;const s=setup(()=>new Promise(r=>release=r));const pending=s.context.openPurchases();
