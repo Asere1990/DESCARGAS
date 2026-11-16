@@ -42,6 +42,41 @@ async def connected(service, uid):
         finally:await client.disconnect()
 
 
+
+@asynccontextmanager
+async def connected_parallel(service, uid):
+    """A short independent client for the control panel; never changes the saved session.
+
+    Downloads still own the account lock. An admin's separate MTProto connection
+    does not pause transfers or acquire that lock. Login/logout are fenced by the
+    persisted account generation, and the Telegram identity is checked.
+    """
+    from .creator_access import require_account
+    await require_account(service, uid)
+    original = await service.repo.account(uid)
+    if not original or not original['session']:
+        raise ValueError('Esa cuenta no está conectada al bot.')
+    generation = original['generation']
+    session = await service.get_session(uid)
+    if not session:
+        raise ValueError('Esa cuenta no está conectada al bot.')
+    client = service.client(session)
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise ValueError('La sesión fue revocada. Conecta de nuevo la cuenta.')
+        me = await client.get_me()
+        if not me or me.id != uid:
+            raise ValueError('La cuenta conectada no coincide con el Telegram ID.')
+        current = await service.repo.account(uid)
+        if not current or not current['session'] or current['generation'] != generation:
+            raise ValueError('La cuenta cambió mientras abrías el panel. Vuelve a abrirla.')
+        await require_account(service, uid)
+        yield client
+    finally:
+        await client.disconnect()
+
+
 def effective_permissions(entity, participant, defaults):
     """Combine Telegram defaults and active individual restrictions, not bot rules."""
     role='Creador' if participant.is_creator else 'Administrador' if participant.is_admin else 'Miembro'
