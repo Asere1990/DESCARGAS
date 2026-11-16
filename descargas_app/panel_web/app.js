@@ -48,6 +48,7 @@ function panelNavSnapshot(){
   chatQuery:$('chat-search').value,
   threadScroll:thread.scrollTop,chatScroll:document.querySelector('.chat-list').scrollTop,
   accountsScroll:document.querySelector('.accounts').scrollTop,
+  modalScroll:$('management').scrollTop,
   anchor:which==='conversation'&&chat?captureAnchor():null};
 }
 function panelNavKind(){return panelNavEntries.get(panelNavSteps[panelNavIndex])?.kind;}
@@ -119,7 +120,8 @@ async function panelNavRestore(entry){
     if(!s.accountRef)return;
     await selectAccount(s.accountRef);
    }
-   await openPurchases();
+   await openPurchases(entry.source??null);
+   $('management').scrollTop=s.modalScroll||0;
    return;
   }
   if(s.view==='accounts'){
@@ -1343,6 +1345,8 @@ function snapshotResume(){
  return {version:1,saved:Date.now(),view:currentView,accountTab,account:account?{id:account.id,generation:account.generation}:null,
   chat:currentView==='conversation'&&chat?{id:chat.id,handle:chat.handle,name:chat.name,type:chat.type,forum:chat.forum}:null,
   mode,query,filter,chatQuery:$('chat-search').value,topic,contextMode,contextFocus,anchor,
+  purchaseOpen:!!$('management').open&&$('management-title').textContent.startsWith('⭐ Comprados'),
+  purchaseSource:activePurchaseSource,purchaseScroll:$('management').scrollTop,
   scroll:$('thread').scrollTop,chatsScroll:document.querySelector('.chat-list').scrollTop,accountsScroll:document.querySelector('.accounts').scrollTop,
   items,before:(mode==='gallery'?start+RESUME_LIMIT<ordered.length:start>0)?Math.min(...selected.map(m=>m.id)):before};
 }
@@ -1384,6 +1388,10 @@ async function resumePanel(){
    if(a.generation!==saved.account.generation){forgetResume();return;}
    await openChat(rows.find(c=>c.id===saved.chat.id)||saved.chat,saved);
   }
+  if(saved.purchaseOpen&&String(account.id)===String(saved.account.id)){
+   await openPurchases(saved.purchaseSource??null);
+   requestAnimationFrame(()=>{$('management').scrollTop=Number(saved.purchaseScroll)||0;});
+  }
  }catch(e){if(!$('workspace').hidden){chat=null;messages.clear();$('thread').replaceChildren();view(account?'chats':'accounts');notice('No se pudo recuperar la vista anterior: '+e.message);}}
  finally{resumeRestoring=false;}
 }
@@ -1396,13 +1404,15 @@ window.addEventListener('pageshow',event=>{if(event.persisted){startLive();if(ch
 
 
 // Purchased media stays inside this account's read-only folder.
+let activePurchaseSource=null;
 $('purchases').onclick=()=>openPurchases().catch(e=>notice(e.message));
-async function openPurchases(){
+async function openPurchases(initialSource=null){
  if(!account||operationBusy)return;
  panelNavSave();
  const selected=account,root=el('section'),box=management('⭐ Comprados · '+account.name);
- panelNavPush('purchases');
- box.append(root);let next=null,busy=false,selectedSource=null;
+ panelNavPush('purchases',{source:initialSource});
+ box.append(root);let next=null,busy=false,selectedSource=initialSource,overviewScroll=0;
+ activePurchaseSource=selectedSource;
  const purchases=new Map(),groups=new Map(),status=el('p','Consultando compras…'),list=el('div'),more=el('button','Cargar más compras');
  more.hidden=true;root.append(status,list,more);
  const current=()=>account===selected&&root.isConnected&&$('management').open;
@@ -1410,10 +1420,26 @@ async function openPurchases(){
  const stopMedia=()=>{for(const video of list.querySelectorAll('video')){video.pause();video.removeAttribute('src');video.load();}};
  const render=()=>{
   stopMedia();list.replaceChildren();
+  if(selectedSource!==null&&!groups.has(selectedSource)){
+   const real=[...groups.keys()].find(k=>String(k)===String(selectedSource));
+   if(real===undefined){selectedSource=null;activePurchaseSource=null;}
+   else selectedSource=real;
+  }
   if(selectedSource===null){
-   for(const [source,group] of groups){const button=el('button');button.className='search-hit';button.append(el('strong',group.chat.name),el('span',(group.chat.bot?'Bot':{private:'Chat privado',group:'Grupo',channel:'Canal'}[group.chat.type])+' · '+group.items.size+' compras cargadas'));button.onclick=()=>{selectedSource=source;render();};list.append(button);}
+   for(const [source,group] of groups){const button=el('button');button.className='search-hit';button.append(el('strong',group.chat.name),el('span',(group.chat.bot?'Bot':{private:'Chat privado',group:'Grupo',channel:'Canal'}[group.chat.type])+' · '+group.items.size+' compras cargadas'));button.onclick=()=>{
+    overviewScroll=$('management').scrollTop;
+    selectedSource=source;activePurchaseSource=source;
+    const entry=panelNavEntries.get(panelNavSteps[panelNavIndex]);
+    if(entry?.kind==='purchases')entry.source=source;
+    render();$('management').scrollTop=0;queueResume();
+   };list.append(button);}
   }else{
-   const group=groups.get(selectedSource),back=el('button','‹ Volver a Comprados');back.onclick=()=>{selectedSource=null;render();};list.append(back,el('h3',group.chat.name));
+   const group=groups.get(selectedSource),back=el('button','‹ Volver a Comprados');back.onclick=()=>{
+    selectedSource=null;activePurchaseSource=null;
+    const entry=panelNavEntries.get(panelNavSteps[panelNavIndex]);
+    if(entry?.kind==='purchases')entry.source=null;
+    render();$('management').scrollTop=overviewScroll;queueResume();
+   };list.append(back,el('h3',group.chat.name));
    for(const id of group.items){const item=purchases.get(id),card=el('article');card.className='purchase-card';card.append(el('strong',item.title),el('p',date(item.date)+' · '+item.media.length+' archivos'));
     if(item.link){const link=el('a','Abrir mensaje original en Telegram');link.href=item.link;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}else card.append(el('small','Este chat no tiene un enlace público al mensaje.'));
     if(item.message){const jump=el('button','Ver mensaje en el panel');jump.onclick=async()=>{
@@ -1432,7 +1458,7 @@ async function openPurchases(){
  };
  const load=async()=>{if(busy||!current())return;busy=true;more.disabled=true;status.textContent='Consultando compras…';try{const data=await api('purchases?account='+selected.id+(next?'&cursor='+encodeURIComponent(next):''));if(!current())return;for(const item of data.items){if(purchases.has(item.id))continue;purchases.set(item.id,item);let group=groups.get(item.chat.id);if(!group){group={chat:item.chat,items:new Set()};groups.set(item.chat.id,group);}group.items.add(item.id);}next=data.next;render();}catch(e){if(current()){status.textContent=e.message;more.hidden=false;more.textContent='Reintentar';}}finally{busy=false;more.disabled=false;}};
  more.onclick=load;
- const close=()=>{stopMedia();$('management').removeEventListener('close',close);};$('management').addEventListener('close',close);
+ const close=()=>{stopMedia();activePurchaseSource=null;$('management').removeEventListener('close',close);};$('management').addEventListener('close',close);
  await load();
 }
 
