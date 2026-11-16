@@ -159,6 +159,40 @@ class PreparedDownloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('file_token',result)
         self.assertEqual(self.cache.jobs[id]['file'],None)
 
+    async def test_media_over_1gb_is_accepted_when_temporary_disk_has_capacity(self):
+        # Simulate a 2 GiB Telegram file without actually writing 2 GiB in CI.
+        self.message.document.size = 2 * 1024**3
+        with patch.object(prepared.shutil, 'disk_usage',
+                          return_value=N(free=5 * 1024**3)):
+            job_id = await self.finished()
+        result = await self.cache.status(111, '0', job_id)
+        self.assertEqual(result['total'], 2 * 1024**3)
+        # Fake iterator only returns a small test payload, so completeness
+        # validation (not the previous 1 GB cap) rejects the file.
+        self.assertEqual(result['state'], 'error')
+        self.assertIn('incompleta', result['error'])
+        self.assertNotIn('1 GB', result['error'])
+        self.assertEqual(len(self.iterators), 1)
+
+    async def test_over_4gb_is_rejected_before_starting_telegram_download(self):
+        self.message.document.size = 4 * 1024**3 + 1
+        job_id = await self.finished()
+        result = await self.cache.status(111, '0', job_id)
+        self.assertEqual(result['state'], 'error')
+        self.assertIn('4 GB', result['error'])
+        self.assertEqual(len(self.iterators), 0)
+
+    async def test_large_file_fails_safely_if_temporary_disk_lacks_space(self):
+        self.message.document.size = 2 * 1024**3
+        with patch.object(prepared.shutil, 'disk_usage',
+                          return_value=N(free=512 * 1024**2)):
+            job_id = await self.finished()
+        result = await self.cache.status(111, '0', job_id)
+        self.assertEqual(result['state'], 'error')
+        self.assertIn('espacio temporal', result['error'])
+        self.assertEqual(len(self.iterators), 0)
+        self.repo.account.assert_awaited()
+
     def test_video_filename_fallback_and_sanitization(self):
         self.assertEqual(prepared.safe_filename(
             {'name':'archivo','mime':'video/mp4'},5),'telegram-5.mp4')
