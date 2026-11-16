@@ -199,6 +199,8 @@ async def _source_dialog(service,uid,source):
                     ent=dialog.entity
                     if not isinstance(ent,(types.Channel,types.Chat)):
                         break
+                    if getattr(ent,"noforwards",False):
+                        raise ValueError("Este grupo no permite redistribuir contenido.")
                     return {"title":str(dialog.name or "Grupo")[:160],
                             "hash":int(getattr(ent,"access_hash",0) or 0),
                             "type":"channel" if isinstance(ent,types.Channel) else "chat"}
@@ -211,6 +213,9 @@ async def create(service,uid,data):
     dest=_chat(data.get("destination"))
     if source==dest:raise ValueError("Selecciona grupos diferentes.")
     await ensure_allowed(service,uid,source)
+    rules=await service.repo.policy(service.bot_id,uid,source)
+    if rules["locked"]:
+        raise ValueError("No puedes transferir contenido de ese origen.")
     account=await _my_account(service,uid)
     if not service.almacen:
         # Never start an unsupervised bulk transfer.
@@ -300,6 +305,13 @@ async def begin(service,uid,data):
            WHERE bot_id=$1 AND chat_id=$2 AND active=TRUE""",
         service.bot_id,int(row["target_id"])):
         raise ValueError("El bot ya no está conectado al destino.")
+    unresolved=await service.repo.pool.fetchval(
+        """SELECT 1 FROM descarga_bulk_deliveries
+           WHERE job_id=$1 AND run_no=$2
+             AND status IN ('preparing','archived','review') LIMIT 1""",
+        row["id"],row["run_no"])
+    if unresolved:
+        raise ValueError("Hay archivos pendientes de revisión de una entrega anterior.")
     counts=_counts(row["counts"]);ranges=valid_ranges(counts,data.get("ranges"))
     selected=sum(end-start for start,end in ranges.values())
     # Advisory transaction serializes two concurrent taps. No old run is deleted.

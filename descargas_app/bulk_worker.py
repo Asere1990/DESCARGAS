@@ -73,6 +73,9 @@ async def _verify_account(s,job):
     if not row or not row["session"] or int(row["generation"])!=int(job["generation"]):
         raise ValueError("La sesión vinculada cambió. Vuelve a conectar y crear una transferencia.")
     await ensure_allowed(s,int(job["uid"]),int(job["source_id"]))
+    rules=await s.repo.policy(s.bot_id,int(job["uid"]),int(job["source_id"]))
+    if rules["locked"]:
+        raise ValueError("El origen está bloqueado para transferencias.")
     return row
 
 def _source_peer(job):
