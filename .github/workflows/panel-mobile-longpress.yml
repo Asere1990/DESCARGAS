@@ -8,6 +8,9 @@ on:
       - 'descargas_app/panel_web/style.css'
       - 'tests/test_panel_batch_selection.cjs'
       - 'tests/test_panel_media.cjs'
+      - 'tests/test_panel_navigation.cjs'
+      - 'tests/test_panel_resume.cjs'
+      - 'tests/test_panel_purchases.cjs'
       - 'tests/test_panel_mobile_longpress.cjs'
       - '.github/workflows/panel-mobile-longpress.yml'
 permissions:
@@ -23,4 +26,4 @@ jobs:
       - name: JavaScript válido
         run: node --check descargas_app/panel_web/app.js
       - name: Gestos, selección y navegación del visor
-        run: node --test tests/test_panel_mobile_longpress.cjs tests/test_panel_batch_selection.cjs tests/test_panel_media.cjs
+        run: node --test tests/test_panel_mobile_longpress.cjs tests/test_panel_batch_selection.cjs tests/test_panel_media.cjs tests/test_panel_navigation.cjs tests/test_panel_resume.cjs tests/test_panel_purchases.cjs
