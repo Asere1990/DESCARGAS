@@ -462,21 +462,60 @@ function mediaParts(m){return Array.isArray(m.paid_media)&&m.paid_media.length?
 function mediaKey(m){return String(m?.id)+':'+(Number.isInteger(m?.paid_index)?m.paid_index:-1);}
 function renderMessages(){queueResume();disposePremium();requestAnimationFrame(activatePremium);const thread=$('thread');for(const img of thread.querySelectorAll('img'))imageObserver.unobserve(img);thread.replaceChildren();const gallery=mode==='gallery'?el('div'):null;if(gallery){gallery.className='gallery-grid';thread.append(gallery);}let previous='',album=null,albumId=null;const items=[...messages.values()].sort((a,b)=>mode==='gallery'?b.id-a.id:a.id-b.id);for(const m of items){if(mode==='gallery'){for(const part of mediaParts(m))if(visualMedia(part))gallery.append(attachment(part));continue;}const day=date(m.date);if(day!==previous){const label=el('div',day);label.className='day';thread.append(label);previous=day;album=null;albumId=null;}const b=el('article');b.dataset.message=String(m.id);const tools=el('button','⋯');tools.className='bubble-tools';tools.setAttribute('aria-label','Opciones del mensaje');tools.onclick=()=>messageOptions(m);b.append(tools);b.className='bubble'+(m.out?' out':'')+(m.protected?' protected-media':'');if(m.sender&&!m.out&&chat.type!=='private'){const sender=el('div',m.sender);sender.className='sender';b.append(sender);}if(m.reply){const preview=m.reply_preview||messages.get(m.reply),quote=el('button');quote.className='quote';quote.append(el('strong',preview?.sender||'Respuesta'),el('span',preview?.text?.slice(0,180)||labels[preview?.media?.type]||'Ver mensaje original'));quote.disabled=!!m.reply_external;quote.onclick=()=>jumpToMessage(m.reply).catch(e=>notice(e.message));b.append(quote);}for(const part of mediaParts(m))b.append(attachment(part));if(m.paid_stars!=null&&!m.media)b.append(el('p','Contenido de pago ('+m.paid_stars+' ⭐) no adquirido en esta cuenta.'));if(m.poll)renderPoll(b,m);if(m.text){const text=el('div');text.className='message-text';richText(text,m.text,m.entities,m.id);b.append(text);}else if(m.protected&&!m.media&&!m.poll)b.append(el('p','Contenido protegido'));else if(!m.media&&!m.poll)b.append(el('p','Mensaje de servicio'));if(m.reactions?.length){const row=el('div');row.className='reactions';for(const r of m.reactions){const btn=el('button');if(r.document)btn.append(premiumSpan(r.document,'✦',m.id),document.createTextNode(' '+r.count));else btn.textContent=(r.emoji||'✦')+' '+r.count;btn.className=r.chosen?'selected':'';btn.onclick=async()=>{try{if(!r.emoji)return reactionDialog(m);await change('reaction',{message:m.id,emoji:r.chosen?'':r.emoji});await refreshAfterChange();}catch(e){notice(e.message);}};row.append(btn);}b.append(row);}if(panelAdmin&&chat.type!=='private'&&!m.out){const report=el('button','🚩 Reportar publicación');report.type='button';report.className='bubble-report';report.setAttribute('aria-label','Reportar esta publicación a Telegram');report.onclick=event=>{event.stopPropagation();reportMessageDialog(m).catch(e=>notice(e.message));};b.append(report);}b.append(el('time',(m.edited?'editado · ':'')+time(m.date)+(m.out&&m.delivery?(m.delivery==='read'?' ✓✓':' ✓'):'')));if(m.grouped&&m.media){if(albumId!==m.grouped){album=el('div');album.className='album'+(m.out?' out':'');albumId=m.grouped;thread.append(album);}album.append(b);}else{album=null;albumId=null;thread.append(b);}}if(!items.length){const p=el('p',query?'Sin resultados.':'Todavía no hay contenido disponible en esta vista.');p.className='empty';thread.append(p);}updateBatch();}
 let mediaCurrent=null,mediaItems=[],mediaGallery=false,mediaPaging=false,mediaGesture=null,mediaRender=0;
+let mediaReturn=null,mediaLeavingForMessage=false;
 const visualMedia=m=>['photo','video'].includes(m.media?.type);
 function mediaList(){return [...messages.values()].flatMap(mediaParts).filter(visualMedia).sort((a,b)=>mediaGallery?b.id-a.id||(a.paid_index??0)-(b.paid_index??0):a.id-b.id||(a.paid_index??0)-(b.paid_index??0));}
 function stopMediaPlayback(){for(const player of $('media-content').querySelectorAll('video,audio')){player.pause();player.removeAttribute('src');player.load();}}
 function updateMediaNavigation(){const index=mediaItems.findIndex(m=>mediaKey(m)===mediaKey(mediaCurrent)),more=mediaGallery&&!!before;$('media-previous').disabled=mediaPaging||index<=0;$('media-next').disabled=mediaPaging||index<0||(index>=mediaItems.length-1&&!more);$('media-position').textContent=mediaPaging?'Cargando más…':(index+1)+' de '+mediaItems.length+(more?' cargados':'');$('media-navigation').hidden=!visualMedia(mediaCurrent||{});$('media-to-chat').disabled=mediaPaging||operationBusy;}
-function openMedia(m){mediaGallery=mode==='gallery';mediaItems=visualMedia(m)?mediaList():[m];if(!mediaItems.some(item=>mediaKey(item)===mediaKey(m)))mediaItems.push(m);mediaPaging=false;modal=true;showMedia(m);if(!$('media-dialog').open)$('media-dialog').showModal();}
+function openMedia(m){
+ if(!$('media-dialog').open){
+  panelNavSave();
+  mediaReturn={accountId:account?.id,chatId:chat?.id,
+   position:$('thread').scrollTop,view:$('workspace')?.dataset?.view};
+ }
+ mediaGallery=mode==='gallery';mediaItems=visualMedia(m)?mediaList():[m];
+ if(!mediaItems.some(item=>mediaKey(item)===mediaKey(m)))mediaItems.push(m);
+ mediaPaging=false;modal=true;showMedia(m);
+ if(!$('media-dialog').open){
+  $('media-dialog').showModal();
+  panelNavPush('media',{media:m});
+ }
+}
 function showMedia(m){if(typeof panelAdmin!=='undefined'&&typeof chat!=='undefined')reportMediaButton.hidden=!panelAdmin||!chat||chat.type==='private'||!!m.out;const render=++mediaRender;mediaCurrent=m;mediaGesture=null;stopMediaPlayback();const info=m.media,box=$('media-content');box.replaceChildren();box.classList.toggle('protected-media',!!m.protected);$('media-name').textContent=info.name||labels[info.type];$('media-note').textContent='';const url=fileUrl('media',m),current=()=>modal&&mediaRender===render&&mediaKey(mediaCurrent)===mediaKey(m);const fileSave=$('download'),purchased=Number.isInteger(m.paid_index);fileSave.hidden=false;fileSave.setAttribute('aria-disabled','false');fileSave.removeAttribute('href');fileSave.removeAttribute('download');fileSave.removeAttribute('target');fileSave.textContent='Enviar descarga';if(purchased){fileSave.hidden=true;}box.oncontextmenu=null;if(info.type==='photo'||(info.mime||'').startsWith('image/')){const img=el('img');img.alt=m.text||'Foto';img.draggable=false;networkTail.then(()=>{if(current())img.src=url;});img.onerror=()=>{if(current())$('media-note').textContent='No se pudo abrir la imagen. Puedes pasar al siguiente archivo o intentarlo de nuevo.';};box.append(img);}else if(['video','voice','audio'].includes(info.type)){const player=el(info.type==='video'?'video':'audio');player.controls=true;player.preload='metadata';player.playsInline=true;player.src=url;player.onerror=()=>{if(!current())return;const code=player.error?.code;$('media-note').textContent=code===2?'Se interrumpió la transferencia del video. Puedes reintentarlo.':code===3?'Este navegador no pudo decodificar el video.':(m.protected?'No se pudo reproducir este archivo en el navegador.':'No se pudo reproducir: la transferencia falló o el navegador no admite el formato. Puedes descargarlo.');const retry=el('button','Reintentar');retry.type='button';retry.className='media-to-chat';retry.onclick=()=>{if(current())showMedia(m);};$('media-note').append(retry);};box.append(player);}else box.append(el('p','Usa Descargar archivo para abrir este documento.'));if(purchased){box.append(preparedDownloadControl(
   {account:account.id,peer:chat.handle,message:m.id,paid_index:m.paid_index},info.name||'video.mp4'));
  }updateMediaNavigation();}
 async function navigateMedia(direction){if(!modal||!mediaCurrent||mediaPaging||!visualMedia(mediaCurrent))return;const id=mediaKey(mediaCurrent),chosen=mediaRender,viewerEpoch=epoch;let index=mediaItems.findIndex(m=>mediaKey(m)===id),target=index+direction;if(target>=mediaItems.length&&direction>0&&mediaGallery&&before){mediaPaging=true;updateMediaNavigation();try{await loadMessages(true);if(!modal||mediaRender!==chosen||epoch!==viewerEpoch)return;mediaItems=mediaList();index=mediaItems.findIndex(m=>mediaKey(m)===id);target=index+direction;}finally{if(mediaRender===chosen){mediaPaging=false;updateMediaNavigation();}}}if(!modal||mediaRender!==chosen||epoch!==viewerEpoch||index<0||target<0||target>=mediaItems.length)return;showMedia(mediaItems[target]);}
-function closeMedia(){mediaRender++;stopMediaPlayback();$('media-content').replaceChildren();mediaCurrent=null;mediaItems=[];mediaPaging=false;mediaGesture=null;modal=false;pumpThumbs();}
-$('close-media').onclick=()=>$('media-dialog').close();$('media-dialog').addEventListener('close',closeMedia);
+function closeMedia(){
+ const back=mediaReturn;mediaReturn=null;
+ mediaRender++;stopMediaPlayback();$('media-content').replaceChildren();
+ mediaCurrent=null;mediaItems=[];mediaPaging=false;mediaGesture=null;modal=false;
+ if(back&&!mediaLeavingForMessage){
+  requestAnimationFrame(()=>{
+   if(String(account?.id)===String(back.accountId)&&String(chat?.id)===String(back.chatId)&&
+      $('workspace').dataset.view===back.view){
+    $('thread').scrollTop=back.position;
+    previousScrollTop=$('thread').scrollTop;
+   }
+  });
+ }
+ if(!mediaLeavingForMessage)panelNavDismiss('media');
+ pumpThumbs();
+}
+$('close-media').onclick=()=>$('media-dialog').close();
+$('media-back').onclick=()=>$('media-dialog').close();
+$('media-dialog').addEventListener('close',closeMedia);
 $('media-previous').onclick=()=>navigateMedia(-1).catch(e=>notice(e.message));$('media-next').onclick=()=>navigateMedia(1).catch(e=>notice(e.message));
 $('download').onclick=async event=>{if(!mediaCurrent||operationBusy){event.preventDefault();return;}if(Number.isInteger(mediaCurrent.paid_index))return;event.preventDefault();const button=$('download');if(button.dataset.sending)return;button.dataset.sending='1';$('media-note').textContent='Registrando entrega…';try{const r=await api('deliver-selection',{account:account.id,peer:chat.handle,messages:[mediaCurrent.id]});$('media-note').textContent=r.message;}catch(e){$('media-note').textContent=e.message;}finally{delete button.dataset.sending;}};
-const reportMediaButton=$('report-media');reportMediaButton.onclick=()=>{const chosen=mediaCurrent;$('media-dialog').close();if(chosen)reportMessageDialog(chosen).catch(e=>notice(e.message));};
-$('media-to-chat').onclick=async()=>{if(!mediaCurrent||mediaPaging||operationBusy)return;const id=mediaCurrent.id;$('media-dialog').close();closeMedia();$('message-query').value='';$('message-search').hidden=true;try{await jumpToMessage(id,true);}catch(e){notice(e.message);}};
+const reportMediaButton=$('report-media');reportMediaButton.onclick=()=>{const chosen=mediaCurrent;mediaLeavingForMessage=true;$('media-dialog').close();if(chosen)reportMessageDialog(chosen).catch(e=>notice(e.message)).finally(()=>{mediaLeavingForMessage=false;});else mediaLeavingForMessage=false;};
+$('media-to-chat').onclick=async()=>{
+ if(!mediaCurrent||mediaPaging||operationBusy)return;
+ const id=mediaCurrent.id;mediaLeavingForMessage=true;
+ panelNavSave();$('media-dialog').close();closeMedia();
+ $('message-query').value='';$('message-search').hidden=true;
+ try{await jumpToMessage(id,true);panelNavPush('view');}
+ catch(e){notice(e.message);}
+ finally{mediaLeavingForMessage=false;}
+};
 $('media-dialog').addEventListener('keydown',event=>{if(['INPUT','TEXTAREA','SELECT','VIDEO','AUDIO'].includes(event.target.tagName)||event.altKey||event.ctrlKey||event.metaKey)return;if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();navigateMedia(event.key==='ArrowLeft'?-1:1).catch(e=>notice(e.message));}});
 $('media-content').addEventListener('touchstart',event=>{mediaGesture=event.touches.length===1?{x:event.touches[0].clientX,y:event.touches[0].clientY,at:Date.now(),render:mediaRender}:null;},{passive:true});
 $('media-content').addEventListener('touchmove',event=>{if(event.touches.length!==1)mediaGesture=null;},{passive:true});
@@ -498,7 +537,14 @@ async function refreshAfterChange(){if(!chat)return;if(contextMode&&contextFocus
 let lastTyping=0;$('compose-text').oninput=()=>{sendRequest=null;autoSize();if(chat&&!operationBusy&&Date.now()-lastTyping>8000){lastTyping=Date.now();api('action',{action:'typing',account:account.id,peer:chat.handle,topic:topic||undefined}).catch(()=>{});}};$('cancel-reply').onclick=()=>{replyDraft=null;sendRequest=null;$('reply-draft').hidden=true;};
 $('attachment').onchange=()=>{const file=$('attachment').files[0];if(!file)return;attachedFile=file;sendRequest=null;$('attached-name').textContent=file.name;$('attachment-kind').value=file.type.startsWith('image/')?'photo':file.type.startsWith('video/')?'video':file.type.startsWith('audio/')?'audio':'document';$('attached').hidden=false;updateSendButton();};$('remove-attachment').onclick=()=>{attachedFile=null;sendRequest=null;$('attachment').value='';$('attached').hidden=true;updateSendButton();};$('attachment-kind').onchange=()=>{sendRequest=null;updateSendButton();};
 $('composer').onsubmit=async event=>{event.preventDefault();if(operationBusy||!chat)return;const text=$('compose-text').value;if(!text.trim()&&!attachedFile)return;sendRequest=sendRequest||actionId();const chosen=epoch;try{if(attachedFile){operationBusy=true;$('send-message').disabled=true;notice('Enviando '+attachedFile.name+'…');const form=new FormData();form.set('data',JSON.stringify({account:account.id,peer:chat.handle,action:'upload',request:sendRequest,text,reply:replyDraft?.id||(topic>1?topic:undefined),kind:$('attachment-kind').value,schedule:scheduleDraft,format:$('compose-format').value}));form.set('file',attachedFile,attachedFile.name);await api('upload',form,true);operationBusy=false;}else await change('send',{text,reply:replyDraft?.id||(topic>1?topic:undefined),schedule:scheduleDraft,format:$('compose-format').value},sendRequest);if(chosen===epoch){const scheduled=!!scheduleDraft;scheduleDraft=null;$('schedule-compose').textContent='◷ Programar';$('compose-text').value='';attachedFile=null;replyDraft=null;sendRequest=null;$('attachment').value='';$('attached').hidden=true;$('reply-draft').hidden=true;autoSize();if(contextMode){epoch++;contextMode=false;contextFocus=null;messages.clear();before=null;$('return-latest').hidden=true;}await refreshAfterChange();$('thread').scrollTop=$('thread').scrollHeight;notice(scheduled?'✓ Mensaje programado en Telegram.':'✓ Enviado con '+account.name+'.');}}catch(e){notice(e.message);}finally{operationBusy=false;updateSendButton();pumpThumbs();pumpProfiles();}};
-$('close-message-actions').onclick=()=>$('message-actions').close();$('close-management').onclick=()=>$('management').close();
+$('close-message-actions').onclick=()=>$('message-actions').close();
+$('close-management').onclick=()=>$('management').close();
+$('management-back').onclick=()=>$('management').close();
+let purchasesLeaving=false;
+$('management').addEventListener('close',()=>{
+ if(!purchasesLeaving)panelNavDismiss('purchases');
+ purchasesLeaving=false;
+});
 function option(parent,label,fn,danger=false){const button=el('button',label);if(danger)button.className='danger';button.onclick=async()=>{try{await fn();}catch(e){notice(e.message);}};parent.append(button);return button;}
 function messageOptions(message){const box=$('message-options');box.replaceChildren();const close=()=>$('message-actions').close();option(box,'Reaccionar',()=>{close();reactionDialog(message);});option(box,'↩ Responder',()=>{close();replyDraft=message;sendRequest=null;$('reply-draft-text').textContent='Respuesta: '+(message.text||labels[message.media?.type]||'Mensaje').slice(0,120);$('reply-draft').hidden=false;$('compose-text').focus();});if(!message.protected&&message.text)option(box,'Copiar texto',async()=>{await navigator.clipboard.writeText(message.text);close();});if(!message.protected)option(box,'Reenviar',()=>{close();forwardDialog(message);});if(message.out||capabilities?.rights.edit_messages)option(box,'Editar texto / comentario',()=>{close();editDialog(message);});if(message.out||chat.type==='private'||capabilities?.rights.delete_messages)option(box,'Eliminar para todos',async()=>{if(!confirm('¿Eliminar este mensaje para todos en '+chat.name+'?'))return;await change('delete',{message:message.id});close();await refreshAfterChange();},true);if(chat.type==='private'||capabilities?.rights.pin_messages){option(box,'Fijar mensaje',async()=>{if(!confirm('¿Fijar este mensaje en '+chat.name+'?'))return;await change('pin',{message:message.id});close();});option(box,'Desfijar mensaje',async()=>{await change('unpin',{message:message.id});close();});}if(panelAdmin&&chat.type!=='private'&&!message.out)option(box,'🚩 Reportar a Telegram',()=>{close();reportMessageDialog(message);});$('message-actions').showModal();}
 async function reportMessageDialog(m){
@@ -1345,7 +1391,9 @@ window.addEventListener('pageshow',event=>{if(event.persisted){startLive();if(ch
 $('purchases').onclick=()=>openPurchases().catch(e=>notice(e.message));
 async function openPurchases(){
  if(!account||operationBusy)return;
+ panelNavSave();
  const selected=account,root=el('section'),box=management('⭐ Comprados · '+account.name);
+ panelNavPush('purchases');
  box.append(root);let next=null,busy=false,selectedSource=null;
  const purchases=new Map(),groups=new Map(),status=el('p','Consultando compras…'),list=el('div'),more=el('button','Cargar más compras');
  more.hidden=true;root.append(status,list,more);
@@ -1360,7 +1408,11 @@ async function openPurchases(){
    const group=groups.get(selectedSource),back=el('button','‹ Volver a Comprados');back.onclick=()=>{selectedSource=null;render();};list.append(back,el('h3',group.chat.name));
    for(const id of group.items){const item=purchases.get(id),card=el('article');card.className='purchase-card';card.append(el('strong',item.title),el('p',date(item.date)+' · '+item.media.length+' archivos'));
     if(item.link){const link=el('a','Abrir mensaje original en Telegram');link.href=item.link;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}else card.append(el('small','Este chat no tiene un enlace público al mensaje.'));
-    if(item.message){const jump=el('button','Ver mensaje en el panel');jump.onclick=async()=>{stopMedia();$('management').close();try{await openChat(item.chat);await jumpToMessage(item.message);}catch(e){notice(e.message);}};card.append(jump);}
+    if(item.message){const jump=el('button','Ver mensaje en el panel');jump.onclick=async()=>{
+  purchasesLeaving=true;stopMedia();$('management').close();
+  try{await openChat(item.chat);await jumpToMessage(item.message);panelNavPush('view');}
+  catch(e){notice(e.message);}
+ };card.append(jump);}
     for(const media of item.media){const row=el('div'),show=el('button',(media.type==='video'?'▶ Ver video':'🖼 Ver foto')+' '+(media.index+1));row.className='purchase-media';show.onclick=()=>{const node=el(media.type==='video'?'video':'img');node.className='purchase-preview';if(media.type==='video'){node.controls=true;node.playsInline=true;node.preload='metadata';}else node.alt='Foto comprada';node.src=url('purchase-media',item,media.index);node.onerror=()=>notice('No se pudo cargar este archivo. Vuelve a abrir Comprados para actualizarlo.');show.replaceWith(node);};const control=preparedDownloadControl({account:selected.id,peer:item.chat.handle,
   purchase:item.token,index:media.index},media.name||(media.type==='video'?'video.mp4':'foto.jpg'));
   row.append(show,control);card.append(row);}
