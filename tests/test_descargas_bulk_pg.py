@@ -1,8 +1,11 @@
 """Real PostgreSQL checks for new isolated bulk tables and range queries."""
+import asyncio
 import json
 import os
 import unittest
 import uuid
+from types import SimpleNamespace as NS
+from unittest.mock import AsyncMock,patch
 
 import asyncpg
 from descargas_app import bulk_transfer as bulk,bulk_worker as worker
@@ -75,5 +78,49 @@ class BulkPostgresTests(unittest.IsolatedAsyncioTestCase):
             "SELECT count(*) FROM descarga_bulk_deliveries WHERE job_id=$1",job),2)
         self.assertEqual(await self.conn.fetchval(
             "SELECT caption FROM descarga_bulk_audit WHERE job_id=$1",job),"Original")
+
+    async def test_twenty_independent_destination_jobs_and_atomic_limit(self):
+        """21 simultaneous requests may create only 20 jobs for one user."""
+        bot_id,uid=77777,88888
+        dsn=os.environ["PGTEST_DSN"]
+        pool=await asyncpg.create_pool(dsn,min_size=1,max_size=5)
+        try:
+            targets=[-100600-i for i in range(21)]
+            await self.conn.executemany(
+                """INSERT INTO descarga_bulk_chats
+                   (bot_id,chat_id,title,chat_type,seen_at)
+                   VALUES($1,$2,$3,'supergroup',1)""",
+                [(bot_id,target,f"Destino {i}") for i,target in enumerate(targets)])
+            svc=NS(bot_id=bot_id,almacen=-100999,repo=NS(
+                pool=pool,policy=AsyncMock(return_value={"locked":False})),
+                api=AsyncMock(return_value={"status":"administrator"}))
+            with patch.object(bulk,"ensure_allowed",new_callable=AsyncMock),\
+                 patch.object(bulk,"check_destination",new_callable=AsyncMock),\
+                 patch.object(bulk,"_my_account",new_callable=AsyncMock,
+                              return_value={"generation":1}),\
+                 patch.object(bulk,"_source_dialog",new_callable=AsyncMock,
+                              return_value={"title":"Origen","hash":100}):
+                outcomes=await asyncio.gather(*[
+                    bulk.create(svc,uid,{"source":-100777,"destination":target})
+                    for target in targets],return_exceptions=True)
+                successes=[x for x in outcomes if isinstance(x,dict)]
+                rejections=[x for x in outcomes if isinstance(x,ValueError)]
+                self.assertEqual(len(successes),20)
+                self.assertEqual(len(rejections),1)
+                self.assertIn("20 transferencias",str(rejections[0]))
+                jobs=await bulk.list_jobs(svc,uid)
+                self.assertEqual(len(jobs["jobs"]),20)
+                with self.assertRaisesRegex(ValueError,"ya tienen una transferencia"):
+                    await bulk.create(svc,uid,
+                        {"source":-100777,"destination":targets[0]})
+                await bulk.disconnect(svc,uid,{"id":successes[0]["id"]})
+                # A disconnected slot is reusable without changing any old session.
+                created=await bulk.create(svc,uid,
+                    {"source":-100777,"destination":targets[20]})
+                self.assertTrue(created["id"])
+                self.assertEqual(len((await bulk.list_jobs(svc,uid))["jobs"]),20)
+        finally:
+            await pool.close()
+
 
 if __name__=="__main__":unittest.main()
