@@ -1,0 +1,34 @@
+name: Web Galerías — bot TOKEN_WEB aislado
+on:
+  push:
+    branches: [web-galerias-bot-feed-aislado-20261116]
+    paths:
+      - 'web_galerias/**'
+      - 'galerias_standalone.py'
+      - 'tests/test_web_galerias_bot_feed.py'
+      - '.github/workflows/web-galerias-bot-feed.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dependencies
+        run: pip install -e .
+      - name: Compile and JS syntax
+        run: |
+          python -m compileall -q web_galerias galerias_standalone.py
+          node --check web_galerias/app.js
+      - name: Dedicated bot feed tests
+        run: python -m unittest discover -s tests -p test_web_galerias_bot_feed.py -v
+      - name: Traditional gallery untouched regression tests
+        run: |
+          python -m unittest discover -s tests -p test_web_galerias_manual_r2_upload.py -v
+          python -m unittest discover -s tests -p test_web_galerias_album_metadata.py -v
+          python -m unittest discover -s tests -p test_web_galerias_datos_source.py -v
