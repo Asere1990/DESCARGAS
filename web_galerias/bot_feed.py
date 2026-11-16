@@ -387,16 +387,55 @@ async def process_item(g, session, bot_token, item):
     if int(item["file_size"]) > 0 and telegram_size != int(item["file_size"]):
         raise ValueError("Tamaño de archivo inconsistente.")
     stored = await g.storage.object_size(original_key)
+    original_photo = None
     if stored != telegram_size:
-        async def still_current():
+        if item["kind"] == "photo" and telegram_size <= 4 * 1024 * 1024:
+            # Compressed Telegram photos need only ONE getFile download and
+            # one PUT to R2. Derive the actual thumbnail from the same bytes.
+            parts = []
+            downloaded = 0
+            async for chunk in file_chunks(session, url, limit=MAX_FILE_BYTES):
+                downloaded += len(chunk)
+                parts.append(chunk)
+            if downloaded != telegram_size:
+                raise ValueError("Foto Telegram incompleta.")
             if not await route_current(g, item):
                 raise ValueError("Group ID retirado durante la descarga.")
-        await g.storage.upload_stream(
-            file_chunks(session, url, limit=MAX_FILE_BYTES), original_key,
-            item["mime"], check=still_current, expected_size=telegram_size
-        )
+            original_photo = b"".join(parts)
+            await asyncio.to_thread(
+                g.storage._client().put_object,
+                Bucket=g.storage.bucket, Key=original_key,
+                Body=original_photo, ContentType=item["mime"],
+                CacheControl="private, max-age=3600"
+            )
+            saved = await g.storage.object_size(original_key)
+            if saved != telegram_size:
+                raise ValueError("Cloudflare R2 no confirmó el archivo original.")
+        else:
+            # Even large 20MB clips use bounded streaming and backpressure.
+            # Throttle route checks to avoid ~80 SQL queries per upload.
+            checked_at = 0.0
+            async def still_current():
+                nonlocal checked_at
+                now = time.monotonic()
+                if now - checked_at < 3:
+                    return
+                checked_at = now
+                if not await route_current(g, item):
+                    raise ValueError("Group ID retirado durante la descarga.")
+            await g.storage.upload_stream(
+                file_chunks(session, url, limit=MAX_FILE_BYTES), original_key,
+                item["mime"], check=still_current, expected_size=telegram_size
+            )
     if not await g.storage.exists(thumb_key):
-        raw = await image_preview(session, bot_token, item["thumb_file_id"])
+        raw = None
+        if original_photo is not None:
+            try:
+                raw = await asyncio.to_thread(_jpeg_thumb, original_photo)
+            except (OSError, ValueError):
+                pass
+        if not raw:
+            raw = await image_preview(session, bot_token, item["thumb_file_id"])
         if not raw:
             raw = await asyncio.to_thread(_fallback_thumb)
         await asyncio.to_thread(
