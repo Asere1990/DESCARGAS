@@ -414,6 +414,7 @@ async def admin(service,uid,data):
                ORDER BY created DESC LIMIT 70""",job_id)
         return {"uid":int(row["uid"]),"source":row["source_title"],
                 "destination":row["target_title"],
+                "archive_chat_id":int(service.almacen or 0),
                 "audit":[{"run":int(r["run_no"]),"original_id":int(r["message_id"]),
                           "archive_id":int(r["archive_id"]),
                           "destination_id":int(r["destination_id"] or 0),

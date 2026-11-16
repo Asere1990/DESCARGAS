@@ -250,12 +250,22 @@
           const list=mk("div","bulk-admin-list");
           if(!result.audit.length)list.append(mk("p","","Sin archivos registrados."));
           for(const record of result.audit){
-            list.append(mk("p","",
-              "Original "+record.original_id+" · guardado "+record.archive_id+
+            const line=mk("p","",
+              "Original "+record.original_id+
               " · destino "+record.destination_id+
               " · autor "+record.author+
               (record.reply_to?" · responde a "+record.reply_to:"")+
-              (record.caption?" · "+record.caption:"")));
+              (record.caption?" · "+record.caption:""));
+            const privateChat=String(result.archive_chat_id||"");
+            if(privateChat.startsWith("-100")&&record.archive_id){
+              const link=mk("a",""," · Ver archivo guardado");
+              link.href="https://t.me/c/"+privateChat.slice(4)+"/"+record.archive_id;
+              link.target="_blank";link.rel="noopener noreferrer";
+              line.append(link);
+            }else{
+              line.append(mk("span",""," · Archivo "+record.archive_id));
+            }
+            list.append(line);
           }
           card.append(list);
         }catch(error){card.append(mk("p","",error.message));}

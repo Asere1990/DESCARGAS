@@ -325,13 +325,25 @@ async def send_media(s,job,items):
                 # The archive is the durable first stop. A failed archive
                 # never causes a file to be sent to the user destination.
                 archive_peer=await _storage_peer(s)
-                saved=await s.bot.send_file(archive_peer,
-                    media if len(media)>1 else media[0],
-                    caption=[m.message or "" for m in ordered] if len(media)>1
-                    else ordered[0].message or "",
-                    formatting_entities=[m.entities or [] for m in ordered]
-                    if len(media)>1 else ordered[0].entities or [],
-                    parse_mode=None)
+                try:
+                    saved=await s.bot.send_file(archive_peer,
+                        media if len(media)>1 else media[0],
+                        caption=[m.message or "" for m in ordered] if len(media)>1
+                        else ordered[0].message or "",
+                        formatting_entities=[m.entities or [] for m in ordered]
+                        if len(media)>1 else ordered[0].entities or [],
+                        parse_mode=None)
+                except errors.FloodWaitError:
+                    # Explicit Telegram rejection of the one batch request:
+                    # no archive was accepted, so its unconfirmed claims may
+                    # be retried after the exact documented cooldown.
+                    await s.repo.pool.execute(
+                        """DELETE FROM descarga_bulk_deliveries
+                           WHERE job_id=$1 AND run_no=$2
+                             AND message_id=ANY($3::bigint[])
+                             AND status='preparing' AND archive_id IS NULL""",
+                        job["id"],job["run_no"],ids)
+                    raise
         finally:await client.disconnect()
     saved=saved if isinstance(saved,list) else [saved]
     if len(saved)!=len(items):
