@@ -1,0 +1,53 @@
+name: DESCARGAS — transferencias completas aisladas
+on:
+  push:
+    branches: [descargas-bulk-miniapp-isolated-20261116]
+    paths:
+      - 'descargas_app/**'
+      - 'tests/test_descargas_bulk_*'
+      - '.github/workflows/descargas-bulk-isolated.yml'
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_USER: test
+          POSTGRES_DB: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dependencies
+        run: pip install -e .
+      - name: Python and JavaScript compile
+        run: |
+          python -m compileall -q descargas_app scale_web.py scale_worker.py
+          node --check descargas_app/web/app.js
+          node --check descargas_app/web/bulk.js
+          node --test tests/test_descargas_bulk_ui.cjs
+      - name: New isolated transfer regression tests
+        run: |
+          python -m unittest discover -s tests -p test_descargas_bulk.py -v
+      - name: Real temporary Postgres schema and range queries
+        env:
+          PGTEST_DSN: postgresql://test:test@localhost:5432/test
+        run: python -m unittest discover -s tests -p test_descargas_bulk_pg.py -v
+      - name: Existing Mini App and download compatibility
+        run: |
+          python -m unittest discover -s tests -p test_miniapp_copy.py -v
+          python -m unittest discover -s tests -p test_galerias_start_button.py -v
+          python -m unittest discover -s tests -p test_web_actions.py -v

@@ -25,7 +25,7 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
         return response
     async def assets(request):
         name=request.match_info['name']
-        if name not in ('app.js','style.css','descargas-logo.jpg'):raise web.HTTPNotFound()
+        if name not in ('app.js','bulk.js','style.css','descargas-logo.jpg'):raise web.HTTPNotFound()
         return web.FileResponse(WEB/name,headers={'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'})
     async def countries(request):
         return web.json_response([{'region':region,'code':phonenumbers.country_code_for_region(region)} for region in sorted(phonenumbers.SUPPORTED_REGIONS)])
@@ -61,6 +61,16 @@ def mount(app,prefix='/descargas',shared_lock=None,service_factory=Service):
                 if not allowed:raise web.HTTPForbidden()
                 await service.admin_panel.update({'message':{'from':{'id':uid},'chat':{'id':uid,'type':'private'},'text':'/datos'}})
                 return await json_reply({'ok':True},headers={'Cache-Control':'no-store'})
+            if operation.startswith('bulk-'):
+                from .bulk_transfer import dispatch
+                try:
+                    result=await dispatch(service,uid,operation,data)
+                except PermissionError:
+                    raise web.HTTPForbidden()
+                except ValueError as exc:
+                    return await json_reply({'error':str(exc)[:240]},status=400,
+                                            headers={'Cache-Control':'no-store'})
+                return await json_reply(result,headers={'Cache-Control':'no-store'})
             if operation in ('creator-status','creator-authorize','creator-revoke'):
                 from .creator_access import VERSION
                 if not hasattr(service,'repo'):raise ValueError('Esta función requiere el servicio principal.')

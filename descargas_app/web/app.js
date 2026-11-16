@@ -8,6 +8,14 @@ const tg=window.Telegram?.WebApp;
 const $=id=>document.getElementById(id);
 let busy=false, countries=[];
 const creatorMode=new URLSearchParams(location.search).get('mode')==='creator';
+const bulkAdminMode=new URLSearchParams(location.search).get('mode')==='bulk-admin';
+if(bulkAdminMode){
+ for(const id of ['steps','phone-step','code-step','password-step','done-step',
+                  'creator-review','admin-tools','membership']){
+  const section=document.getElementById(id);
+  if(section)section.hidden=true;
+ }
+}
 if(creatorMode){
  $('phone-step').querySelector('h1').textContent=t("creator.title");
  $('phone-step').querySelector('.intro').textContent=t("creator.intro");
@@ -18,7 +26,7 @@ if(creatorMode){
  $('creator-authorize').hidden=true;
 }
 
-function show(step){if(creatorMode){$('creator-authorize').hidden=step!=='done';$('creator-review').hidden=step!=='done';if(step==='done')window.scrollTo(0,0);}['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
+function show(step){if(bulkAdminMode)return;if(creatorMode){$('creator-authorize').hidden=step!=='done';$('creator-review').hidden=step!=='done';if(step==='done')window.scrollTo(0,0);}['phone','code','password','done'].forEach(s=>$(s+'-step').hidden=s!==step);document.querySelectorAll('.steps span').forEach((el,i)=>el.classList.toggle('active',i===(step==='phone'?0:step==='done'?2:1)));$('notice').textContent='';}
 async function api(op,data={}){
  let response;try{response=await fetch('api/'+op,{method:'POST',headers:{'Content-Type':'application/json','X-Telegram-Init-Data':tg?.initData||'','X-Miniapp-Mode':creatorMode?'creadores':'cuenta'},body:JSON.stringify(data),cache:'no-store'});}catch(e){throw Error(t('error.network'));}
  let result;try{result=await response.json();}catch(e){throw Error(t('error.request'));}if(!response.ok)throw Error(result.error||t("error.request"));return result;

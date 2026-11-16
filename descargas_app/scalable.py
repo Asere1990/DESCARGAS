@@ -162,6 +162,10 @@ class ScaleService(Service):
                     self.tasks.append(asyncio.create_task(self.maintenance()))
                     self.tasks.append(asyncio.create_task(self.archive_loop()))
                     self.tasks.append(asyncio.create_task(group_export_loop(self)))
+                    # Separate serial lane; ordinary download and export workers
+                    # keep their existing scheduling and authorization paths.
+                    from .bulk_worker import run as bulk_run
+                    self.tasks.append(asyncio.create_task(bulk_run(self)))
                 else:
                     self.bot.flood_sleep_threshold=0
                     await self.repo.set_setting(f'dedicated_export:{self.bot_id}','enabled')
@@ -213,12 +217,12 @@ class ScaleService(Service):
                     key=f'offset:{self.bot_id}'
                     saved=await self.repo.setting(key)
                     if saved is None:
-                        last=await self.api('getUpdates',{'offset':-1,'timeout':0,'allowed_updates':['message','callback_query','pre_checkout_query','chat_member']})
+                        last=await self.api('getUpdates',{'offset':-1,'timeout':0,'allowed_updates':['message','channel_post','callback_query','pre_checkout_query','chat_member','my_chat_member']})
                         offset=last[-1]['update_id']+1 if last else 0
                         await self.repo.set_setting(key,offset)
                     else:offset=int(saved)
                     while not self.stopping:
-                        updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','callback_query','pre_checkout_query','chat_member']})
+                        updates=await self.api('getUpdates',{'offset':offset,'timeout':25,'limit':100,'allowed_updates':['message','channel_post','callback_query','pre_checkout_query','chat_member','my_chat_member']})
                         if not getattr(self,'polling_confirmed',False):
                             LOG.warning('Scale polling active; Telegram updates received successfully')
                             self.polling_confirmed=True
@@ -260,6 +264,15 @@ class ScaleService(Service):
         return await self._update_without_gallery_context(update)
 
     async def _update_without_gallery_context(self,update):
+        # Passive destination registry is independent of ordinary DM delivery.
+        group_event=update.get('my_chat_member') or update.get('channel_post')
+        group_message=update.get('message') or {}
+        if group_event or group_message.get('chat',{}).get('type') in ('group','supergroup','channel'):
+            try:
+                from .bulk_transfer import observe_chat
+                await observe_chat(self,update)
+            except Exception as exc:
+                LOG.warning('Optional destination registry deferred (%s)',type(exc).__name__)
         message=update.get('message',{})
         query=update.get('callback_query',{})
         active_message=query.get('message',{}) if query else message
