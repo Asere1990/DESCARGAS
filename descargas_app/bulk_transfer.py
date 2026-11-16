@@ -261,11 +261,13 @@ async def _owner(service,uid,ident):
 
 async def current(service,uid):
     _int(uid)
+    # A detached newest job intentionally resets the user's Mini App.
+    # Older finished jobs remain in the DB for the administrator only.
     row=await service.repo.pool.fetchrow(
         """SELECT * FROM descarga_bulk_jobs
-           WHERE bot_id=$1 AND uid=$2 AND status<>'detached'
+           WHERE bot_id=$1 AND uid=$2
            ORDER BY created DESC LIMIT 1""",service.bot_id,uid)
-    if not row:return {"job":None}
+    if not row or row["status"]=="detached":return {"job":None}
     counts=_counts(row["counts"])
     ranges={}
     if int(row["run_no"])>0:
