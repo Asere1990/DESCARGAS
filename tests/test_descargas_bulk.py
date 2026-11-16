@@ -22,7 +22,7 @@ class SelectionTests(unittest.TestCase):
             bulk.valid_ranges(counts,{**values,"photos":[9001,9000]})
         with self.assertRaisesRegex(ValueError,"Rango"):
             bulk.valid_ranges(counts,{**values,"photos":[-1,10]})
-        with self.assertRaisesRegex(ValueError,"num"):
+        with self.assertRaisesRegex(ValueError,"Identificador"):
             bulk._int("123")
 
     def test_query_uses_correct_bindings_for_mixed_albums(self):
@@ -180,8 +180,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         client.disconnect.assert_awaited_once()
 
     async def test_ordinary_user_cannot_see_admin_archive_from_public_status(self):
-        source=(await __import__("asyncio").to_thread(lambda:open(
-            "descargas_app/bulk_transfer.py",encoding="utf-8").read()))
+        source=__import__("pathlib").Path("descargas_app/bulk_transfer.py").read_text(encoding="utf-8")
         begin=source.split("async def current(",1)[1].split("def valid_ranges(",1)[0]
         self.assertNotIn("audit",begin.lower())
         self.assertNotIn("archive_id",begin.lower())

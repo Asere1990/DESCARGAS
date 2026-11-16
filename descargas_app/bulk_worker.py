@@ -155,7 +155,7 @@ def _range_query(ranges,first_param=3):
     parts=[];params=[]
     for i,kind in enumerate(bulk.KINDS):
         left=first_param+i*2;right=left+1
-        parts.append(f"(i.category='{kind}' AND i.ordinal>\${left} AND i.ordinal<=\${right})")
+        parts.append(f"(i.category='{kind}' AND i.ordinal>${left} AND i.ordinal<=${right})")
         params.extend(map(int,ranges[kind]))
     return " OR ".join(parts),params
 
