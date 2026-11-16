@@ -17,7 +17,7 @@ from PIL import Image
 from telethon import types,utils,errors,functions
 from .moderation import authorized
 from .creator_access import ACTOR,require_account,require_source,reviewer,police
-from .account_chat import connected
+from .account_chat import connected, connected_parallel
 from .protected import require_entity
 from .panel_features import extra_message
 
@@ -157,10 +157,23 @@ class TelegramPanel:
                     if live:
                         yield live
                     else:
-                        async with connected(self.s,uid) as client:
-                            client.flood_sleep_threshold=0
-                            row=await self.s.repo.account(uid)
-                            yield client,row['generation']
+                        entered=False
+                        try:
+                            async with connected(self.s,uid) as client:
+                                entered=True
+                                client.flood_sleep_threshold=0
+                                row=await self.s.repo.account(uid)
+                                yield client,row['generation']
+                        except ValueError as exc:
+                            # Downloads keep their existing exclusive lock. A control-panel
+                            # request may use a separate verified session only when entry
+                            # failed because that lock is busy; never replay an action.
+                            if entered or str(exc) != 'Espera a que termine la transferencia en curso y vuelve a intentarlo.':
+                                raise
+                            async with connected_parallel(self.s,uid) as client:
+                                client.flood_sleep_threshold=0
+                                row=await self.s.repo.account(uid)
+                                yield client,row['generation']
                 if not authorized(actor):raise web.HTTPForbidden()
                 await require_account(self.s,uid,actor)
         finally:ACTOR.reset(token)
