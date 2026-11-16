@@ -2020,6 +2020,50 @@ function previewAdmin(){
       (botRoute.failed?" · errores "+pretty(botRoute.failed):""):
     "Sin Group ID asignado. No modifica las fuentes actuales.";
   botFeed.append(botTitle,botStatus);
+  const receiver=S.admin.bot_receiver||{};
+  if(receiver.mode==="webhook_conflict"){
+    const warning=document.createElement("p");
+    warning.className="muted";
+    warning.textContent="Recepción detenida: Telegram entrega los mensajes "+
+      "a otro webhook"+(receiver.webhook_host?" ("+receiver.webhook_host+")":"")+
+      ". La carpeta está asociada, pero no llegarán archivos mientras siga así.";
+    botFeed.append(warning);
+    const activate=document.createElement("button");
+    activate.type="button";activate.className="small-btn";
+    activate.textContent="Activar recepción TOKEN_WEB en CLOUDFLARE";
+    activate.onclick=async()=>{
+      const host=receiver.webhook_host||"otro servicio";
+      if(!confirm("El bot tiene un webhook en "+host+
+        ". Activar aquí quitará ESE webhook, y el servicio anterior dejará "+
+        "de recibir mensajes de este bot. No se borrarán archivos "+
+        "ni los mensajes pendientes de Telegram. ¿Continuar?"))return;
+      activate.disabled=true;
+      try{
+        await api("admin-bot-feed-activate",{confirm:true});
+        notice("Recepción activada. Telegram enviará las publicaciones nuevas "+
+          "a Web Galerías.");
+        await loadAdmin();
+      }catch(e){notice(e.message);}
+      finally{activate.disabled=false;}
+    };
+    botFeed.append(activate);
+  }else if(receiver.mode==="polling"){
+    const working=document.createElement("p");
+    working.className="muted";
+    working.textContent="Recepción Telegram activa. "+
+      (receiver.privacy_disabled===false?
+       "Si otro bot publica, desactiva privacidad y habilita Bot-to-Bot "+
+       "Communication en BotFather.":"");
+    botFeed.append(working);
+  }else if(receiver.mode==="starting"||receiver.mode==="standby"||
+           receiver.mode==="error"){
+    const state=document.createElement("p");
+    state.className="muted";
+    state.textContent=receiver.mode==="error"?
+      "Recepción Telegram con incidencia; revisa los logs de CLOUDFLARE.":
+      "Receptor Telegram iniciándose; actualiza para comprobar el estado.";
+    botFeed.append(state);
+  }
   const botAssign=document.createElement("button");
   botAssign.type="button";botAssign.className="small-btn";
   botAssign.textContent=botRoute?"Cambiar Group ID del bot":"＋ Agregar nuevo Group ID";
