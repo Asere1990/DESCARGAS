@@ -176,3 +176,8 @@
  border:1px solid #9dc7e8;background:#e7f4ff;color:#0673bb;
  font-size:11px;font-weight:800;line-height:1;display:grid;place-items:center;padding:0}
 .favorite-contact-add:disabled{opacity:.4;cursor:not-allowed}
+
+/* Back returns to the exact panel context; no Telegram data is changed. */
+.media-return{display:block;width:100%;text-align:center;padding:13px 12px;color:#167acc;background:#f0f7ff;font-weight:600;border-top:1px solid #deebfa}
+.management-return{white-space:nowrap;font-size:14px;font-weight:600;padding:8px 6px;color:#167acc}
+#media-back:focus-visible,#management-back:focus-visible{outline:3px solid #0089ff;outline-offset:2px}

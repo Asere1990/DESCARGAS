@@ -9,7 +9,7 @@ const viewer=helpers+source.slice(source.indexOf('let mediaCurrent='),source.ind
 function setup({before=null,load=async()=>{}}={}){
  const nodes=new Map();
  function node(tag='div'){
-  return {tagName:tag.toUpperCase(),children:[],listeners:{},classList:{toggle(){}},open:false,
+  return {tagName:tag.toUpperCase(),children:[],listeners:{},dataset:{view:'conversation'},classList:{toggle(){}},open:false,
    append(n){this.children.push(n);},replaceChildren(){this.children=[];},setAttribute(k,v){this[k]=v;},removeAttribute(k){delete this[k];},
    querySelectorAll(selector){return selector==='video,audio'?this.children.filter(n=>['VIDEO','AUDIO'].includes(n.tagName)):[];},
    addEventListener(type,handler){this.listeners[type]=handler;},pause(){this.paused=true;},load(){this.loads=(this.loads||0)+1;},
@@ -20,6 +20,8 @@ function setup({before=null,load=async()=>{}}={}){
  const context={$,el:node,messages:new Map([photo(3),photo(2)].map(m=>[m.id,m])),modal:false,mode:'gallery',epoch:1,before,
   operationBusy:false,networkTail:Promise.resolve(),labels:{photo:'Foto',video:'Video'},fileUrl:(_,m)=>'/media/'+m.id,
   notice(){},pumpThumbs(){},loadMessages:load,
+  panelNavSave(){},panelNavPush(){},panelNavDismiss(){},requestAnimationFrame:fn=>fn(),
+  account:{id:'22'},chat:{id:'55',handle:'handle',type:'group'},previousScrollTop:0,
   preparedDownloadControl:(payload,name)=>{const x=node('section');x.preparation={payload,name};return x;},
   jumpToMessage:async(...args)=>{context.jump=args;}};
  vm.createContext(context);vm.runInContext(viewer+'\nthis.openMedia=openMedia;this.navigateMedia=navigateMedia;',context);
