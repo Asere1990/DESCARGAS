@@ -19,23 +19,29 @@ function setup({before=null,load=async()=>{}}={}){
  const photo=id=>({id,text:'Foto '+id,media:{type:'photo',mime:'image/jpeg',name:id+'.jpg'}});
  const context={$,el:node,messages:new Map([photo(3),photo(2)].map(m=>[m.id,m])),modal:false,mode:'gallery',epoch:1,before,
   operationBusy:false,networkTail:Promise.resolve(),labels:{photo:'Foto',video:'Video'},fileUrl:(_,m)=>'/media/'+m.id,
-  notice(){},pumpThumbs(){},loadMessages:load,jumpToMessage:async(...args)=>{context.jump=args;}};
+  notice(){},pumpThumbs(){},loadMessages:load,
+  preparedDownloadControl:(payload,name)=>{const x=node('section');x.preparation={payload,name};return x;},
+  jumpToMessage:async(...args)=>{context.jump=args;}};
  vm.createContext(context);vm.runInContext(viewer+'\nthis.openMedia=openMedia;this.navigateMedia=navigateMedia;',context);
  const swipe=(dx,dy=0,count=1)=>{const t=$('media-content');t.listeners.touchstart({touches:Array.from({length:count},()=>({clientX:200,clientY:200}))});t.listeners.touchend({touches:[],changedTouches:[{clientX:200+dx,clientY:200+dy}]});};
  return {context,$,photo,swipe};
 }
-test('purchased media viewer uses the native same-page download instead of a blocked new tab',async()=>{
+test('purchased media viewer offers prioritized preparation without touching other videos',()=>{
  const state=setup();
  const m={...state.photo(3),paid_index:0};
+ state.context.account={id:'22'};
+ state.context.chat={handle:'private-peer'};
  state.context.openMedia(m);
  const download=state.$('download');
- assert.match(download.href,/download=1/);
- assert.equal(download.target,undefined);
- assert.equal(download.download,'3.jpg');
- let prevented=0;
- await download.onclick({preventDefault(){prevented++;}});
- assert.equal(prevented,0);
- assert.equal(state.$('media-content').children[0].tagName,'IMG');
+ assert.equal(download.hidden,true);
+ const children=state.$('media-content').children;
+ assert.equal(children[0].tagName,'IMG');
+ const control=children[1];
+ assert.equal(control.tagName,'SECTION');
+ assert.equal(control.preparation.payload.account,'22');
+ assert.equal(control.preparation.payload.message,3);
+ assert.equal(control.preparation.payload.paid_index,0);
+ assert.equal(control.preparation.name,'3.jpg');
 });
 test('horizontal finger swipes move both ways; vertical drags, short taps and pinch do not navigate',()=>{
  const {$,context,swipe}=setup();context.openMedia(context.messages.get(3));
