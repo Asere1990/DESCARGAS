@@ -15,3 +15,15 @@ test("admin audit is queried only through authenticated admin operation",()=>{
  assert.match(js,/bulk-admin-open/);
  assert.match(js,/if\(creatorMode\)/);
 });
+
+test("independent destination jobs are selectable and cannot expose the admin store",()=>{
+ assert.match(html,/id="bulk-job-select"/);
+ assert.match(js,/api\("bulk-list"\)/);
+ assert.match(js,/listJobs\(created\.id\)/);
+ assert.match(js,/state\.selectedId==="new"/);
+ assert.match(html,/20 transferencias independientes/);
+ const transfers=fs.readFileSync("descargas_app/bulk_transfer.py","utf8");
+ assert.match(transfers,/MAX_USER_JOBS=20/);
+ assert.match(transfers,/hashtextextended/);
+ assert.match(transfers,/operation=="bulk-list"/);
+});
