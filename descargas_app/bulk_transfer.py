@@ -249,10 +249,10 @@ async def create(service,uid,data):
                    FROM descarga_bulk_jobs
                    WHERE bot_id=$1 AND uid=$2 AND status<>'detached'""",
                 service.bot_id,uid,source,dest)
-            if int(existing["active"])>=MAX_USER_JOBS:
-                raise ValueError("Límite de 20 transferencias. Desconecta una para agregar otra.")
             if existing["duplicate"]:
                 raise ValueError("Ese origen y destino ya tienen una transferencia configurada.")
+            if int(existing["active"])>=MAX_USER_JOBS:
+                raise ValueError("Límite de 20 transferencias. Desconecta una para agregar otra.")
             await conn.execute(
                 """INSERT INTO descarga_bulk_jobs
                    (id,bot_id,uid,generation,source_id,source_hash,source_title,
