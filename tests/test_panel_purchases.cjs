@@ -22,7 +22,7 @@ function setup(api){
   date:()=> 'Hoy',notice(){},setTimeout:()=>0,clearTimeout:()=>{},panelNavSave(){},panelNavPush(){},
   panelNavEntries:new Map(),panelNavSteps:[],panelNavIndex:0,queueResume(){},purchasesLeaving:false,management(){ $('management').open=true;return $('management-body');},
   openChat:async c=>{context.opened=c;},jumpToMessage:async id=>{context.jumped=id;}};
- vm.createContext(context);vm.runInContext(code+'\nthis.openPurchases=openPurchases;',context);
+ vm.createContext(context);vm.runInContext(code+'\nthis.openPurchases=openPurchases;this.preparedDownloadJobs=preparedDownloadJobs;',context);
  return {context,$,root:()=>$('management-body').children[0]};
 }
 const item=(id='1',source='7')=>({id,date:1,title:'Compra',message:12,link:'https://t.me/c/7/12',token:'token',media:[{type:'video',index:0}],chat:{id:source,name:'Canal '+source,type:'channel',handle:'handle'}});
