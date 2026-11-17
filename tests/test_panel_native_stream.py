@@ -138,5 +138,74 @@ class NativeStarsStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.seen, [])
 
 
+    async def test_short_telegram_source_resumes_from_last_byte_without_http_eof(self):
+        from descargas_app import panel_native_stream
+        first = DownloadIterator(b"Z" * 8192)
+        second = DownloadIterator(b"Z" * 4096)
+        self.seen.clear()
+        def limited(media, offset, request_size, chunk_size):
+            self.seen.append((offset, request_size, chunk_size))
+            return first if len(self.seen) == 1 else second
+        self.client.iter_download = limited
+        with patch.object(web_panel.web, "StreamResponse", FakeStreamResponse), \
+             patch.object(panel_native_stream.asyncio, "sleep", new_callable=AsyncMock):
+            response = await web_panel.TelegramPanel.media(
+                self.panel, self.request("GET", "bytes=4096-16383"),
+                111, 22, "peer", 1, purchase="paid",
+                index=0, native_download=True,
+            )
+        self.assertEqual(response.status, 206)
+        self.assertEqual([len(v) for v in response.writes], [8192, 4096])
+        self.assertEqual(sum(map(len, response.writes)), 12288)
+        self.assertEqual([r[0] for r in self.seen], [4096, 12288])
+        self.assertTrue(first.closed)
+        self.assertTrue(second.closed)
+        self.assertTrue(response.ended)
+
+    async def test_repeated_short_telegram_source_never_marks_http_complete(self):
+        from descargas_app import panel_native_stream
+        self.seen.clear()
+        def empty(media, offset, request_size, chunk_size):
+            self.seen.append(offset)
+            return DownloadIterator(b"")
+        self.client.iter_download = empty
+        created = []
+        def make_response(status, headers):
+            obj = FakeStreamResponse(status, headers)
+            created.append(obj)
+            return obj
+        with patch.object(web_panel.web, "StreamResponse", make_response), \
+             patch.object(panel_native_stream.asyncio, "sleep", new_callable=AsyncMock):
+            with self.assertRaises(ConnectionError):
+                await web_panel.TelegramPanel.media(
+                    self.panel, self.request("GET", "bytes=4096-8191"),
+                    111, 22, "peer", 1, purchase="paid",
+                    index=0, native_download=True,
+                )
+        self.assertEqual(len(self.seen), panel_native_stream.MAX_EARLY_EOF_RETRIES + 1)
+        self.assertFalse(created[0].ended)
+        self.assertEqual(created[0].writes, [])
+
+    async def test_client_disconnect_does_not_silently_report_complete(self):
+        class ConnectionLost(FakeStreamResponse):
+            async def write(self, data):
+                self.writes.append(bytes(data))
+                raise ConnectionResetError("client closed after first chunk")
+        created = []
+        def make_response(status, headers):
+            obj = ConnectionLost(status, headers)
+            created.append(obj)
+            return obj
+        with patch.object(web_panel.web, "StreamResponse", make_response):
+            with self.assertRaises(ConnectionResetError):
+                await web_panel.TelegramPanel.media(
+                    self.panel, self.request("GET", "bytes=4096-16383"),
+                    111, 22, "peer", 1, purchase="paid",
+                    index=0, native_download=True,
+                )
+        self.assertFalse(created[0].ended)
+        self.assertTrue(self.iterator.closed)
+
+
 if __name__ == "__main__":
     unittest.main()
