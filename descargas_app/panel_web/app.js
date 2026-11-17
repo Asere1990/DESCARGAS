@@ -222,7 +222,7 @@ async function panelShareStage(url,name,owner,progress){
   }catch{}
  }
  const suffix=/\.(mp4|mov|m4v|webm|jpg|jpeg|png|gif)$/i.exec(name)?.[0]||'.mp4';
- const key=String(Date.now())+'-'+(typeof crypto?.randomUUID==='function'?
+ const key=String(Date.now())+'-'+(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?
   crypto.randomUUID():String(Math.random()).slice(2))+suffix;
  const handle=await dir.getFileHandle(key,{create:true});
  const controller=new AbortController();
@@ -256,7 +256,9 @@ async function panelShareStage(url,name,owner,progress){
   const type=/\.mov$/i.test(name)?'video/quicktime':
    /\.webm$/i.test(name)?'video/webm':
    /\.png$/i.test(name)?'image/png':
-   /\.(jpe?g)$/i.test(name)?'image/jpeg':'video/mp4';
+   /\.(jpe?g)$/i.test(name)?'image/jpeg':
+   /\.gif$/i.test(name)?'image/gif':
+   /\.webp$/i.test(name)?'image/webp':'video/mp4';
   // Blob/File parts are references to the OPFS-backed file, not a JS
   // ArrayBuffer copy of the original multi-gigabyte video.
   const file=new File([diskFile],name,{type,lastModified:Date.now()});
@@ -314,6 +316,14 @@ function preparedDownloadControl(payload,defaultName='archivo'){
       mb(received)+' MB'+(total?' de '+mb(total)+' MB':'');
     });
    localFile=result.file;localCleanup=result.cleanup;localState='ready';
+   // Private browser staging never becomes a permanent gallery cache.
+   setTimeout(()=>{
+    if(localCleanup===result.cleanup){
+     result.cleanup().catch(()=>{});
+     localFile=null;localCleanup=null;localState='error';
+     localError='La copia temporal del iPhone caducó. Puedes descargarla de nuevo.';
+    }
+   },30*60*1000);
    if(wrap.isConnected)markLocalReady();
    else if(localCleanup)await localCleanup();
   }catch(error){
@@ -404,10 +414,13 @@ function preparedDownloadControl(payload,defaultName='archivo'){
      status.textContent='Se entregó el video al menú Compartir. Comprueba tu galería Fotos.';
     }).catch(error=>{
      if(error?.name==='AbortError')status.textContent='Compartir cancelado. Puedes intentarlo otra vez.';
-     else status.textContent='iPhone no pudo compartir el video: '+(error?.message||'Reintenta.')+
-      ' También puedes usar la descarga alternativa.';
+     else{
+      safari.hidden=false;
+      status.textContent='iPhone no pudo compartir el video: '+(error?.message||'Reintenta.')+
+       ' También puedes usar la descarga alternativa.';
+     }
     });
-   }catch(error){status.textContent='No se pudo abrir Compartir: '+error.message;}
+   }catch(error){safari.hidden=false;status.textContent='No se pudo abrir Compartir: '+error.message;}
    return;
   }
   if(!save.href){event.preventDefault();return;}
