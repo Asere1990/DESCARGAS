@@ -453,52 +453,32 @@ async function panelShareStage(url,name,owner,progress,cacheKey='',expectedSize=
 // Native Safari download manager handles >128 MiB purchased Stars videos.
 // Never feed a multi-GB OPFS File to iOS Share Sheet, use a hidden iframe,
 // or claim success when a link was merely opened.
-function nativeStarsDownloadControl(payload,defaultName='video.mp4'){
+// The only user-facing export method for large purchased Stars videos.
+// Copying the short-lived link and pasting it into the Safari APP works;
+// opening within Telegram, hidden iframes, Web Share and OPFS are not used.
+function nativeStarsDownloadControl(payload){
  const wrap=el('section');wrap.className='prepared-download';
- const link=el('a','↓ Descargar video con Safari');
- link.className='download';link.href=payload.nativeUrl;
- link.target='_blank';link.rel='noopener noreferrer';
- link.setAttribute('aria-label','Abrir descarga del video comprado en Safari');
- const status=el('p','Safari gestionará la descarga del video grande. No necesitas preparar otra copia en este navegador.');
+ const status=el('p','Para descargar este video grande, copia el enlace y pégalo en la aplicación Safari (fuera de Telegram).');
  status.className='prepared-status';status.setAttribute('role','status');
- const hint=el('small','El video aparecerá en Archivos → Descargas solamente cuando Safari termine. Después podrás compartirlo y guardarlo en Fotos.');
- const legacy=el('button','↻ Usar preparación tradicional');
- legacy.type='button';legacy.className='prepared-fallback';
- const note=el('small','La preparación tradicional es una alternativa si Safari no puede guardar el archivo.');
- const copy=el('button','⧉ Copiar enlace para abrir en Safari');
- copy.type='button';copy.className='prepared-fallback';
+ const copy=el('button','⧉ Copiar enlace para Safari');
+ copy.type='button';copy.className='download';
+ const hint=el('small','Abre Safari → pega el enlace → descarga el video. Al terminar estará en Archivos → Descargas. El enlace caduca a las 6 horas.');
+ let copying=false;
  copy.onclick=async()=>{
-  try{
-   await navigator.clipboard.writeText(payload.nativeUrl);
-   status.textContent='Enlace temporal copiado. Abre la aplicación Safari, pega el enlace y descarga allí. El enlace caduca a las 6 horas.';
-  }catch{
-   status.textContent='No se pudo copiar automáticamente. Mantén pulsado «Descargar video con Safari» y elige «Copiar enlace».';
-  }
- };
- link.onclick=event=>{
-  if(typeof payload.pausePreview==='function')payload.pausePreview();
-  const webapp=window.Telegram?.WebApp;
-  if(webapp?.initData&&typeof webapp.openLink==='function'){
-   event.preventDefault();
-   try{
-    webapp.openLink(payload.nativeUrl,{try_instant_view:false});
-    status.textContent='Enlace enviado al navegador externo de iPhone. Comprueba allí la descarga; todavía no está confirmado el guardado.';
-   }catch{
-    status.textContent='Telegram no pudo abrir Safari. Usa «Copiar enlace para abrir en Safari».';
-   }
+  if(copying)return;
+  if(!navigator.clipboard?.writeText){
+   status.textContent='Este navegador no permite copiar automáticamente. Vuelve a abrir DESCARGAS desde un navegador que permita copiar enlaces.';
    return;
   }
-  status.textContent='Se solicitó abrir el enlace de descarga. Si no se abrió Safari, usa «Copiar enlace para abrir en Safari». No se ha confirmado ningún archivo guardado.';
+  copying=true;copy.disabled=true;
+  try{
+   await navigator.clipboard.writeText(payload.nativeUrl);
+   status.textContent='✓ Enlace copiado. Abre la aplicación Safari, pega el enlace y descarga allí. Esto no significa que el video ya esté guardado.';
+  }catch{
+   status.textContent='No se pudo copiar el enlace. Reintenta pulsando el botón.';
+  }finally{copying=false;copy.disabled=false;}
  };
- legacy.onclick=()=>{
-  legacy.hidden=true;note.hidden=true;
-  const fallback=preparedDownloadControl({
-   account:payload.account,peer:payload.peer,
-   purchase:payload.purchase,index:payload.index
-  },defaultName);
-  wrap.append(fallback);
- };
- wrap.append(link,status,hint,copy,legacy,note);
+ wrap.append(status,copy,hint);
  return wrap;
 }
 const preparedDownloadJobs=new Map();

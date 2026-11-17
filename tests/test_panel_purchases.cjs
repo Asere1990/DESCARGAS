@@ -394,87 +394,70 @@ test('a large uncached video shows native Files download without initiating OPFS
  assert.equal(s.frames.size,1);
 });
 
-test('1.6GB Stars video uses a native Safari ticket, not iframe or Share Sheet',async()=>{
+test('Stars video >1GB shows only Copy Safari link, no preview download or other route',async()=>{
  const purchase=item();
- purchase.media=[{
-  type:'video',index:0,name:'Video_1600.mp4',size:1600000000,
-  native_url:'https://descargas.example/panel/api/native-stars-file?ticket=encrypted'
- }];
+ const url='https://descargas.example/panel/api/native-stars-file?ticket=encrypted';
+ purchase.media=[{type:'video',index:0,name:'Big.mp4',size:1600000000,native_url:url}];
  const requests=[];
  const s=setup(async(op)=>{requests.push(op);return {items:[purchase],next:null};});
- let shared=0;
- s.context.navigator={share(){shared++;throw Error('Should not share a 1.6 GB file');}};
+ const copied=[],opened=[],shared=[];
+ s.context.window.Telegram={WebApp:{initData:'telegram-webview',openLink(u){opened.push(u);}}};
+ s.context.navigator={
+  clipboard:{writeText(text){copied.push(text);return Promise.resolve();}},
+  share(file){shared.push(file);}
+ };
  await s.context.openPurchases();
  const list=s.root().children[1];list.children[0].onclick();
  const control=list.children[2].children[4].children[1];
  assert.equal(control.tagName,'SECTION');
- const link=control.children[0];
- assert.equal(link.tagName,'A');
- assert.match(link.textContent,/Safari/);
- assert.equal(link.href,purchase.media[0].native_url);
- assert.equal(link.target,'_blank');
- assert.equal(link.rel,'noopener noreferrer');
- link.onclick();
- assert.match(control.children[1].textContent,/No se ha confirmado/);
+ assert.equal(control.children.length,3);
+ assert.deepEqual(control.children.map(x=>x.tagName),['P','BUTTON','SMALL']);
+ assert.match(control.children[1].textContent,/Copiar enlace para Safari/);
+ assert.match(control.children[0].textContent,/aplicación Safari/);
+ assert.equal(control.children.filter(x=>x.tagName==='A').length,0);
+ assert.doesNotMatch(control.children.map(x=>x.textContent).join(' '),/preparación tradicional|Compartir video|Descargar video con Safari|Guardar video en Fotos/i);
+ await control.children[1].onclick();
+ assert.deepEqual(copied,[url]);
+ assert.deepEqual(opened,[]);
+ assert.deepEqual(shared,[]);
  assert.equal(s.frames.size,0);
- assert.equal(shared,0);
  assert.deepEqual(requests,['purchases?account=22']);
+ assert.match(control.children[0].textContent,/Enlace copiado/);
+ assert.match(control.children[0].textContent,/no significa que el video ya esté guardado/);
 });
-test('native Safari link preserves the old prepared-file fallback without touching accounts',async()=>{
- const purchase=item();
- purchase.media=[{
-  type:'video',index:0,name:'Video_1600.mp4',size:1600000000,
-  native_url:'https://descargas.example/panel/api/native-stars-file?ticket=encrypted'
- }];
- const requests=[];
- const s=setup(async(op,body)=>{requests.push({op,body});return {items:[purchase],next:null};});
- await s.context.openPurchases();
- const list=s.root().children[1];list.children[0].onclick();
- const control=list.children[2].children[4].children[1];
- const oldButton=control.children[4];
- assert.match(oldButton.textContent,/preparación tradicional/);
- oldButton.onclick();
- assert.equal(oldButton.hidden,true);
- const prior=control.children[6];
- assert.equal(prior.tagName,'SECTION');
- assert.match(prior.children[0].textContent,/Preparar descarga prioritaria/);
- assert.equal(requests.length,1); // Opening an alternative never starts a transfer.
-});
-
-
-test('Telegram WebApp opens the Stars link in the external browser instead of an embedded tab',async()=>{
+test('Copy Safari link failure does not falsely report download or change account',async()=>{
  const purchase=item();
  const url='https://descargas.example/panel/api/native-stars-file?ticket=encrypted';
  purchase.media=[{type:'video',index:0,name:'Big.mp4',size:1600000000,native_url:url}];
- const s=setup(async()=>({items:[purchase],next:null}));
- const opened=[];
- s.context.window.Telegram={WebApp:{
-  initData:'verified-miniapp',openLink(u,options){opened.push([u,options]);}
- }};
+ const requests=[];
+ const s=setup(async(op)=>{requests.push(op);return {items:[purchase],next:null};});
+ s.context.navigator={clipboard:{writeText(){throw Error('Permission denied');}}};
  await s.context.openPurchases();
  const list=s.root().children[1];list.children[0].onclick();
  const control=list.children[2].children[4].children[1];
- let prevented=0;
- control.children[0].onclick({preventDefault(){prevented++;}});
- assert.equal(prevented,1);
- assert.equal(opened.length,1);
- assert.equal(opened[0][0],url);
- assert.equal(opened[0][1].try_instant_view,false);
- assert.match(control.children[1].textContent,/externo/);
+ await control.children[1].onclick();
+ assert.match(control.children[0].textContent,/No se pudo copiar/);
+ assert.equal(control.children[1].disabled,false);
+ assert.equal(s.context.account.id,'22');
+ assert.deepEqual(requests,['purchases?account=22']);
  assert.equal(s.frames.size,0);
 });
-test('Stars browser export provides a copy-link alternative without claiming download success',async()=>{
+test('Copy Safari link rejects repeated taps while clipboard operation is pending',async()=>{
  const purchase=item();
  const url='https://descargas.example/panel/api/native-stars-file?ticket=encrypted';
  purchase.media=[{type:'video',index:0,name:'Big.mp4',size:1600000000,native_url:url}];
  const s=setup(async()=>({items:[purchase],next:null}));
- const copies=[];
- s.context.navigator={clipboard:{writeText(text){copies.push(text);return Promise.resolve();}}};
+ const copied=[];
+ let resume;
+ s.context.navigator={clipboard:{writeText(value){copied.push(value);return new Promise(resolve=>{resume=resolve;});}}};
  await s.context.openPurchases();
  const list=s.root().children[1];list.children[0].onclick();
  const control=list.children[2].children[4].children[1];
- await control.children[3].onclick();
- assert.deepEqual(copies,[url]);
- assert.match(control.children[1].textContent,/Enlace temporal copiado/);
- assert.doesNotMatch(control.children[1].textContent,/descarga completada/i);
+ const pending=control.children[1].onclick();
+ await control.children[1].onclick();
+ assert.deepEqual(copied,[url]);
+ assert.equal(control.children[1].disabled,true);
+ resume();
+ await pending;
+ assert.equal(control.children[1].disabled,false);
 });
