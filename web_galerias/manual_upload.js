@@ -185,7 +185,26 @@
     });
     if (!response.ok) throw Error("Cloudflare rechazó una parte (" + response.status + ").");
   }
-  async function sendFile(file, folderId, label, report) {
+  async function relayPut(upload, segment, blob) {
+    // Same-origin, admin-authenticated fallback. The backend relays only
+    // one bounded part to R2; a complete video never enters Render memory.
+    const raw = typeof tg === "undefined" ? "" : (tg?.initData || "");
+    const headers = {"Content-Type": "application/octet-stream"};
+    if (raw) headers["X-Telegram-Init-Data"] = raw;
+    else headers["X-Gallery-Web"] = "1";
+    const response = await fetch(
+      "/web-galerias/admin/manual-r2-bytes/" +
+        encodeURIComponent(upload) + "/" + encodeURIComponent(String(segment)), {
+      method: "PUT", cache: "no-store", credentials: "same-origin",
+      headers, body: blob
+    });
+    if (!response.ok) {
+      const message = (await response.text()).replace(/<[^>]*>/g, " ").trim();
+      throw Error(message.slice(0, 180) || "Cloudflare rechazó el fragmento.");
+    }
+  }
+
+  async function sendFile(file, folderId, label, report, transport = "direct") {
     const {kind, mime} = kindOf(file);
     if (file.size <= 0 || file.size > 2 * 1024 ** 3)
       throw Error("El archivo debe tener entre 1 byte y 2 GiB.");
@@ -215,12 +234,14 @@
     }
     if (session.thumb_url) {
       report("Enviando miniatura de " + file.name + "…");
-      await put(session.thumb_url, thumbnail.blob, "image/jpeg");
+      if (transport === "relay") await relayPut(session.upload, "thumb", thumbnail.blob);
+      else await put(session.thumb_url, thumbnail.blob, "image/jpeg");
     }
     if (session.status === "uploading") {
       if (!session.multipart) {
         report("Subiendo " + file.name + "…");
-        await put(session.url, file, mime);
+        if (transport === "relay") await relayPut(session.upload, "file", file);
+        else await put(session.url, file, mime);
       } else {
         const chunk = session.part_size;
         const partCount = Math.ceil(file.size / chunk);
@@ -238,8 +259,9 @@
             try {
               const part = await api("admin-manual-part-url",
                 {upload: session.upload, part: number});
-              await put(part.url, file.slice(start, end, "application/octet-stream"),
-                "application/octet-stream");
+              const slice = file.slice(start, end, "application/octet-stream");
+              if (transport === "relay") await relayPut(session.upload, number, slice);
+              else await put(part.url, slice, "application/octet-stream");
               sent += end - start;
               report(label + " · " + file.name + ": " +
                 Math.min(100, Math.floor(100 * sent / file.size)) + "%");
@@ -290,9 +312,10 @@
     }
     busy = true; go.disabled = true; progress.value = 0; progress.max = files.length;
     try {
-      setStatus("Comprobando conexión directa a Cloudflare R2…");
+      setStatus("Comprobando conexión a Cloudflare R2…");
       const config = await api("admin-manual-config");
       if (!config.ready) throw Error(config.reason || "Cloudflare no está listo.");
+      const transport = config.transport === "relay" ? "relay" : "direct";
       let next = 0, done = 0, failed = 0;
       const notes = [];
       const publishedUploads = [];
@@ -304,7 +327,7 @@
             const uploaded = await sendFile(file, Number(folder.value),
               (index + 1) + "/" + files.length, text => {
                 setStatus(text + " · Finalizados " + done + "/" + files.length);
-              });
+              }, transport);
             if (uploaded) publishedUploads.push(uploaded);
           } catch (error) {
             failed++;
