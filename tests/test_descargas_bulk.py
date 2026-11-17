@@ -226,66 +226,68 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text,["Foto original","Video original"])
         client.disconnect.assert_awaited_once()
 
-    async def test_bulk_partial_download_resumes_at_exact_byte_offset(self):
-        from pathlib import Path
-        import tempfile
-        item=NS(id=521,file=NS(size=10),media=object())
-        events=[]
-        class Client:
-            async def download_media(self,item,file,progress_callback):
-                Path(file).write_bytes(b"123456")
-                await progress_callback(6,10)
-                return file
-            async def iter_download(self,source,*,offset,file_size,request_size):
-                events.append((source,offset,file_size,request_size))
-                yield b"7890"
-        with tempfile.TemporaryDirectory() as directory:
-            file=str(Path(directory)/"521.mp4")
-            callback=AsyncMock()
-            result=await worker._verified_download_media(Client(),item,file,callback)
-            self.assertEqual(Path(result).read_bytes(),b"1234567890")
-            self.assertEqual(events[0][1:],(6,10,256*1024))
-            self.assertEqual(callback.await_args.args,(10,10))
+    async def test_bad_file_is_recorded_as_skipped_without_upload_or_review(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
+        item={"message_id":521,"album":"","category":"photos"}
+        pool=NS(executemany=AsyncMock(),execute=AsyncMock())
+        svc=NS(repo=NS(pool=pool))
+        error=ValueError("El archivo descargado no coincide con el tamaño original; no se envió.")
+        with patch.object(worker,"send_media",new_callable=AsyncMock,side_effect=error) as send,\
+             patch.object(worker,"_inflight",new_callable=AsyncMock,return_value=False),\
+             patch.object(worker,"_mark_review",new_callable=AsyncMock) as review:
+            await worker._send_or_skip(svc,job,[item])
+        send.assert_awaited_once()
+        review.assert_not_awaited()
+        sql,params=pool.executemany.await_args.args
+        self.assertIn("'skipped'",sql)
+        self.assertEqual(params[0][2],521)
+        self.assertEqual(params[0][4],str(error))
+        self.assertIn("status='publishing'",pool.execute.await_args.args[0])
 
-    async def test_bulk_zero_byte_download_uses_direct_stream_from_start(self):
-        from pathlib import Path
-        import tempfile
-        item=NS(id=521,file=NS(size=10),media=object())
-        offsets=[]
-        class Client:
-            async def download_media(self,item,file,progress_callback):
-                Path(file).write_bytes(b"")
-                return file
-            async def iter_download(self,source,*,offset,file_size,request_size):
-                offsets.append(offset)
-                yield b"1234567890"
-        with tempfile.TemporaryDirectory() as directory:
-            target=str(Path(directory)/"521.mp4")
-            result=await worker._verified_download_media(
-                Client(),item,target,AsyncMock())
-            self.assertEqual(Path(result).read_bytes(),b"1234567890")
-            self.assertEqual(offsets,[0])
+    async def test_failed_album_processes_other_members_individually(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
+        items=[{"message_id":n,"album":"album","category":"photos"} for n in (11,12,13)]
+        sent=[]
+        async def send(_svc,_job,rows):
+            if len(rows)>1:
+                raise ValueError("El archivo descargado no coincide con el tamaño original; no se envió.")
+            if rows[0]["message_id"]==12:
+                raise ValueError("El archivo no se descargó completo.")
+            sent.append(rows[0]["message_id"])
+        svc=NS(repo=NS())
+        with patch.object(worker,"send_media",new_callable=AsyncMock,side_effect=send),\
+             patch.object(worker,"_inflight",new_callable=AsyncMock,return_value=False),\
+             patch.object(worker,"_skip_media",new_callable=AsyncMock) as skip:
+            await worker._send_or_skip(svc,job,items)
+        self.assertEqual(sent,[11,13])
+        skip.assert_awaited_once()
+        self.assertEqual(skip.await_args.args[2][0]["message_id"],12)
 
-    async def test_bulk_must_never_upload_when_download_is_still_incomplete(self):
-        from pathlib import Path
-        import tempfile
-        item=NS(id=521,file=NS(size=10,ext=".mp4"),media=object())
-        class Client:
-            def __init__(self):self.attempts=0
-            async def download_media(self,item,file,progress_callback):
-                self.attempts+=1
-                Path(file).write_bytes(b"123456")
-                return file
-            async def iter_download(self,*args,**kwargs):
-                if False:yield b""
-        c=Client()
-        prepare=AsyncMock(return_value="should never upload")
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(ValueError,"tamaño original"):
-                await worker.prepare_album(worker._VerifiedBulkSource(c),[item],
-                                           directory,prepare,100,100)
-        self.assertEqual(c.attempts,3)
-        prepare.assert_not_awaited()
+    async def test_uncertain_delivery_still_requires_review_and_no_skip(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
+        item={"message_id":521,"album":"","category":"photos"}
+        svc=NS(repo=NS())
+        error=ValueError("El archivo no se descargó completo.")
+        with patch.object(worker,"send_media",new_callable=AsyncMock,side_effect=error),\
+             patch.object(worker,"_inflight",new_callable=AsyncMock,return_value=True),\
+             patch.object(worker,"_skip_media",new_callable=AsyncMock) as skip,\
+             patch.object(worker,"_mark_review",new_callable=AsyncMock) as review:
+            with self.assertRaises(worker.ReviewRequired):
+                await worker._send_or_skip(svc,job,[item])
+        review.assert_awaited_once()
+        skip.assert_not_awaited()
+
+    async def test_access_error_is_not_silently_skipped(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
+        item={"message_id":521,"album":"","category":"photos"}
+        svc=NS(repo=NS())
+        with patch.object(worker,"send_media",new_callable=AsyncMock,
+                          side_effect=ValueError("Permiso de destino revocado")),\
+             patch.object(worker,"_inflight",new_callable=AsyncMock,return_value=False),\
+             patch.object(worker,"_skip_media",new_callable=AsyncMock) as skip:
+            with self.assertRaisesRegex(ValueError,"Permiso"):
+                await worker._send_or_skip(svc,job,[item])
+        skip.assert_not_awaited()
 
     async def test_busy_linked_account_never_enters_review_before_claim(self):
         job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
