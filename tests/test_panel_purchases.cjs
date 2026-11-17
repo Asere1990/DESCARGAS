@@ -415,7 +415,7 @@ test('1.6GB Stars video uses a native Safari ticket, not iframe or Share Sheet',
  assert.equal(link.target,'_blank');
  assert.equal(link.rel,'noopener noreferrer');
  link.onclick();
- assert.match(control.children[1].textContent,/no confirma/);
+ assert.match(control.children[1].textContent,/No se ha confirmado/);
  assert.equal(s.frames.size,0);
  assert.equal(shared,0);
  assert.deepEqual(requests,['purchases?account=22']);
