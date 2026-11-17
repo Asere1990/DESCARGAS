@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import tempfile
+from pathlib import Path
 import time
 import uuid
 
@@ -26,6 +27,57 @@ LEASE=900
 class ReviewRequired(Exception):pass
 class RetryablePreflight(Exception):pass
 
+async def _verified_download_media(client,item,file,progress_callback):
+    """Bulk-only recovery of a short Telegram download; never upload partial bytes."""
+    target=Path(file)
+    expected=int(getattr(getattr(item,"file",None),"size",0) or 0)
+    for attempt in range(3):
+        target.unlink(missing_ok=True)
+        if expected:
+            await progress_callback(0,expected)
+        result=await client.download_media(item,file=str(target),
+                                           progress_callback=progress_callback)
+        actual=target.stat().st_size if target.exists() else 0
+        if result and actual>0 and (not expected or actual==expected):
+            return result
+        if expected and 0<actual<expected:
+            LOG.warning("Bulk media short download attempt=%d actual=%d expected=%d",
+                        attempt+1,actual,expected)
+            try:
+                # Telethon 1.45 iter_download accepts a byte offset and can
+                # resume at non-aligned positions. Only bytes from Telegram
+                # are appended and their exact length is checked.
+                source=getattr(item,"media",None) or item
+                with target.open("ab") as out:
+                    async for chunk in client.iter_download(
+                            source,offset=actual,file_size=expected,
+                            request_size=256*1024):
+                        size=len(chunk)
+                        if size>expected-actual:
+                            raise ValueError("Telegram envió bytes fuera del tamaño esperado.")
+                        out.write(chunk)
+                        actual+=size
+                        await progress_callback(actual,expected)
+                if actual==expected and target.stat().st_size==expected:
+                    return str(target)
+            except (asyncio.CancelledError,errors.FloodWaitError):
+                raise
+            except Exception as exc:
+                LOG.warning("Bulk media offset recovery deferred (%s)",
+                            type(exc).__name__)
+        if attempt<2:
+            await asyncio.sleep(attempt+1)
+    raise ValueError("El archivo descargado no coincide con el tamaño original; no se envió.")
+
+
+class _VerifiedBulkSource:
+    def __init__(self,client):
+        self.client=client
+
+    async def download_media(self,item,file,progress_callback):
+        return await _verified_download_media(self.client,item,file,progress_callback)
+
+
 async def _claim(s):
     lease=uuid.uuid4().hex
     now=time.time()
@@ -35,8 +87,11 @@ async def _claim(s):
              WHERE bot_id=$1 AND
                (status IN ('scanning','publishing')
                  OR (status IN ('waiting_scan','waiting_send') AND pause_until<=$2)
-                 OR (status='review' AND error='El envío requiere revisión.'
-                     AND run_no>0 AND updated>$2-7200
+                 OR (status IN ('review','error') AND run_no>0
+                     AND updated>$2-7200
+                     AND ((status='review' AND error='El envío requiere revisión.')
+                          OR (status='error' AND error=
+                              'El archivo descargado no coincide con el tamaño original; no se envió.'))
                      AND NOT EXISTS (
                          SELECT 1 FROM descarga_bulk_deliveries d
                          WHERE d.job_id=descarga_bulk_jobs.id
@@ -47,10 +102,12 @@ async def _claim(s):
            UPDATE descarga_bulk_jobs j SET
              status=CASE WHEN j.status='waiting_scan' THEN 'scanning'
                          WHEN j.status='waiting_send' THEN 'publishing'
-                         WHEN j.status='review' THEN 'publishing'
+                         WHEN j.status IN ('review','error') THEN 'publishing'
                          ELSE j.status END,
              error=CASE WHEN j.status='review'
                         THEN 'Recuperación segura automática en curso.'
+                        WHEN j.status='error'
+                        THEN 'Reanudación verificada tras archivo incompleto.'
                         ELSE j.error END,
              lease=$3,lease_until=$4,updated=$2
            FROM next WHERE j.id=next.id RETURNING j.*""",
@@ -330,7 +387,8 @@ async def send_media(s,job,items):
             with tempfile.TemporaryDirectory(prefix="descargas-bulk-") as temp:
                 async def prepare(path,item):
                     return await prepare_media_for_bot(s.bot,client,path,item)
-                media=await prepare_album(client,ordered,temp,prepare,MAX_FILE,MAX_ALBUM)
+                media=await prepare_album(_VerifiedBulkSource(client),ordered,temp,
+                                          prepare,MAX_FILE,MAX_ALBUM)
                 # Claim immediately before Telegram posting, not before
                 # acquiring the user's session. A busy account is retryable.
                 # Resolving the archive peer can fail transiently and has no
@@ -543,7 +601,14 @@ async def run(s):
                 # never label the user job broken for this temporary conflict.
                 await asyncio.sleep(4)
                 continue
-            try:await _state(s,claimed,"error",str(exc))
+            reason=str(exc)
+            if (reason=="El archivo descargado no coincide con el tamaño original; no se envió."
+                    and str(claimed["error"] or "")==
+                        "Reanudación verificada tras archivo incompleto."):
+                reason="El archivo sigue incompleto tras reintentar la descarga; requiere revisión."
+            if "archivo" in reason.lower() and "incomplet" in reason.lower():
+                LOG.warning("Bulk media size validation failed after bounded retry")
+            try:await _state(s,claimed,"error",reason)
             except Exception:LOG.warning("Could not persist bulk validation error")
         except Exception as exc:
             LOG.warning("Bulk worker step deferred (%s)",type(exc).__name__)
