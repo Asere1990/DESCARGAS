@@ -244,7 +244,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             callback=AsyncMock()
             result=await worker._verified_download_media(Client(),item,file,callback)
             self.assertEqual(Path(result).read_bytes(),b"1234567890")
-            self.assertEqual(events[0][1:],[6,10,256*1024])
+            self.assertEqual(events[0][1:],(6,10,256*1024))
             self.assertEqual(callback.await_args.args,(10,10))
 
     async def test_bulk_must_never_upload_when_download_is_still_incomplete(self):
