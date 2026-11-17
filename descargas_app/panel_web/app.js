@@ -206,7 +206,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  const meter=el('progress');meter.max=100;meter.value=0;meter.hidden=true;
  meter.setAttribute('aria-label','Progreso de preparación');
  const save=el('a','↓ Guardar en mi teléfono');save.className='download prepared-save';
- save.hidden=true;save.setAttribute('rel','noopener noreferrer');
+ save.hidden=true; // Same-origin hidden-frame target: do not use rel=noopener (it forces a new window).
  const safari=el('a','Abrir archivo en Safari si no se guarda');
  safari.className='prepared-fallback';safari.hidden=true;safari.target='_blank';
  safari.rel='noopener noreferrer';
