@@ -116,7 +116,7 @@ class NativeStarsTests(unittest.IsolatedAsyncioTestCase):
             native.validate(self.panel, foreign)
 
     def test_link_expires_exactly_once_even_on_boundary(self):
-        with patch.object(native.time, "time", side_effect=[1000]):
+        with patch.object(native.time, "time", return_value=1000):
             link = native.issue(
                 self.panel, 111, 22, 3, -(1000000000000 + 55),
                 self.peer, "purchase-tx-1", 0, "session-v1",
