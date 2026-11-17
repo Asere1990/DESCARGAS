@@ -204,5 +204,25 @@ class PreparedDownloadTests(unittest.IsolatedAsyncioTestCase):
             'video_maravilloso.mov')
 
 
+    async def test_direct_stars_stream_keeps_linked_account_lock_untouched(self):
+        from descargas_app.web_panel import TelegramPanel
+        panel = object.__new__(TelegramPanel)
+        panel.s = self.s
+
+        @asynccontextmanager
+        async def independent(service, uid):
+            self.assertIs(service, self.s)
+            self.assertEqual(uid, 22)
+            yield self.client
+
+        with patch('descargas_app.web_panel.connected_parallel', independent), \
+             patch('descargas_app.web_panel.authorized', return_value=True), \
+             patch('descargas_app.web_panel.require_account', self.guard):
+            async with panel.paid_stream_account(111, 22) as (client, generation):
+                self.assertIs(client, self.client)
+                self.assertEqual(generation, 3)
+        self.guard.assert_awaited()
+
+
 if __name__ == '__main__':
     unittest.main()
