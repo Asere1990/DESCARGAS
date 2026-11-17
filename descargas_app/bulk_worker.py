@@ -27,6 +27,13 @@ LEASE=900
 class ReviewRequired(Exception):pass
 class RetryablePreflight(Exception):pass
 
+class SkippableMedia(Exception):
+    """Only a media-specific pre-send failure may be omitted safely."""
+    def __init__(self,message_id,reason):
+        self.message_id=int(message_id)
+        self.reason=str(reason)[:160]
+        super().__init__(self.reason)
+
 async def _verified_download_media(client,item,file,progress_callback):
     """Bulk-only recovery of a short Telegram download; never upload partial bytes."""
     target=Path(file)
@@ -77,7 +84,14 @@ class _VerifiedBulkSource:
         self.client=client
 
     async def download_media(self,item,file,progress_callback):
-        return await _verified_download_media(self.client,item,file,progress_callback)
+        try:
+            return await _verified_download_media(self.client,item,file,progress_callback)
+        except (asyncio.CancelledError,errors.FloodWaitError):
+            raise
+        except Exception as exc:
+            # The source account, destination and membership were already
+            # verified. A media download has not claimed or sent anything.
+            raise SkippableMedia(item.id,"No se pudo descargar el archivo.") from exc
 
 
 async def _claim(s):
@@ -94,7 +108,8 @@ async def _claim(s):
                      AND ((status='review' AND error='El envío requiere revisión.')
                           OR (status='error' AND error IN
                              ('El archivo descargado no coincide con el tamaño original; no se envió.',
-                              'El archivo sigue incompleto tras reintentar la descarga; requiere revisión.')))
+                              'El archivo sigue incompleto tras reintentar la descarga; requiere revisión.',
+                              'La lectura directa de Telegram tampoco completó el archivo; requiere revisión manual.')))
                      AND NOT EXISTS (
                          SELECT 1 FROM descarga_bulk_deliveries d
                          WHERE d.job_id=descarga_bulk_jobs.id
@@ -323,6 +338,33 @@ async def _checkpoint_published(s,job,items,archived,posted):
                WHERE id=$1 AND run_no=$2 AND status IN ('publishing','paused')""",
             job["id"],job["run_no"],len(posted),now)
 
+async def _mark_skipped(s,job,item,reason):
+    """Persist omission before progressing. Never override uncertain sends."""
+    now=time.time()
+    async with s.repo.pool.acquire() as conn,conn.transaction():
+        inserted=await conn.fetchval(
+            """INSERT INTO descarga_bulk_deliveries
+               (job_id,run_no,message_id,category,status,error,updated)
+               SELECT j.id,j.run_no,$3,$4,'skipped',$5,$6
+                 FROM descarga_bulk_jobs j
+                WHERE j.id=$1 AND j.run_no=$2 AND j.lease=$7
+                  AND j.status='publishing'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM descarga_bulk_deliveries d
+                       WHERE d.job_id=j.id AND d.run_no=j.run_no
+                         AND d.message_id=$3)
+               ON CONFLICT DO NOTHING RETURNING 1""",
+            job["id"],job["run_no"],int(item["message_id"]),item["category"],
+            str(reason)[:160],now,job["lease"])
+        if not inserted:
+            raise ReviewRequired("No se pudo confirmar la omisión del archivo.")
+        await conn.execute(
+            """UPDATE descarga_bulk_jobs SET error='',updated=$3
+               WHERE id=$1 AND lease=$2 AND status='publishing'""",
+            job["id"],job["lease"],now)
+    LOG.warning("Bulk media skipped kind=%s reason=%s",item["category"],str(reason)[:80])
+
+
 async def _mark_review(s,job,items,error):
     await s.repo.pool.execute(
         """UPDATE descarga_bulk_deliveries SET status='review',error=$4,updated=$5
@@ -380,16 +422,25 @@ async def send_media(s,job,items):
             original=await client.get_messages(peer,ids=ids)
             if not isinstance(original,list):original=[original]
             present={int(m.id):m for m in original if m and bulk.category(m)}
-            if len(present)!=len(items):
-                raise ValueError("Algunos archivos del grupo original ya no están disponibles.")
+            # Omit inaccessible/Stars items individually, not their whole album.
+            missing=next((mid for mid in ids if mid not in present),None)
+            if missing is not None:
+                raise SkippableMedia(missing,"No disponible o requiere Stars.")
             ordered=[present[mid] for mid in ids]
-            if any((m.file.size or 0)>MAX_FILE for m in ordered):
-                raise ValueError("Archivo superior al límite permitido.")
+            oversized=next((m for m in ordered if (m.file.size or 0)>MAX_FILE),None)
+            if oversized:
+                raise SkippableMedia(oversized.id,"Archivo demasiado grande.")
             if sum(m.file.size or 0 for m in ordered)>MAX_ALBUM:
-                raise ValueError("Álbum superior al límite permitido.")
+                biggest=max(ordered,key=lambda m:m.file.size or 0)
+                raise SkippableMedia(biggest.id,"Álbum demasiado grande.")
             with tempfile.TemporaryDirectory(prefix="descargas-bulk-") as temp:
                 async def prepare(path,item):
-                    return await prepare_media_for_bot(s.bot,client,path,item)
+                    try:
+                        return await prepare_media_for_bot(s.bot,client,path,item)
+                    except ValueError as exc:
+                        if "tamaño original" in str(exc):
+                            raise SkippableMedia(item.id,"Archivo incompleto.") from exc
+                        raise
                 media=await prepare_album(_VerifiedBulkSource(client),ordered,temp,
                                           prepare,MAX_FILE,MAX_ALBUM)
                 # Claim immediately before Telegram posting, not before
@@ -515,6 +566,15 @@ async def publish_one(s,job):
         try:
             await send_media(s,job,rows)
         except (asyncio.CancelledError,errors.FloodWaitError):raise
+        except SkippableMedia as exc:
+            # Skip only one failing file, leaving other album members eligible.
+            # The archive was never claimed; published files remain untouched.
+            selected=next((entry for entry in rows
+                           if int(entry["message_id"])==exc.message_id),None)
+            if selected is None or await _inflight(s,job):
+                raise ReviewRequired("El archivo necesita revisión.") from exc
+            await _mark_skipped(s,job,selected,exc.reason)
+            return
         except ValueError as exc:
             # A busy linked account is expected in parallel readers. It has
             # not claimed or sent anything and must NOT freeze the full run.
