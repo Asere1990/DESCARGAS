@@ -431,12 +431,50 @@ test('native Safari link preserves the old prepared-file fallback without touchi
  await s.context.openPurchases();
  const list=s.root().children[1];list.children[0].onclick();
  const control=list.children[2].children[4].children[1];
- const oldButton=control.children[3];
+ const oldButton=control.children[4];
  assert.match(oldButton.textContent,/preparación tradicional/);
  oldButton.onclick();
  assert.equal(oldButton.hidden,true);
- const prior=control.children[5];
+ const prior=control.children[6];
  assert.equal(prior.tagName,'SECTION');
  assert.match(prior.children[0].textContent,/Preparar descarga prioritaria/);
  assert.equal(requests.length,1); // Opening an alternative never starts a transfer.
+});
+
+
+test('Telegram WebApp opens the Stars link in the external browser instead of an embedded tab',async()=>{
+ const purchase=item();
+ const url='https://descargas.example/panel/api/native-stars-file?ticket=encrypted';
+ purchase.media=[{type:'video',index:0,name:'Big.mp4',size:1600000000,native_url:url}];
+ const s=setup(async()=>({items:[purchase],next:null}));
+ const opened=[];
+ s.context.window.Telegram={WebApp:{
+  initData:'verified-miniapp',openLink(u,options){opened.push([u,options]);}
+ }};
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ let prevented=0;
+ control.children[0].onclick({preventDefault(){prevented++;}});
+ assert.equal(prevented,1);
+ assert.equal(opened.length,1);
+ assert.equal(opened[0][0],url);
+ assert.equal(opened[0][1].try_instant_view,false);
+ assert.match(control.children[1].textContent,/externo/);
+ assert.equal(s.frames.size,0);
+});
+test('Stars browser export provides a copy-link alternative without claiming download success',async()=>{
+ const purchase=item();
+ const url='https://descargas.example/panel/api/native-stars-file?ticket=encrypted';
+ purchase.media=[{type:'video',index:0,name:'Big.mp4',size:1600000000,native_url:url}];
+ const s=setup(async()=>({items:[purchase],next:null}));
+ const copies=[];
+ s.context.navigator={clipboard:{writeText(text){copies.push(text);return Promise.resolve();}}};
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ await control.children[3].onclick();
+ assert.deepEqual(copies,[url]);
+ assert.match(control.children[1].textContent,/Enlace temporal copiado/);
+ assert.doesNotMatch(control.children[1].textContent,/descarga completada/i);
 });
