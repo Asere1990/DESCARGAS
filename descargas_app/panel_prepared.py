@@ -333,7 +333,9 @@ class PreparedDownloads:
             'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'no-referrer',
             'Content-Disposition': 'attachment; filename="' + job['name'] + '"',
-            'Content-Type': job['mime'] or 'application/octet-stream',
+            # Never let WebKit render the MP4 as a top-level QuickLook page.
+            # File name/extension remain intact; only the download response is generic.
+            'Content-Type': 'application/octet-stream',
             'Access-Control-Allow-Origin': 'https://web.telegram.org',
             'Vary': 'Origin',
             'Accept-Ranges': 'bytes',
