@@ -105,7 +105,7 @@ test('iPhone MP4 download streams in a hidden iframe and does not leave the purc
  assert.equal(save.target,frame.name);
  assert.equal(s.$('management').open,true);
  assert.match(save.href,/prepared-file\?token=secure-capability/);
- assert.match(control.children[1].textContent,/Puedes seguir en esta carpeta/);
+ assert.match(control.children[1].textContent,/Descarga nativa solicitada/);
  save.onclick({preventDefault(){prevented++;}});
  assert.equal(s.frames.size,1); // no new window and no duplicate frames.
 });
@@ -392,4 +392,51 @@ test('a large uncached video shows native Files download without initiating OPFS
  assert.equal(prevented,0);
  assert.equal(save.target,'panel-file-download-frame');
  assert.equal(s.frames.size,1);
+});
+
+test('1.6GB Stars video uses a native Safari ticket, not iframe or Share Sheet',async()=>{
+ const purchase=item();
+ purchase.media=[{
+  type:'video',index:0,name:'Video_1600.mp4',size:1600000000,
+  native_url:'https://descargas.example/panel/api/native-stars-file?ticket=encrypted'
+ }];
+ const requests=[];
+ const s=setup(async(op)=>{requests.push(op);return {items:[purchase],next:null};});
+ let shared=0;
+ s.context.navigator={share(){shared++;throw Error('Should not share a 1.6 GB file');}};
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ assert.equal(control.tagName,'SECTION');
+ const link=control.children[0];
+ assert.equal(link.tagName,'A');
+ assert.match(link.textContent,/Safari/);
+ assert.equal(link.href,purchase.media[0].native_url);
+ assert.equal(link.target,'_blank');
+ assert.equal(link.rel,'noopener noreferrer');
+ link.onclick();
+ assert.match(control.children[1].textContent,/no confirma/);
+ assert.equal(s.frames.size,0);
+ assert.equal(shared,0);
+ assert.deepEqual(requests,['purchases?account=22']);
+});
+test('native Safari link preserves the old prepared-file fallback without touching accounts',async()=>{
+ const purchase=item();
+ purchase.media=[{
+  type:'video',index:0,name:'Video_1600.mp4',size:1600000000,
+  native_url:'https://descargas.example/panel/api/native-stars-file?ticket=encrypted'
+ }];
+ const requests=[];
+ const s=setup(async(op,body)=>{requests.push({op,body});return {items:[purchase],next:null};});
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ const oldButton=control.children[3];
+ assert.match(oldButton.textContent,/preparación tradicional/);
+ oldButton.onclick();
+ assert.equal(oldButton.hidden,true);
+ const prior=control.children[5];
+ assert.equal(prior.tagName,'SECTION');
+ assert.match(prior.children[0].textContent,/Preparar descarga prioritaria/);
+ assert.equal(requests.length,1); // Opening an alternative never starts a transfer.
 });

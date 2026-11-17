@@ -1,0 +1,40 @@
+name: Stars Safari — revisión aislada
+on:
+  pull_request:
+    paths:
+      - 'descargas_app/panel_native_paid.py'
+      - 'descargas_app/panel_purchases.py'
+      - 'descargas_app/web_panel.py'
+      - 'descargas_app/panel_web/app.js'
+      - 'tests/test_panel_native_paid.py'
+      - 'tests/test_panel_native_stream.py'
+      - 'tests/test_panel_purchases.cjs'
+      - '.github/workflows/panel-stars-safari-review.yml'
+  push:
+    branches:
+      - fix/stars-safari-native-export-20261116
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: NodeJS 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript syntax
+        run: node --check descargas_app/panel_web/app.js
+      - name: Purchased Stars iPhone regression tests
+        run: node --test tests/test_panel_purchases.cjs
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Dependencies
+        run: pip install -r requirements.txt
+      - name: Signed Safari download capability tests
+        run: |
+          python -m unittest discover -s tests -p 'test_panel_native_paid.py' -q
+          python -m unittest discover -s tests -p 'test_panel_native_stream.py' -q

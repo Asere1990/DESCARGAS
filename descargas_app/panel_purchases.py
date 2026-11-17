@@ -31,7 +31,7 @@ def message_link(entity, mid):
     return None
 
 
-async def listing(panel, actor, uid, cursor=''):
+async def listing(panel, actor, uid, cursor='', version='0'):
     from .web_panel import name, peer_data, media_info
     async with panel.account(actor, uid) as (client, generation):
         offset = ''
@@ -58,15 +58,23 @@ async def listing(panel, actor, uid, cursor=''):
                 data = peer_data(entity, uid)
             except ValueError:
                 continue
+            handle = panel.pack('peer', **scope, **data)
             media = []
             for index, value in enumerate(tx.extended_media):
                 message = media_message(value)
                 info = media_info(message) if message else None
                 if info and info['type'] in ('photo', 'video'):
-                    media.append(dict(index=index, **info))
+                    entry = dict(index=index, **info)
+                    if info['type'] == 'video' and int(info.get('size') or 0) > 128 * 1024 * 1024:
+                        # Native Safari route: short-lived encrypted ticket only,
+                        # no permanent link, no Telegram download and no DB write.
+                        from .panel_native_paid import issue
+                        entry['native_url'] = issue(
+                            panel, actor, uid, generation, source,
+                            handle, tx.id, index, version)
+                    media.append(entry)
             if not media:
                 continue
-            handle = panel.pack('peer', **scope, **data)
             stamp = tx.date.timestamp() if hasattr(tx.date, 'timestamp') else tx.date
             items.append({'id':tx.id, 'date':stamp, 'media':media,
                 'title':str(getattr(tx, 'title', '') or 'Contenido comprado')[:200],

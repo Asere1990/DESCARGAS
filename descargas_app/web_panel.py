@@ -414,11 +414,11 @@ class TelegramPanel:
             try:await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
             except ValueError:raise web.HTTPForbidden() from None
             return {'items':list(reversed(items)),'next':rows[59].id if len(rows)>60 else None,'title':name(entity),'status':self.features.status(entity)}
-    async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False,purchase=None,index=0,paid_index=None):
+    async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False,purchase=None,index=0,paid_index=None,native_download=False):
         # Transfers are streamed and never saved to the download queue, ALMACEN or Dropbox.
         # Paid videos can take much longer than the 5-minute interactive limit.
         # The read-only connection does not touch the existing account locks.
-        paid_download = purchase is not None and not thumb and request.query.get('download') == '1'
+        paid_download = purchase is not None and not thumb and (native_download or request.query.get('download') == '1')
         context = (self.paid_stream_account(actor, uid) if paid_download
                    else self.account(actor, uid, timeout=300))
         transfer_slot = self.paid_transfers if paid_download else self.transfers
@@ -477,15 +477,17 @@ class TelegramPanel:
             safe=bool(re.fullmatch(r'(?:image/(?:jpeg|png|webp|gif)|video/(?:mp4|webm|quicktime|x-m4v)|audio/(?:ogg|mpeg|mp4|aac|wav|webm))',info['mime']))
             # Safari needs the actual extension when Telegram supplies a generic filename.
             filename=re.sub(r'[^a-zA-Z0-9._-]','_',info['name'])[:150] or 'archivo'
-            if request.query.get('download')=='1' and not re.search(r'\.[a-zA-Z0-9]{2,6}\Z',filename):
+            if (native_download or request.query.get('download')=='1') and not re.search(r'\.[a-zA-Z0-9]{2,6}\Z',filename):
                 suffix={'video/mp4':'.mp4','video/quicktime':'.mov','video/webm':'.webm',
                     'video/x-m4v':'.m4v','image/jpeg':'.jpg','image/png':'.png',
                     'image/webp':'.webp','image/gif':'.gif'}.get(info['mime'],'')
                 filename+=suffix
             headers={**HEADERS,'Content-Type':'application/octet-stream' if paid_download else (info['mime'] if safe else 'application/octet-stream'),'Accept-Ranges':'bytes',
-             'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+filename+'"'}
+             'Content-Disposition':('inline' if safe and not native_download and request.query.get('download')!='1' else 'attachment')+'; filename="'+filename+'"'}
             if size:headers['Content-Length']=str(end-start+1)
             if status==206:headers['Content-Range']=f'bytes {start}-{end}/{size}'
+            if native_download and request.method=='HEAD':
+                return web.Response(status=status,headers=headers)
             response=web.StreamResponse(status=status,headers=headers);await response.prepare(request)
             aligned=start-start%4096;position=aligned;checked=0
             try:
@@ -534,6 +536,9 @@ class TelegramPanel:
             op=request.match_info['op'];post=request.method=='POST'
             if op=='prepared-file' and request.method in ('GET','HEAD'):
                 return await self.prepared.serve(request)
+            if op=='native-stars-file' and request.method in ('GET','HEAD'):
+                from .panel_native_paid import serve
+                return await serve(self,request)
             if post:
                 expected=urlsplit(self.s.url)
                 if request.headers.get('Origin')!=f'{expected.scheme}://{expected.netloc}':raise web.HTTPForbidden()
@@ -633,7 +638,7 @@ class TelegramPanel:
             elif op=='contact.vcf':return await self.contact_vcard_response(actor,uid)
             elif op=='purchases':
                 from .panel_purchases import listing
-                result=await listing(self,actor,uid,request.query.get('cursor',''))
+                result=await listing(self,actor,uid,request.query.get('cursor',''),session['version'])
             elif op in ('purchase-media','purchase-thumb'):
                 return await self.media(request,actor,uid,request.query.get('peer',''),1,thumb=op=='purchase-thumb',purchase=request.query.get('purchase',''),index=integer(request.query.get('index','0'),0))
             elif op=='saved-chat':result=await self.saved_chat(actor,uid)

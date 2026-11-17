@@ -450,8 +450,40 @@ async function panelShareStage(url,name,owner,progress,cacheKey='',expectedSize=
   throw error;
  }finally{if(panelShareActive===entry)panelShareActive=null;}
 }
+// Native Safari download manager handles >128 MiB purchased Stars videos.
+// Never feed a multi-GB OPFS File to iOS Share Sheet, use a hidden iframe,
+// or claim success when a link was merely opened.
+function nativeStarsDownloadControl(payload,defaultName='video.mp4'){
+ const wrap=el('section');wrap.className='prepared-download';
+ const link=el('a','↓ Descargar video con Safari');
+ link.className='download';link.href=payload.nativeUrl;
+ link.target='_blank';link.rel='noopener noreferrer';
+ link.setAttribute('aria-label','Abrir descarga del video comprado en Safari');
+ const status=el('p','Safari gestionará la descarga del video grande. No necesitas preparar otra copia en este navegador.');
+ status.className='prepared-status';status.setAttribute('role','status');
+ const hint=el('small','El video aparecerá en Archivos → Descargas solamente cuando Safari termine. Después podrás compartirlo y guardarlo en Fotos.');
+ const legacy=el('button','↻ Usar preparación tradicional');
+ legacy.type='button';legacy.className='prepared-fallback';
+ const note=el('small','La preparación tradicional es una alternativa si Safari no puede guardar el archivo.');
+ link.onclick=()=>{
+  if(typeof payload.pausePreview==='function')payload.pausePreview();
+  status.textContent='Se abrió el enlace de descarga en Safari. Verifica allí el progreso; esto no confirma que el archivo esté guardado.';
+ };
+ legacy.onclick=()=>{
+  legacy.hidden=true;note.hidden=true;
+  const fallback=preparedDownloadControl({
+   account:payload.account,peer:payload.peer,
+   purchase:payload.purchase,index:payload.index
+  },defaultName);
+  wrap.append(fallback);
+ };
+ wrap.append(link,status,hint,legacy,note);
+ return wrap;
+}
 const preparedDownloadJobs=new Map();
 function preparedDownloadControl(payload,defaultName='archivo'){
+ if(payload?.nativeUrl&&Number(payload.size)>PANEL_NATIVE_SHARE_MAX_BYTES)
+  return nativeStarsDownloadControl(payload,defaultName);
  const wrap=el('section');wrap.className='prepared-download';
  const start=el('button','↓ Preparar descarga prioritaria');
  start.type='button';start.className='download';
@@ -1895,6 +1927,7 @@ async function openPurchases(initialSource=null){
  };card.append(jump);}
     for(const media of item.media){const row=el('div'),show=el('button',(media.type==='video'?'▶ Ver video':'🖼 Ver foto')+' '+(media.index+1));row.className='purchase-media';show.onclick=()=>{const node=el(media.type==='video'?'video':'img');node.className='purchase-preview';if(media.type==='video'){node.controls=true;node.playsInline=true;node.preload='metadata';}else node.alt='Foto comprada';node.src=url('purchase-media',item,media.index);node.onerror=()=>notice('No se pudo cargar este archivo. Vuelve a abrir Comprados para actualizarlo.');show.replaceWith(node);};const control=preparedDownloadControl({account:selected.id,peer:item.chat.handle,
   purchase:item.token,index:media.index,pausePreview:stopMedia,
+  nativeUrl:media.native_url||null,
   purchaseId:media.type==='video'?String(item.id):null,source:item.chat.id,
   size:Number(media.size)||0,
   directUrl:media.type==='video'&&Number(media.size)>0?
