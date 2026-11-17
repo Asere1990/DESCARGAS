@@ -275,3 +275,75 @@ test('a complete large video cached on iPhone opens Share without another Telegr
  assert.equal(transfer,0);
  assert.equal(requests,1);
 });
+
+test('Stars 1.6 GB transfer uses bounded ranges, verifies size and resumes a partial 5% transfer',async()=>{
+ const s=setup(async()=>({items:[],next:null}));
+ const total=1600000000;
+ let disk=0,interrupted=true;
+ const requests=[],updates=[];
+ const handle={
+  async getFile(){return {size:disk,type:'video/mp4',lastModified:Date.now(),name:'Large.mp4'};},
+  async createWritable({keepExistingData}={}){
+   let size=keepExistingData?disk:0,position=0;
+   return {async seek(n){position=n;},
+    async write(chunk){position+=chunk.length;size=Math.max(size,position);},
+    async close(){disk=size;},async abort(){}};
+  }
+ };
+ const dir={async getFileHandle(){return handle;}};
+ s.context.navigator={
+  canShare:({files})=>files.length===1,
+  share:()=>Promise.resolve(),
+  storage:{async getDirectory(){return {async getDirectoryHandle(){return dir;}};}}
+ };
+ s.context.File=class TestFile{};
+ s.context.AbortController=AbortController;
+ s.context.setTimeout=(fn,ms)=>{if(ms<10000)fn();return 1;};
+ s.context.clearTimeout=()=>{};
+ s.context.fetch=async(url,options)=>{
+  const range=options.headers.Range;
+  requests.push(range);
+  const [start,end]=range.match(/\d+/g).map(Number);
+  const partial=interrupted&&start===67108864;
+  if(partial)interrupted=false;
+  let sent=false;
+  return {
+   status:206,
+   headers:{get(k){return k==='Content-Range'?'bytes '+start+'-'+end+'/'+total:
+     k==='Content-Length'?String(end-start+1):null;}},
+   body:{getReader(){return {
+    async read(){
+     if(sent)return {done:true};
+     sent=true;
+     return {done:false,value:{length:partial?16777216:end-start+1}};
+    },
+    releaseLock(){}
+   };}}
+  };
+ };
+ vm.runInContext('this.stage=panelShareStage;',s.context);
+ const result=await s.context.stage('/panel/api/purchase-media?download=1',
+  'Large.mp4',{accountId:'22'},(current,total)=>updates.push([current,total]),
+  'v2-testcache.mp4',total);
+ assert.equal(result.file.size,total);
+ assert.ok(requests.length>40);
+ assert.ok(requests.every(v=>Number(v.match(/bytes=\d+-(\d+)/)[1])<total));
+ assert.equal(requests[2],'bytes=67108864-100663295');
+ assert.equal(requests[3],'bytes=83886080-117440511');
+ assert.deepEqual(updates.at(-1),[total,total]);
+});
+test('Starting a large Stars download pauses the paid video preview',async()=>{
+ const purchase=item();
+ purchase.media=[{type:'video',index:0,name:'Large.mp4',size:1600000000}];
+ const s=setup(async()=>({items:[purchase],next:null}));
+ s.context.navigator={};
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const row=list.children[2].children[4];
+ row.children[0].onclick();
+ const video=row.children[0];
+ assert.equal(video.tagName,'VIDEO');
+ await row.children[1].children[0].onclick();
+ assert.equal(video.paused,true);
+ assert.equal(video.src,undefined);
+});
