@@ -201,7 +201,7 @@ async def _source_dialog(service,uid,source):
                     if not isinstance(ent,(types.Channel,types.Chat)):
                         break
                     # noforwards prevents native Telegram forwards, not reading
-                    # accessible media through the user\'s linked session. The
+                    # accessible media through the user's linked session. The
                     # existing source policy and destination-admin checks still apply.
                     return {"title":str(dialog.name or "Grupo")[:160],
                             "hash":int(getattr(ent,"access_hash",0) or 0),
