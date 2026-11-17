@@ -105,7 +105,7 @@ test('iPhone MP4 download streams in a hidden iframe and does not leave the purc
  assert.equal(save.target,frame.name);
  assert.equal(s.$('management').open,true);
  assert.match(save.href,/prepared-file\?token=secure-capability/);
- assert.match(control.children[1].textContent,/Puedes seguir en esta carpeta/);
+ assert.match(control.children[1].textContent,/Descarga nativa solicitada/);
  save.onclick({preventDefault(){prevented++;}});
  assert.equal(s.frames.size,1); // no new window and no duplicate frames.
 });
