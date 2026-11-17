@@ -438,7 +438,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   // If iOS did not allow file sharing, keep the legacy private attachment
   // download, targeted at an invisible same-origin frame.
   save.target=panelDownloadFrame();
-  status.textContent='Descarga alternativa solicitada; revisa Archivos → Descargas.';
+  status.textContent='Descarga alternativa solicitada. Puedes seguir en esta carpeta; revisa Archivos → Descargas.';
  };
  if(job)refresh();
  return wrap;
