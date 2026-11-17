@@ -154,6 +154,46 @@ class BulkPostgresTests(unittest.IsolatedAsyncioTestCase):
             "SELECT status FROM descarga_bulk_jobs WHERE id=$1",unsafe)
         self.assertEqual(still,"error")
 
+    async def test_skipped_media_advances_without_touching_published_history(self):
+        now=time.time()
+        job=uuid.uuid4()
+        await self.conn.execute(
+            """INSERT INTO descarga_bulk_jobs
+               (id,bot_id,uid,generation,source_id,source_title,
+                target_id,target_title,created,updated,status,run_no,
+                lease,run_total,run_done)
+               VALUES($1,5,77,1,-100777,'Origen',-100888,'Destino',
+                      $2,$2,'publishing',1,'lease',3,1)""",job,now)
+        await self.conn.execute(
+            """INSERT INTO descarga_bulk_runs(job_id,run_no,ranges,selected,started)
+               VALUES($1,1,$2::jsonb,3,$3)""",
+            job,json.dumps({kind:[0,3] for kind in bulk.KINDS}),now)
+        await self.conn.executemany(
+            """INSERT INTO descarga_bulk_items
+               (job_id,message_id,category,ordinal,album,reply_to,caption)
+               VALUES($1,$2,'photos',$3,'',0,'')""",
+            [(job,520,1),(job,521,2),(job,522,3)])
+        await self.conn.execute(
+            """INSERT INTO descarga_bulk_deliveries
+               (job_id,run_no,message_id,category,status,archive_id,destination_id,updated)
+               VALUES($1,1,520,'photos','published',400,500,$2)""",job,now)
+        svc=NS(repo=NS(pool=self.conn))
+        record={"id":job,"run_no":1,"lease":"lease"}
+        ranges={kind:[0,3] for kind in bulk.KINDS}
+        first=await worker._candidate(svc,record,ranges)
+        self.assertEqual(int(first["message_id"]),521)
+        await worker._skip_media(svc,record,[first],
+            ValueError("El archivo no se descargó completo."))
+        next_item=await worker._candidate(svc,record,ranges)
+        self.assertEqual(int(next_item["message_id"]),522)
+        states=await self.conn.fetch(
+            """SELECT message_id,status FROM descarga_bulk_deliveries
+               WHERE job_id=$1 ORDER BY message_id""",job)
+        self.assertEqual([(int(x["message_id"]),x["status"]) for x in states],
+                         [(520,"published"),(521,"skipped")])
+        self.assertEqual(await self.conn.fetchval(
+            "SELECT run_done FROM descarga_bulk_jobs WHERE id=$1",job),1)
+
     async def test_twenty_independent_destination_jobs_and_atomic_limit(self):
         """21 simultaneous requests may create only 20 jobs for one user."""
         bot_id,uid=77777,88888
