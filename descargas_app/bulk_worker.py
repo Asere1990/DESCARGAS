@@ -40,17 +40,19 @@ async def _verified_download_media(client,item,file,progress_callback):
         actual=target.stat().st_size if target.exists() else 0
         if result and actual>0 and (not expected or actual==expected):
             return result
-        if expected and 0<actual<expected:
-            LOG.warning("Bulk media short download attempt=%d actual=%d expected=%d",
-                        attempt+1,actual,expected)
+        if expected and (not result or actual!=expected):
+            LOG.warning("Bulk media mismatch attempt=%d actual=%d expected=%d returned=%s",
+                        attempt+1,actual,expected,bool(result))
             try:
-                # Telethon 1.45 iter_download accepts a byte offset and can
-                # resume at non-aligned positions. Only bytes from Telegram
-                # are appended and their exact length is checked.
+                # A zero-byte or oversized download needs a fresh direct
+                # stream from offset 0; a short download resumes from its
+                # precise byte offset. Never trust oversized/partial bytes.
+                offset=actual if 0<actual<expected else 0
+                actual=offset
                 source=getattr(item,"media",None) or item
-                with target.open("ab") as out:
+                with target.open("ab" if offset else "wb") as out:
                     async for chunk in client.iter_download(
-                            source,offset=actual,file_size=expected,
+                            source,offset=offset,file_size=expected,
                             request_size=256*1024):
                         size=len(chunk)
                         if size>expected-actual:
@@ -90,8 +92,9 @@ async def _claim(s):
                  OR (status IN ('review','error') AND run_no>0
                      AND updated>$2-7200
                      AND ((status='review' AND error='El envío requiere revisión.')
-                          OR (status='error' AND error=
-                              'El archivo descargado no coincide con el tamaño original; no se envió.'))
+                          OR (status='error' AND error IN
+                             ('El archivo descargado no coincide con el tamaño original; no se envió.',
+                              'El archivo sigue incompleto tras reintentar la descarga; requiere revisión.')))
                      AND NOT EXISTS (
                          SELECT 1 FROM descarga_bulk_deliveries d
                          WHERE d.job_id=descarga_bulk_jobs.id
@@ -605,7 +608,7 @@ async def run(s):
             if (reason=="El archivo descargado no coincide con el tamaño original; no se envió."
                     and str(claimed["error"] or "")==
                         "Reanudación verificada tras archivo incompleto."):
-                reason="El archivo sigue incompleto tras reintentar la descarga; requiere revisión."
+                reason="La lectura directa de Telegram tampoco completó el archivo; requiere revisión manual."
             if "archivo" in reason.lower() and "incomplet" in reason.lower():
                 LOG.warning("Bulk media size validation failed after bounded retry")
             try:await _state(s,claimed,"error",reason)

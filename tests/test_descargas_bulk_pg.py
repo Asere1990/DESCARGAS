@@ -132,6 +132,9 @@ class BulkPostgresTests(unittest.IsolatedAsyncioTestCase):
                 """INSERT INTO descarga_bulk_runs(job_id,run_no,ranges,selected,started)
                    VALUES($1,1,'{}'::jsonb,336,$2)""",ident,now-120)
         await self.conn.execute(
+            """UPDATE descarga_bulk_jobs SET error=$2 WHERE id=$1""",
+            safe,"El archivo sigue incompleto tras reintentar la descarga; requiere revisión.")
+        await self.conn.execute(
             """INSERT INTO descarga_bulk_deliveries
                (job_id,run_no,message_id,category,status,archive_id,destination_id,updated)
                VALUES($1,1,520,'photos','published',400,500,$2)""",safe,now-90)
