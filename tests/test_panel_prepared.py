@@ -114,6 +114,9 @@ class PreparedDownloadTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(response,web.FileResponse)
         self.assertIn('attachment',response.headers['Content-Disposition'])
         self.assertIn('telegram-0.mp4',response.headers['Content-Disposition'])
+        # Browser must download instead of replacing the panel with an MP4 preview.
+        self.assertEqual(response.headers['Content-Type'],'application/octet-stream')
+        self.assertEqual(response.headers['X-Content-Type-Options'],'nosniff')
         self.assertEqual(response.headers['Access-Control-Allow-Origin'],'https://web.telegram.org')
         self.resolver.assert_awaited_once()
         self.source_guard.assert_awaited()
