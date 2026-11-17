@@ -199,79 +199,147 @@ function panelDownloadFrame(){
 // Stream an already purchased, temporarily prepared video into Safari's
 // origin-private file system, then pass a real File to iOS Share Sheet.
 // Never call Response.blob()/arrayBuffer() for multi-GB videos.
-const PANEL_SHARE_DIRECTORY='panel-private-share-v1';
-const PANEL_SHARE_MAX_AGE=60*60*1000;
+// A paid video is transferred once from Telegram into private iPhone storage.
+// Large files use the OPFS File directly: never materialize a multi-GB Blob in JS.
+// Cached files remain private to this browser; iOS may evict them under pressure.
+const PANEL_SHARE_DIRECTORY='panel-private-share-v2';
+const PANEL_SHARE_MAX_AGE=30*24*60*60*1000;
 let panelShareActive=null;
-async function panelShareStage(url,name,owner,progress){
- if(typeof navigator.share!=='function'||typeof navigator.canShare!=='function'||
-    typeof navigator.storage?.getDirectory!=='function'||typeof File!=='function')
-  throw Error('Este navegador no admite compartir archivos directamente. Usa la descarga alternativa.');
- if(panelShareActive&&panelShareActive.owner!==owner)
-  throw Error('Otro video está preparándose para Fotos. Termina ese archivo primero.');
+function panelShareMime(name){
+ return /\.mov$/i.test(name)?'video/quicktime':
+  /\.webm$/i.test(name)?'video/webm':
+  /\.png$/i.test(name)?'image/png':
+  /\.(jpe?g)$/i.test(name)?'image/jpeg':
+  /\.gif$/i.test(name)?'image/gif':
+  /\.webp$/i.test(name)?'image/webp':'video/mp4';
+}
+function panelShareFile(diskFile,name){
+ // Direct use avoids copying >512 MiB through WebKit's File constructor.
+ const type=panelShareMime(name);
+ const file=diskFile.size>=512*1024*1024&&diskFile.type===type
+  ?diskFile:new File([diskFile],name,{type,lastModified:Date.now()});
+ if(!navigator.canShare({files:[file]}))
+  throw Error('Este iPhone no permite compartir el video como archivo. Usa la descarga alternativa.');
+ return file;
+}
+async function panelShareDirectory(){
  const root=await navigator.storage.getDirectory();
  const dir=await root.getDirectoryHandle(PANEL_SHARE_DIRECTORY,{create:true});
- // Remove abandoned private files from earlier visits without changing any
- // Telegram account, server-side download or browser's Photos library.
  if(typeof dir.entries==='function'){
   try{
-   for await(const [key] of dir.entries()){
-    const date=Number(key.split('-')[0]);
-    if(!Number.isFinite(date)||Date.now()-date>PANEL_SHARE_MAX_AGE)
+   for await(const [key,handle] of dir.entries()){
+    if(!key.startsWith('v2-')||handle.kind!=='file')continue;
+    const file=await handle.getFile();
+    if(Date.now()-file.lastModified>PANEL_SHARE_MAX_AGE)
      await dir.removeEntry(key).catch(()=>{});
    }
   }catch{}
  }
+ return dir;
+}
+async function panelShareCacheKey(owner,expectedSize,name){
+ if(!owner.purchaseId||!expectedSize||typeof crypto==='undefined'||
+    !crypto.subtle||typeof TextEncoder==='undefined')return '';
+ const identity=JSON.stringify([
+  owner.accountId,owner.source,owner.purchaseId,owner.index,expectedSize]);
+ const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(identity));
+ const hex=[...new Uint8Array(hash)].slice(0,20).map(n=>n.toString(16).padStart(2,'0')).join('');
+ const suffix=/\.(mp4|mov|m4v|webm)$/i.exec(name)?.[0]||'.mp4';
+ return 'v2-'+hex+'-'+expectedSize+suffix;
+}
+async function panelShareCached(name,key,size){
+ if(!key||!size)return null;
+ const dir=await panelShareDirectory();
+ let handle;
+ try{handle=await dir.getFileHandle(key,{create:false});}
+ catch(error){if(error?.name==='NotFoundError')return null;throw error;}
+ const diskFile=await handle.getFile();
+ if(diskFile.size!==size)return null; // A partial download is resumable.
+ if(Date.now()-diskFile.lastModified>PANEL_SHARE_MAX_AGE){
+  await dir.removeEntry(key).catch(()=>{});return null;
+ }
+ return {file:panelShareFile(diskFile,name),cleanup:async()=>{}};
+}
+// Stream the response into OPFS in bounded chunks. A new request resumes a
+// partial file with HTTP Range; a truncated response never becomes "ready".
+async function panelShareStage(url,name,owner,progress,cacheKey='',expectedSize=0){
+ if(typeof navigator.share!=='function'||typeof navigator.canShare!=='function'||
+    typeof navigator.storage?.getDirectory!=='function'||typeof File!=='function')
+  throw Error('Este navegador no admite compartir archivos directamente. Usa la descarga alternativa.');
+ if(panelShareActive)
+  throw Error('Otro video está transfiriéndose a Fotos. Termina ese archivo primero.');
+ const dir=await panelShareDirectory();
  const suffix=/\.(mp4|mov|m4v|webm|jpg|jpeg|png|gif)$/i.exec(name)?.[0]||'.mp4';
- const key=String(Date.now())+'-'+(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?
-  crypto.randomUUID():String(Math.random()).slice(2))+suffix;
+ const key=cacheKey||(String(Date.now())+'-'+(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?
+  crypto.randomUUID():String(Math.random()).slice(2))+suffix);
  const handle=await dir.getFileHandle(key,{create:true});
  const controller=new AbortController();
  const entry={owner,controller,cleanup:async()=>{
-  try{await dir.removeEntry(key);}catch{}
+  if(!cacheKey)try{await dir.removeEntry(key);}catch{}
  }};
  panelShareActive=entry;
- let writer=null;
+ let completed=false;
  try{
-  const response=await fetch(url,{cache:'no-store',credentials:'same-origin',
-   signal:controller.signal});
-  if(!response.ok||!response.body?.getReader)
-   throw Error('No se pudo recibir el video preparado para Fotos.');
-  const total=Number(response.headers.get('Content-Length'))||0;
-  writer=await handle.createWritable();
-  let received=0,reader=response.body.getReader();
-  try{
-   for(;;){
-    const {done,value}=await reader.read();
-    if(done)break;
-    if(panelShareActive!==entry||String(account?.id)!==String(owner.accountId))
-     throw Error('La cuenta cambió. Se canceló la preparación local.');
-    if(!value?.length)continue;
-    await writer.write(value);received+=value.length;
-    progress(received,total);
+  for(let attempt=0;attempt<3&&!completed;attempt++){
+   let writer=null;
+   try{
+    const previous=await handle.getFile();
+    const offset=cacheKey&&expectedSize&&previous.size<expectedSize?previous.size:0;
+    if(cacheKey&&expectedSize&&previous.size===expectedSize){completed=true;break;}
+    const response=await fetch(url,{cache:'no-store',credentials:'same-origin',
+     headers:offset?{'Range':'bytes='+offset+'-'}:{},signal:controller.signal});
+    if(!response.ok||!response.body?.getReader)
+     throw Error('El servidor no entregó el video (HTTP '+response.status+').');
+    if(offset){
+     const range=response.headers.get('Content-Range')||'';
+     if(response.status!==206||!range.startsWith('bytes '+offset+'-'))
+      throw Error('El servidor no aceptó reanudar la descarga. Reintenta desde el panel.');
+    }else if(response.status===206)
+     throw Error('El servidor devolvió un rango inesperado.');
+    const length=Number(response.headers.get('Content-Length'))||0;
+    const total=expectedSize||length+offset;
+    writer=await handle.createWritable({keepExistingData:offset>0});
+    if(offset)await writer.seek(offset);
+    const reader=response.body.getReader();
+    let received=offset;
+    try{
+     for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      if(panelShareActive!==entry||String(account?.id)!==String(owner.accountId))
+       throw Error('La cuenta cambió. Se canceló la descarga local.');
+      if(!value?.length)continue;
+      received+=value.length;
+      if(total&&received>total)throw Error('El video superó el tamaño anunciado por Telegram.');
+      await writer.write(value);
+      progress(received,total);
+     }
+    }finally{reader.releaseLock?.();}
+    await writer.close();writer=null;
+    const diskFile=await handle.getFile();
+    if(total&&diskFile.size!==total)
+     throw Error('Descarga incompleta: '+diskFile.size+' de '+total+' bytes.');
+    completed=true;
+   }catch(error){
+    // Commit the verified partial bytes for an interruption/retry.
+    if(writer)try{await writer.close();}catch{try{await writer.abort();}catch{}}
+    if(error?.name==='QuotaExceededError')
+     throw Error('El iPhone no tiene suficiente espacio. Usa la descarga alternativa.');
+    if(error?.name==='AbortError'||attempt===2||
+       /La cuenta cambió|HTTP 40[13]|rango inesperado|no aceptó reanudar|superó el tamaño/.test(error.message||''))
+     throw error;
+    await new Promise(resolve=>setTimeout(resolve,700*(attempt+1)));
    }
-  }finally{reader.releaseLock?.();}
-  if(total&&received!==total)throw Error('La transferencia al iPhone quedó incompleta.');
-  await writer.close();writer=null;
+  }
+  if(!completed)throw Error('No se completó la descarga del video.');
   const diskFile=await handle.getFile();
-  const type=/\.mov$/i.test(name)?'video/quicktime':
-   /\.webm$/i.test(name)?'video/webm':
-   /\.png$/i.test(name)?'image/png':
-   /\.(jpe?g)$/i.test(name)?'image/jpeg':
-   /\.gif$/i.test(name)?'image/gif':
-   /\.webp$/i.test(name)?'image/webp':'video/mp4';
-  // Blob/File parts are references to the OPFS-backed file, not a JS
-  // ArrayBuffer copy of the original multi-gigabyte video.
-  const file=new File([diskFile],name,{type,lastModified:Date.now()});
-  if(!navigator.canShare({files:[file]}))
-   throw Error('iPhone no permite compartir directamente este archivo. Usa la descarga alternativa.');
-  return {file,cleanup:entry.cleanup};
- }catch(e){
-  if(writer){try{await writer.abort();}catch{}}
-  await entry.cleanup();
-  throw e;
- }finally{
-  if(panelShareActive===entry)panelShareActive=null;
- }
+  if(expectedSize&&diskFile.size!==expectedSize)
+   throw Error('El tamaño final no coincide con el original comprado en Telegram.');
+  return {file:panelShareFile(diskFile,name),cleanup:entry.cleanup};
+ }catch(error){
+  if(!cacheKey)await entry.cleanup();
+  throw error;
+ }finally{if(panelShareActive===entry)panelShareActive=null;}
 }
 const preparedDownloadJobs=new Map();
 function preparedDownloadControl(payload,defaultName='archivo'){
