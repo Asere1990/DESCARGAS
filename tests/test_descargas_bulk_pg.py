@@ -154,6 +154,57 @@ class BulkPostgresTests(unittest.IsolatedAsyncioTestCase):
             "SELECT status FROM descarga_bulk_jobs WHERE id=$1",unsafe)
         self.assertEqual(still,"error")
 
+    async def test_skipped_media_is_not_retried_and_progress_is_truthful(self):
+        job=uuid.uuid4()
+        now=time.time()
+        bot_id=977736
+        dsn=os.environ["PGTEST_DSN"]
+        pool=await asyncpg.create_pool(dsn,min_size=1,max_size=3)
+        try:
+            await self.conn.execute(
+                """INSERT INTO descarga_bulk_jobs
+                   (id,bot_id,uid,generation,source_id,source_title,
+                    target_id,target_title,created,updated,status,run_no,
+                    run_total,run_done,counts,lease)
+                   VALUES($1,$2,77,1,-100777,'Origen',-100888,'Destino',
+                          $3,$3,'publishing',1,3,1,$4::jsonb,'lease-test')""",
+                job,bot_id,now,json.dumps({kind:3 for kind in bulk.KINDS}))
+            ranges={kind:[0,0] for kind in bulk.KINDS}
+            ranges["photos"]=[0,3]
+            await self.conn.execute(
+                """INSERT INTO descarga_bulk_runs
+                   (job_id,run_no,ranges,selected,started)
+                   VALUES($1,1,$2::jsonb,3,$3)""",
+                job,json.dumps(ranges),now)
+            await self.conn.executemany(
+                """INSERT INTO descarga_bulk_items
+                   (job_id,message_id,category,ordinal,album,reply_to,caption)
+                   VALUES($1,$2,'photos',$3,'',0,'')""",
+                [(job,520,1),(job,521,2),(job,522,3)])
+            await self.conn.execute(
+                """INSERT INTO descarga_bulk_deliveries
+                   (job_id,run_no,message_id,category,status,archive_id,destination_id,updated)
+                   VALUES($1,1,520,'photos','published',400,500,$2)""",
+                job,now)
+            svc=NS(bot_id=bot_id,repo=NS(pool=pool))
+            entry={"message_id":521,"category":"photos"}
+            await worker._mark_skipped(svc,{"id":job,"run_no":1,"lease":"lease-test"},
+                                       entry,"Archivo demasiado grande.")
+            with self.assertRaises(worker.ReviewRequired):
+                await worker._mark_skipped(svc,{"id":job,"run_no":1,"lease":"lease-test"},
+                                           entry,"Archivo demasiado grande.")
+            candidate=await worker._candidate(svc,{"id":job,"run_no":1},ranges)
+            self.assertEqual(candidate["message_id"],522)
+            current=await bulk.current(svc,77,str(job))
+            self.assertEqual(current["job"]["published"],1)
+            self.assertEqual(current["job"]["skipped"],1)
+            self.assertEqual(current["job"]["selected"],3)
+            self.assertEqual(await self.conn.fetchval(
+                "SELECT count(*) FROM descarga_bulk_deliveries WHERE job_id=$1 AND status='skipped'",
+                job),1)
+        finally:
+            await pool.close()
+
     async def test_twenty_independent_destination_jobs_and_atomic_limit(self):
         """21 simultaneous requests may create only 20 jobs for one user."""
         bot_id,uid=77777,88888

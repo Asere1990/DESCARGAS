@@ -281,11 +281,52 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         c=Client()
         prepare=AsyncMock(return_value="should never upload")
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(ValueError,"tamaño original"):
+            with self.assertRaisesRegex(worker.SkippableMedia,"No se pudo descargar"):
                 await worker.prepare_album(worker._VerifiedBulkSource(c),[item],
                                            directory,prepare,100,100)
         self.assertEqual(c.attempts,3)
         prepare.assert_not_awaited()
+
+    async def test_failed_file_is_skipped_and_next_one_continues(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"live"}
+        first={"message_id":521,"album":"", "category":"photos"}
+        second={"message_id":522,"album":"", "category":"photos"}
+        svc=NS(almacen=-100111,repo=NS(pool=NS(
+            fetchrow=AsyncMock(return_value={"ranges":{kind:[0,2] for kind in bulk.KINDS}}))))
+        with patch.object(worker,"_inflight",new_callable=AsyncMock,return_value=False),patch.object(
+                worker,"_candidate",new_callable=AsyncMock,side_effect=[first,second]),patch.object(
+                worker,"_verify_account",new_callable=AsyncMock),patch.object(
+                worker,"send_media",new_callable=AsyncMock,
+                side_effect=[worker.SkippableMedia(521,"Archivo demasiado grande."),None]) as send,patch.object(
+                worker,"_mark_skipped",new_callable=AsyncMock) as skip,patch.object(
+                worker,"_mark_review",new_callable=AsyncMock) as review:
+            await worker.publish_one(svc,job)
+            await worker.publish_one(svc,job)
+        skip.assert_awaited_once_with(svc,job,first,"Archivo demasiado grande.")
+        self.assertEqual(send.await_count,2)
+        review.assert_not_awaited()
+
+    async def test_no_skip_if_delivery_already_uncertain(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"live"}
+        first={"message_id":521,"album":"","category":"photos"}
+        svc=NS(almacen=-100111,repo=NS(pool=NS(
+            fetchrow=AsyncMock(return_value={"ranges":{kind:[0,1] for kind in bulk.KINDS}}))))
+        with patch.object(worker,"_inflight",new_callable=AsyncMock,
+                          side_effect=[False,True]),patch.object(
+                worker,"_candidate",new_callable=AsyncMock,return_value=first),patch.object(
+                worker,"_verify_account",new_callable=AsyncMock),patch.object(
+                worker,"send_media",new_callable=AsyncMock,
+                side_effect=worker.SkippableMedia(521,"No se pudo descargar.")),patch.object(
+                worker,"_mark_skipped",new_callable=AsyncMock) as skip:
+            with self.assertRaises(worker.ReviewRequired):
+                await worker.publish_one(svc,job)
+        skip.assert_not_awaited()
+
+    async def test_stars_media_never_enters_bulk_download(self):
+        m=NS(media=bulk.types.MessageMediaPaidMedia(
+            stars_amount=7,extended_media=[]),photo=object(),gif=None,
+            video=None,document=None)
+        self.assertEqual(bulk.category(m),"")
 
     async def test_busy_linked_account_never_enters_review_before_claim(self):
         job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
