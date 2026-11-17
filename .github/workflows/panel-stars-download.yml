@@ -1,0 +1,23 @@
+name: Stars iPhone — descargas grandes
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'descargas_app/panel_web/app.js'
+      - 'tests/test_panel_purchases.cjs'
+      - '.github/workflows/panel-stars-download.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  iphone-stars:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Comprobar sintaxis del panel
+        run: node --check descargas_app/panel_web/app.js
+      - name: Comprobar descargas Stars y regresiones de compras
+        run: node --test tests/test_panel_purchases.cjs
