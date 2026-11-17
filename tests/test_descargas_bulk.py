@@ -226,6 +226,39 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text,["Foto original","Video original"])
         client.disconnect.assert_awaited_once()
 
+    async def test_busy_linked_account_never_enters_review_before_claim(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
+        item={"message_id":520,"album":"","category":"photos"}
+        svc=NS(almacen=-100111,repo=NS(pool=NS(
+            fetchrow=AsyncMock(return_value={"ranges":{kind:[0,1] for kind in bulk.KINDS}}))))
+        with patch.object(worker,"_inflight",new_callable=AsyncMock,return_value=False),patch.object(
+                worker,"_candidate",new_callable=AsyncMock,return_value=item),patch.object(
+                worker,"_verify_account",new_callable=AsyncMock),patch.object(
+                worker,"send_media",new_callable=AsyncMock,
+                side_effect=ValueError("Espera a que termine la transferencia en curso.")),patch.object(
+                worker,"_mark_review",new_callable=AsyncMock) as mark:
+            with self.assertRaisesRegex(ValueError,"transferencia en curso"):
+                await worker.publish_one(svc,job)
+            mark.assert_not_awaited()
+
+    async def test_unclaimed_failure_retries_but_ambiguous_send_is_reviewed(self):
+        job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
+        item={"message_id":520,"album":"","category":"photos"}
+        svc=NS(almacen=-100111,repo=NS(pool=NS(
+            fetchrow=AsyncMock(return_value={"ranges":{kind:[0,1] for kind in bulk.KINDS}}))))
+        with patch.object(worker,"_candidate",new_callable=AsyncMock,return_value=item),patch.object(
+                worker,"_verify_account",new_callable=AsyncMock),patch.object(
+                worker,"send_media",new_callable=AsyncMock,side_effect=TimeoutError("temporary")),patch.object(
+                worker,"_mark_review",new_callable=AsyncMock) as mark,patch.object(
+                worker,"_inflight",new_callable=AsyncMock,
+                side_effect=[False,False,False,True]):
+            with self.assertRaises(worker.RetryablePreflight):
+                await worker.publish_one(svc,job)
+            mark.assert_not_awaited()
+            with self.assertRaises(worker.ReviewRequired):
+                await worker.publish_one(svc,job)
+            mark.assert_awaited_once()
+
     async def test_ordinary_user_cannot_see_admin_archive_from_public_status(self):
         source=__import__("pathlib").Path("descargas_app/bulk_transfer.py").read_text(encoding="utf-8")
         begin=source.split("async def current(",1)[1].split("def valid_ranges(",1)[0]

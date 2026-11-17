@@ -24,6 +24,7 @@ PAGE=80
 LEASE=900
 
 class ReviewRequired(Exception):pass
+class RetryablePreflight(Exception):pass
 
 async def _claim(s):
     lease=uuid.uuid4().hex
@@ -33,13 +34,24 @@ async def _claim(s):
              SELECT id FROM descarga_bulk_jobs
              WHERE bot_id=$1 AND
                (status IN ('scanning','publishing')
-                 OR (status IN ('waiting_scan','waiting_send') AND pause_until<=$2))
+                 OR (status IN ('waiting_scan','waiting_send') AND pause_until<=$2)
+                 OR (status='review' AND error='El envío requiere revisión.'
+                     AND run_no>0 AND updated>$2-7200
+                     AND NOT EXISTS (
+                         SELECT 1 FROM descarga_bulk_deliveries d
+                         WHERE d.job_id=descarga_bulk_jobs.id
+                           AND d.run_no=descarga_bulk_jobs.run_no
+                           AND d.status IN ('preparing','archived','review'))))
                AND lease_until<$2
              ORDER BY updated,id FOR UPDATE SKIP LOCKED LIMIT 1)
            UPDATE descarga_bulk_jobs j SET
              status=CASE WHEN j.status='waiting_scan' THEN 'scanning'
                          WHEN j.status='waiting_send' THEN 'publishing'
+                         WHEN j.status='review' THEN 'publishing'
                          ELSE j.status END,
+             error=CASE WHEN j.status='review'
+                        THEN 'Recuperación segura automática en curso.'
+                        ELSE j.error END,
              lease=$3,lease_until=$4,updated=$2
            FROM next WHERE j.id=next.id RETURNING j.*""",
         s.bot_id,now,lease,now+LEASE)
@@ -247,7 +259,7 @@ async def _checkpoint_published(s,job,items,archived,posted):
               int(item["reply_to"]),now)
              for item,msg,dest in zip(items,archived,posted)])
         await conn.execute(
-            """UPDATE descarga_bulk_jobs SET run_done=run_done+$3,updated=$4
+            """UPDATE descarga_bulk_jobs SET run_done=run_done+$3,error='',updated=$4
                WHERE id=$1 AND run_no=$2 AND status IN ('publishing','paused')""",
             job["id"],job["run_no"],len(posted),now)
 
@@ -321,10 +333,12 @@ async def send_media(s,job,items):
                 media=await prepare_album(client,ordered,temp,prepare,MAX_FILE,MAX_ALBUM)
                 # Claim immediately before Telegram posting, not before
                 # acquiring the user's session. A busy account is retryable.
+                # Resolving the archive peer can fail transiently and has no
+                # publishing side effect. Only claim after it is resolved.
+                archive_peer=await _storage_peer(s)
                 await _claim_entries(s,job,items)
                 # The archive is the durable first stop. A failed archive
                 # never causes a file to be sent to the user destination.
-                archive_peer=await _storage_peer(s)
                 try:
                     saved=await s.bot.send_file(archive_peer,
                         media if len(media)>1 else media[0],
@@ -440,7 +454,21 @@ async def publish_one(s,job):
         try:
             await send_media(s,job,rows)
         except (asyncio.CancelledError,errors.FloodWaitError):raise
+        except ValueError as exc:
+            # A busy linked account is expected in parallel readers. It has
+            # not claimed or sent anything and must NOT freeze the full run.
+            if "transferencia en curso" in str(exc).lower():
+                raise
+            if not await _inflight(s,job):
+                # Deterministic preflight failure: report the true validation
+                # error, not an ambiguous Telegram delivery.
+                raise
+            await _mark_review(s,job,rows,type(exc).__name__)
+            raise ReviewRequired("El envío requiere revisión.") from exc
         except Exception as exc:
+            if not await _inflight(s,job):
+                # Nothing was claimed, archived or published: safe to retry.
+                raise RetryablePreflight(type(exc).__name__) from exc
             await _mark_review(s,job,rows,type(exc).__name__)
             raise ReviewRequired("El envío requiere revisión.") from exc
         return
@@ -450,7 +478,7 @@ async def publish_one(s,job):
         return
     # Recompute even if user paused after the last send.
     await s.repo.pool.execute(
-        """UPDATE descarga_bulk_jobs SET status='finished',updated=$3
+        """UPDATE descarga_bulk_jobs SET status='finished',error='',updated=$3
            WHERE id=$1 AND lease=$2 AND status='publishing'""",
         job["id"],job["lease"],time.time())
     await s.repo.pool.execute(
@@ -481,8 +509,33 @@ async def run(s):
                     "Telegram pide esperar.",int(exc.seconds)+3)
             except Exception:
                 LOG.warning("Could not persist bulk wait")
+        except RetryablePreflight as exc:
+            # The failed operation took place before claiming any delivery:
+            # back off and retry automatically, with a fixed upper bound.
+            previous=str(claimed["error"] or "")
+            attempt=1
+            if previous.startswith("Intento de preparación "):
+                try:attempt=int(previous.split(" ",3)[3].split("/",1)[0])+1
+                except (ValueError,IndexError):pass
+            LOG.warning("Bulk safe preflight failed attempt=%s type=%s",attempt,str(exc))
+            try:
+                if attempt>=5:
+                    await _state(s,claimed,"error",
+                                 f"No se pudo preparar el archivo tras 5 intentos ({exc}).")
+                else:
+                    await _state(s,claimed,"waiting_send",
+                                 f"Intento de preparación {attempt}/5: {exc}",
+                                 wait=min(180,20*attempt))
+            except Exception:LOG.warning("Could not persist bulk preflight wait")
         except ReviewRequired as exc:
-            try:await _state(s,claimed,"review",str(exc))
+            repeated=(str(claimed["error"] or "")==
+                      "Recuperación segura automática en curso.")
+            if repeated:
+                LOG.warning("Bulk safe recovery ended in a confirmed review state")
+            try:
+                await _state(s,claimed,"review",
+                    "Reintento seguro agotado; hay un envío pendiente de revisión."
+                    if repeated else str(exc))
             except Exception:LOG.warning("Could not persist bulk review")
         except ValueError as exc:
             if "transferencia en curso" in str(exc).lower():
