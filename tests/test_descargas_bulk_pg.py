@@ -79,6 +79,39 @@ class BulkPostgresTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.conn.fetchval(
             "SELECT caption FROM descarga_bulk_audit WHERE job_id=$1",job),"Original")
 
+    async def test_claim_recovers_only_review_without_uncertain_delivery(self):
+        now=time.time()
+        safe=uuid.uuid4()
+        unsafe=uuid.uuid4()
+        bot_id=977733
+        for ident in (safe,unsafe):
+            await self.conn.execute(
+                """INSERT INTO descarga_bulk_jobs
+                   (id,bot_id,uid,generation,source_id,source_title,
+                    target_id,target_title,created,updated,status,run_no,error)
+                   VALUES($1,$2,77,1,-100777,'Origen',-100888,'Destino',
+                          $3,$3,'review',1,'El envío requiere revisión.')""",
+                ident,bot_id,now-120)
+            await self.conn.execute(
+                """INSERT INTO descarga_bulk_runs(job_id,run_no,ranges,selected,started)
+                   VALUES($1,1,'{}'::jsonb,5,$2)""",ident,now-120)
+        await self.conn.execute(
+            """INSERT INTO descarga_bulk_deliveries
+               (job_id,run_no,message_id,category,status,archive_id,updated)
+               VALUES($1,1,520,'photos','archived',400,$2)""",unsafe,now-80)
+        svc=NS(bot_id=bot_id,repo=NS(pool=self.conn))
+        claimed=await worker._claim(svc)
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed["id"],safe)
+        self.assertEqual(claimed["status"],"publishing")
+        self.assertEqual(claimed["error"],"Recuperación segura automática en curso.")
+        # The other transfer has a real archived message with unconfirmed
+        # destination; it must NEVER be retried automatically.
+        self.assertIsNone(await worker._claim(svc))
+        still=await self.conn.fetchrow(
+            "SELECT status,error FROM descarga_bulk_jobs WHERE id=$1",unsafe)
+        self.assertEqual(still["status"],"review")
+
     async def test_twenty_independent_destination_jobs_and_atomic_limit(self):
         """21 simultaneous requests may create only 20 jobs for one user."""
         bot_id,uid=77777,88888
