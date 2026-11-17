@@ -512,7 +512,7 @@ async def run(s):
         except RetryablePreflight as exc:
             # The failed operation took place before claiming any delivery:
             # back off and retry automatically, with a fixed upper bound.
-            previous=str(claimed.get("error") or "")
+            previous=str(claimed["error"] or "")
             attempt=1
             if previous.startswith("Intento de preparación "):
                 try:attempt=int(previous.split(" ",3)[3].split("/",1)[0])+1
@@ -528,7 +528,7 @@ async def run(s):
                                  wait=min(180,20*attempt))
             except Exception:LOG.warning("Could not persist bulk preflight wait")
         except ReviewRequired as exc:
-            repeated=(str(claimed.get("error") or "")==
+            repeated=(str(claimed["error"] or "")==
                       "Recuperación segura automática en curso.")
             if repeated:
                 LOG.warning("Bulk safe recovery ended in a confirmed review state")
