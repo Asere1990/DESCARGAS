@@ -489,6 +489,18 @@ class TelegramPanel:
             if native_download and request.method=='HEAD':
                 return web.Response(status=status,headers=headers)
             response=web.StreamResponse(status=status,headers=headers);await response.prepare(request)
+            if native_download:
+                from .panel_native_stream import write_verified_range
+                async def recheck_paid_access():
+                    if not authorized(actor):
+                        raise web.HTTPForbidden()
+                    await require_account(self.s,uid,actor)
+                    await require_source(
+                        self.s,uid,utils.get_peer_id(entity),client=client,
+                        entity=entity,actor=actor)
+                return await write_verified_range(
+                    response, client, m.media, start, end,
+                    check=recheck_paid_access)
             aligned=start-start%4096;position=aligned;checked=0
             try:
                 iterator=client.iter_download(m.media,offset=aligned,request_size=262144,chunk_size=262144)

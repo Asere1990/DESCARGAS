@@ -465,9 +465,30 @@ function nativeStarsDownloadControl(payload,defaultName='video.mp4'){
  const legacy=el('button','↻ Usar preparación tradicional');
  legacy.type='button';legacy.className='prepared-fallback';
  const note=el('small','La preparación tradicional es una alternativa si Safari no puede guardar el archivo.');
- link.onclick=()=>{
+ const copy=el('button','⧉ Copiar enlace para abrir en Safari');
+ copy.type='button';copy.className='prepared-fallback';
+ copy.onclick=async()=>{
+  try{
+   await navigator.clipboard.writeText(payload.nativeUrl);
+   status.textContent='Enlace temporal copiado. Abre la aplicación Safari, pega el enlace y descarga allí. El enlace caduca a las 6 horas.';
+  }catch{
+   status.textContent='No se pudo copiar automáticamente. Mantén pulsado «Descargar video con Safari» y elige «Copiar enlace».';
+  }
+ };
+ link.onclick=event=>{
   if(typeof payload.pausePreview==='function')payload.pausePreview();
-  status.textContent='Se abrió el enlace de descarga en Safari. Verifica allí el progreso; esto no confirma que el archivo esté guardado.';
+  const webapp=window.Telegram?.WebApp;
+  if(webapp?.initData&&typeof webapp.openLink==='function'){
+   event.preventDefault();
+   try{
+    webapp.openLink(payload.nativeUrl,{try_instant_view:false});
+    status.textContent='Enlace enviado al navegador externo de iPhone. Comprueba allí la descarga; todavía no está confirmado el guardado.';
+   }catch{
+    status.textContent='Telegram no pudo abrir Safari. Usa «Copiar enlace para abrir en Safari».';
+   }
+   return;
+  }
+  status.textContent='Se solicitó abrir el enlace de descarga. Si no se abrió Safari, usa «Copiar enlace para abrir en Safari». No se ha confirmado ningún archivo guardado.';
  };
  legacy.onclick=()=>{
   legacy.hidden=true;note.hidden=true;
@@ -477,7 +498,7 @@ function nativeStarsDownloadControl(payload,defaultName='video.mp4'){
   },defaultName);
   wrap.append(fallback);
  };
- wrap.append(link,status,hint,legacy,note);
+ wrap.append(link,status,hint,copy,legacy,note);
  return wrap;
 }
 const preparedDownloadJobs=new Map();
