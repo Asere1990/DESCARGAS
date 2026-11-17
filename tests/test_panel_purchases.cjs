@@ -129,6 +129,93 @@ test('Telegram Mini App uses its native download API without iframe navigation',
  assert.equal(calls[0].file_name,'video.mp4');
  assert.match(calls[0].url,/prepared-file\?token=secure-capability/);
 });
+test('iPhone opens native Share Sheet for an actual OPFS-backed MP4, not a link',async()=>{
+ const key=JSON.stringify(['22','handle','token',0]);
+ const s=setup(async op=>op.startsWith('prepare-status?')?{
+  job:'cached',state:'ready',name:'Con_Marcaaa.mp4',total:6,progress:100,
+  file_token:'secure-file-token'
+ }:{items:[item()],next:null});
+ const chunks=[Uint8Array.from([1,2,3]),Uint8Array.from([4,5,6])];
+ const writes=[],shared=[],createdFiles=new Map();
+ const directory={
+  async *entries(){for(const key of createdFiles.keys())yield [key,{}];},
+  async getFileHandle(name){
+   return {
+    async createWritable(){
+     return {async write(bytes){writes.push([...bytes]);},
+      async close(){createdFiles.set(name,writes.slice());},
+      async abort(){createdFiles.delete(name);}};
+    },
+    async getFile(){return {size:6,opfs:true};}
+   };
+  },
+  async removeEntry(key){createdFiles.delete(key);}
+ };
+ class TestFile {
+  constructor(parts,name,options){this.parts=parts;this.name=name;this.type=options.type;this.size=parts[0].size;}
+ }
+ s.context.File=TestFile;
+ s.context.AbortController=AbortController;
+ s.context.crypto={randomUUID:()=> 'file-id'};
+ s.context.navigator={
+  storage:{async getDirectory(){return {async getDirectoryHandle(){return directory;}};}},
+  canShare(data){return data.files?.length===1&&data.files[0].type==='video/mp4';},
+  share(data){shared.push(data);return Promise.resolve();}
+ };
+ let transferCalls=0;
+ s.context.fetch=async()=>{
+  transferCalls++;
+  let pos=0;
+  return {ok:true,headers:{get:header=>header.toLowerCase()==='content-length'?'6':null},
+   blob(){throw Error('Video must never be buffered in JS as Blob');},
+   arrayBuffer(){throw Error('Video must never be buffered in JS as ArrayBuffer');},
+   body:{getReader(){return {
+    async read(){return pos<chunks.length?{done:false,value:chunks[pos++]}:{done:true};},
+    releaseLock(){}};}}
+  };
+ };
+ s.context.preparedDownloadJobs.set(key,'cached');
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ await new Promise(setImmediate);
+ await new Promise(setImmediate);
+ const control=list.children[2].children[4].children[1];
+ const save=control.children[3];
+ assert.equal(save.hidden,false);
+ assert.match(save.textContent,/Compartir video/);
+ assert.equal(control.children[1].textContent.includes('Guardar video'),true);
+ assert.equal(writes.length,2);
+ assert.equal(transferCalls,1);
+ assert.equal(s.frames.size,0);
+ let blocked=0;
+ save.onclick({preventDefault(){blocked++;}});
+ assert.equal(blocked,1);
+ assert.equal(shared.length,1);
+ assert.equal(shared[0].files[0].name,'Con_Marcaaa.mp4');
+ assert.equal(shared[0].files[0].size,6);
+ assert.equal(shared[0].files[0].type,'video/mp4');
+ assert.equal(s.$('management').open,true); // The dialog stays open.
+ assert.equal(s.frames.size,0); // Share Sheet, not an MP4 page.
+});
+test('when iOS cannot share a large video, the ordinary download remains available',async()=>{
+ const key=JSON.stringify(['22','handle','token',0]);
+ const s=setup(async op=>op.startsWith('prepare-status?')?{
+  job:'cached',state:'ready',name:'Large.mp4',file_token:'temp',progress:100
+ }:{items:[item()],next:null});
+ s.context.File=class TestFile{};
+ s.context.navigator={storage:{async getDirectory(){throw Error('Sin espacio privado');}},
+  canShare(){return true;},share(){throw Error('Never call share without the file');}};
+ s.context.preparedDownloadJobs.set(key,'cached');
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ await new Promise(setImmediate);
+ const control=list.children[2].children[4].children[1];
+ const save=control.children[3];
+ assert.equal(save.hidden,false);
+ assert.match(save.textContent,/alternativa/);
+ assert.match(control.children[1].textContent,/Sin espacio privado/);
+ assert.equal(control.children[4].hidden,false); // Safari fallback survives.
+});
 test('late account response cannot show another account purchases',async()=>{
  let release;const s=setup(()=>new Promise(r=>release=r));const pending=s.context.openPurchases();
  s.context.account={id:'23'};release({items:[item()],next:null});await pending;
