@@ -227,3 +227,51 @@ test('failed request can retry, and empty pages with a cursor remain navigable',
  assert.equal(status.textContent,'Reintenta');assert.equal(more.hidden,false);
  await more.onclick();assert.equal(more.hidden,false);assert.match(status.textContent,/Carga más/);
 });
+
+test('large purchased Stars videos stream directly without a server prepare job',async()=>{
+ const purchase=item();
+ purchase.media=[{type:'video',index:0,name:'Large.mp4',size:2*1024**3}];
+ const calls=[];
+ const s=setup(async op=>{calls.push(op);return {items:[purchase],next:null};});
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ const start=control.children[0],save=control.children[3];
+ assert.equal(start.hidden,true);
+ assert.equal(save.hidden,false);
+ assert.match(save.href,/purchase-media\?.*download=1/);
+ assert.match(control.children[1].textContent,/Archivos/);
+ assert.deepEqual(calls,['purchases?account=22']);
+});
+test('a complete large video cached on iPhone opens Share without another Telegram transfer',async()=>{
+ const purchase=item();
+ purchase.media=[{type:'video',index:0,name:'Large.mp4',size:2*1024**3}];
+ let requests=0,transfer=0;
+ const s=setup(async op=>{requests++;return {items:[purchase],next:null};});
+ const large={size:2*1024**3,type:'video/mp4',lastModified:Date.now(),name:'cached-large.mp4'};
+ const dir={
+  async *entries(){},
+  async getFileHandle(){return {async getFile(){return large;}};}
+ };
+ s.context.crypto={subtle:{async digest(){return new Uint8Array(32).buffer;}}};
+ s.context.TextEncoder=TextEncoder;
+ const shared=[];
+ s.context.navigator={
+  storage:{async getDirectory(){return {async getDirectoryHandle(){return dir;}};}},
+  canShare({files}){return files.length===1&&files[0]===large;},
+  share({files}){shared.push(files[0]);return Promise.resolve();}
+ };
+ s.context.fetch=async()=>{transfer++;throw Error('Cached video must not be re-fetched');};
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ await new Promise(setImmediate);await new Promise(setImmediate);
+ const control=list.children[2].children[4].children[1],save=control.children[3];
+ assert.equal(save.hidden,false);
+ assert.match(control.children[1].textContent,/sin volver a descargarlo/);
+ let prevented=0;
+ save.onclick({preventDefault(){prevented++;}});
+ assert.equal(prevented,1);
+ assert.equal(shared[0],large);
+ assert.equal(transfer,0);
+ assert.equal(requests,1);
+});
