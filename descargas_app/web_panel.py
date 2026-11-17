@@ -121,7 +121,7 @@ async def access_link(s,actor):
 
 class TelegramPanel:
     def __init__(self,service):
-        self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2);self.profiles={};self.profile_slots=asyncio.Semaphore(2);self._paid_checked={}
+        self.s=service;self.rates={};self.slots=asyncio.Semaphore(3);self.transfers=asyncio.Semaphore(2);self.paid_transfers=asyncio.Semaphore(1);self.profiles={};self.profile_slots=asyncio.Semaphore(2);self._paid_checked={}
         from .web_actions import PanelActions
         self.actions=PanelActions(self)
         from .panel_features import PanelFeatures
@@ -421,7 +421,8 @@ class TelegramPanel:
         paid_download = purchase is not None and not thumb and request.query.get('download') == '1'
         context = (self.paid_stream_account(actor, uid) if paid_download
                    else self.account(actor, uid, timeout=300))
-        async with self.transfers, context as (client,generation):
+        transfer_slot = self.paid_transfers if paid_download else self.transfers
+        async with transfer_slot, context as (client,generation):
             entity=await self.target(actor,uid,generation,client,handle)
             if avatar:
                 data=await client.download_profile_photo(entity,file=bytes,download_big=False)
