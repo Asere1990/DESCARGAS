@@ -196,6 +196,81 @@ function panelDownloadFrame(){
  }
  return frame.name;
 }
+// Stream an already purchased, temporarily prepared video into Safari's
+// origin-private file system, then pass a real File to iOS Share Sheet.
+// Never call Response.blob()/arrayBuffer() for multi-GB videos.
+const PANEL_SHARE_DIRECTORY='panel-private-share-v1';
+const PANEL_SHARE_MAX_AGE=60*60*1000;
+let panelShareActive=null;
+async function panelShareStage(url,name,owner,progress){
+ if(typeof navigator.share!=='function'||typeof navigator.canShare!=='function'||
+    typeof navigator.storage?.getDirectory!=='function'||typeof File!=='function')
+  throw Error('Este navegador no admite compartir archivos directamente. Usa la descarga alternativa.');
+ if(panelShareActive&&panelShareActive.owner!==owner)
+  throw Error('Otro video está preparándose para Fotos. Termina ese archivo primero.');
+ const root=await navigator.storage.getDirectory();
+ const dir=await root.getDirectoryHandle(PANEL_SHARE_DIRECTORY,{create:true});
+ // Remove abandoned private files from earlier visits without changing any
+ // Telegram account, server-side download or browser's Photos library.
+ if(typeof dir.entries==='function'){
+  try{
+   for await(const [key] of dir.entries()){
+    const date=Number(key.split('-')[0]);
+    if(!Number.isFinite(date)||Date.now()-date>PANEL_SHARE_MAX_AGE)
+     await dir.removeEntry(key).catch(()=>{});
+   }
+  }catch{}
+ }
+ const suffix=/\.(mp4|mov|m4v|webm|jpg|jpeg|png|gif)$/i.exec(name)?.[0]||'.mp4';
+ const key=String(Date.now())+'-'+(typeof crypto?.randomUUID==='function'?
+  crypto.randomUUID():String(Math.random()).slice(2))+suffix;
+ const handle=await dir.getFileHandle(key,{create:true});
+ const controller=new AbortController();
+ const entry={owner,controller,cleanup:async()=>{
+  try{await dir.removeEntry(key);}catch{}
+ }};
+ panelShareActive=entry;
+ let writer=null;
+ try{
+  const response=await fetch(url,{cache:'no-store',credentials:'same-origin',
+   signal:controller.signal});
+  if(!response.ok||!response.body?.getReader)
+   throw Error('No se pudo recibir el video preparado para Fotos.');
+  const total=Number(response.headers.get('Content-Length'))||0;
+  writer=await handle.createWritable();
+  let received=0,reader=response.body.getReader();
+  try{
+   for(;;){
+    const {done,value}=await reader.read();
+    if(done)break;
+    if(panelShareActive!==entry||String(account?.id)!==String(owner.accountId))
+     throw Error('La cuenta cambió. Se canceló la preparación local.');
+    if(!value?.length)continue;
+    await writer.write(value);received+=value.length;
+    progress(received,total);
+   }
+  }finally{reader.releaseLock?.();}
+  if(total&&received!==total)throw Error('La transferencia al iPhone quedó incompleta.');
+  await writer.close();writer=null;
+  const diskFile=await handle.getFile();
+  const type=/\.mov$/i.test(name)?'video/quicktime':
+   /\.webm$/i.test(name)?'video/webm':
+   /\.png$/i.test(name)?'image/png':
+   /\.(jpe?g)$/i.test(name)?'image/jpeg':'video/mp4';
+  // Blob/File parts are references to the OPFS-backed file, not a JS
+  // ArrayBuffer copy of the original multi-gigabyte video.
+  const file=new File([diskFile],name,{type,lastModified:Date.now()});
+  if(!navigator.canShare({files:[file]}))
+   throw Error('iPhone no permite compartir directamente este archivo. Usa la descarga alternativa.');
+  return {file,cleanup:entry.cleanup};
+ }catch(e){
+  if(writer){try{await writer.abort();}catch{}}
+  await entry.cleanup();
+  throw e;
+ }finally{
+  if(panelShareActive===entry)panelShareActive=null;
+ }
+}
 const preparedDownloadJobs=new Map();
 function preparedDownloadControl(payload,defaultName='archivo'){
  const wrap=el('section');wrap.className='prepared-download';
