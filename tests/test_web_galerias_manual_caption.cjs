@@ -7,7 +7,7 @@ const path = require("node:path");
 
 const source = fs.readFileSync(path.join(__dirname, "..", "web_galerias", "manual_upload.js"), "utf8");
 
-function mounted(files) {
+function mounted(files, transport = "direct") {
   const nodes = {};
   function node(id) {
     if (!nodes[id]) {
@@ -27,11 +27,12 @@ function mounted(files) {
     return nodes[id];
   }
   const captured = [];
+  const network = [];
   const store = new Map();
   const win = {};
   const api = async (operation, data = {}) => {
     captured.push({operation, data});
-    if (operation === "admin-manual-config") return {ready: true};
+    if (operation === "admin-manual-config") return {ready: true, transport};
     if (operation === "admin-manual-start") {
       return {
         upload: data.filename === "uno.jpg"
@@ -76,14 +77,17 @@ function mounted(files) {
       removeItem: k => store.delete(k),
     },
     URL: {createObjectURL: () => "blob:photo", revokeObjectURL: () => {}},
-    fetch: async () => ({ok: true}),
+    fetch: async (url, options) => {
+      network.push({url, options});
+      return {ok: true};
+    },
     Option: function Option() {},
     queueMicrotask,
     console,
     setTimeout, clearTimeout,
   };
   vm.runInNewContext(source, context, {filename: "manual_upload.js"});
-  return {node, captured, window: win};
+  return {node, captured, window: win, network};
 }
 
 const photo = name => ({name, size: 300, lastModified: 1});
@@ -133,4 +137,24 @@ test("empty caption never silently modifies the published batch", async () => {
   await view.node("manual-r2-caption-save").click();
   assert.equal(view.captured.filter(x => x.operation === "admin-manual-caption").length, 0);
   assert.equal(view.node("manual-r2-caption-panel").classList.contains("hidden"), false);
+});
+
+test("when R2 CORS is denied the same uploader relays bounded objects securely", async () => {
+  const view = mounted([photo("uno.jpg")], "relay");
+  await view.node("manual-r2-start").click();
+  assert.equal(view.network.length, 2);
+  assert.match(view.network[0].url,
+    /\/web-galerias\/admin\/manual-r2-bytes\/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa\/thumb$/);
+  assert.match(view.network[1].url,
+    /\/web-galerias\/admin\/manual-r2-bytes\/aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa\/file$/);
+  assert.equal(view.network[0].options.credentials, "same-origin");
+  assert.equal(view.network[0].options.headers["X-Gallery-Web"], "1");
+  assert.equal(view.network[1].options.method, "PUT");
+});
+
+test("when R2 CORS is available existing direct upload remains unchanged", async () => {
+  const view = mounted([photo("uno.jpg")], "direct");
+  await view.node("manual-r2-start").click();
+  assert.deepEqual(view.network.map(r => r.url),
+    ["https://example.r2/thumb", "https://example.r2/upload"]);
 });
