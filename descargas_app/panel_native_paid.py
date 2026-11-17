@@ -27,12 +27,13 @@ def issue(panel, actor, uid, generation, source, peer, transaction, index, versi
         raise ValueError("Archivo comprado no válido.")
     if not isinstance(transaction, str) or not 0 < len(transaction) <= 256:
         raise ValueError("Compra de Telegram no válida.")
+    issued = int(time.time())
     ticket = panel.pack(
         "native-stars-file", actor=int(actor), uid=int(uid),
         generation=int(generation), source=int(source),
         peer=peer, transaction=transaction, index=index,
-        version=str(version), issued=int(time.time()),
-        expires=int(time.time()) + TICKET_SECONDS,
+        version=str(version), issued=issued,
+        expires=issued + TICKET_SECONDS,
     )
     return panel.s.url.rstrip("/") + "/panel/api/native-stars-file?ticket=" + quote(ticket, safe="")
 
