@@ -482,7 +482,7 @@ class TelegramPanel:
                     'video/x-m4v':'.m4v','image/jpeg':'.jpg','image/png':'.png',
                     'image/webp':'.webp','image/gif':'.gif'}.get(info['mime'],'')
                 filename+=suffix
-            headers={**HEADERS,'Content-Type':info['mime'] if safe else 'application/octet-stream','Accept-Ranges':'bytes',
+            headers={**HEADERS,'Content-Type':'application/octet-stream' if paid_download else (info['mime'] if safe else 'application/octet-stream'),'Accept-Ranges':'bytes',
              'Content-Disposition':('inline' if safe and request.query.get('download')!='1' else 'attachment')+'; filename="'+filename+'"'}
             if size:headers['Content-Length']=str(end-start+1)
             if status==206:headers['Content-Range']=f'bytes {start}-{end}/{size}'
