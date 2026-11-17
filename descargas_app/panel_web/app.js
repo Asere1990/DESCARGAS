@@ -359,20 +359,21 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  note.hidden=true;
  wrap.append(start,status,meter,save,safari,note);
  const key=JSON.stringify([payload.account,payload.peer,payload.purchase||payload.message,payload.index??payload.paid_index??0]);
- let job=preparedDownloadJobs.get(key)||null;
- let localFile=null,localCleanup=null,localState='idle',localError='';
+ const direct=!!(payload.directUrl&&payload.purchaseId&&Number(payload.size)>0);
+ let job=direct?null:(preparedDownloadJobs.get(key)||null);
+ let localFile=null,localCleanup=null,localState='idle',localError='',cacheKey='';
  let localWritten=0,localTotal=0;
  const nativeShareAvailable=()=>typeof navigator!=='undefined'&&
   typeof navigator.share==='function'&&typeof navigator.canShare==='function'&&
   typeof navigator.storage?.getDirectory==='function';
  const markLocalReady=()=>{
-  meter.hidden=true;save.hidden=false;
+  start.hidden=true;meter.hidden=true;save.hidden=false;
   save.textContent='↗ Compartir video · Guardar video en Fotos';
   safari.hidden=true;note.hidden=false;
   status.textContent='Video listo. Pulsa Compartir y selecciona «Guardar video» en Fotos.';
  };
  const prepareLocal=async(data)=>{
-  const url=base+'/api/prepared-file?token='+encodeURIComponent(data.file_token);
+  const url=direct?payload.directUrl:base+'/api/prepared-file?token='+encodeURIComponent(data.file_token);
   const name=data.name||defaultName;
   try{
    const result=await panelShareStage(url,name,{accountId:payload.account,key},
@@ -382,10 +383,11 @@ function preparedDownloadControl(payload,defaultName='archivo'){
      meter.value=total?Math.min(99,Math.floor(100*received/total)):0;
      status.textContent='Preparando para Fotos: '+meter.value+'% · '+
       mb(received)+' MB'+(total?' de '+mb(total)+' MB':'');
-    });
+    },cacheKey,direct?Number(payload.size):0);
    localFile=result.file;localCleanup=result.cleanup;localState='ready';
-   // Private browser staging never becomes a permanent gallery cache.
-   setTimeout(()=>{
+   // Legacy files still expire; purchased videos remain privately cached
+   // on this iPhone until browser eviction or cache expiration.
+   if(!direct)setTimeout(()=>{
     if(localCleanup===result.cleanup){
      result.cleanup().catch(()=>{});
      localFile=null;localCleanup=null;localState='error';
@@ -398,6 +400,11 @@ function preparedDownloadControl(payload,defaultName='archivo'){
    localState='error';localError=error.message||'No se pudo preparar para Compartir.';
    localFile=null;meter.hidden=true;
    if(wrap.isConnected){
+    if(direct){
+     start.hidden=false;start.textContent='↻ Reintentar guardar en Fotos';
+     save.href=payload.directUrl;save.download=defaultName;
+     safari.href=payload.directUrl;
+    }
     save.hidden=false;save.textContent='↓ Descargar archivo (alternativa)';
     safari.hidden=false;
     status.textContent=localError+' Puedes usar la descarga alternativa.';
@@ -461,6 +468,12 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  }
  start.onclick=async()=>{
   if(!account||String(account.id)!==String(payload.account))return notice('La cuenta cambió. Abre este archivo nuevamente.');
+  if(direct){
+   start.hidden=true;localState='fetching';localError='';meter.hidden=false;meter.value=0;
+   save.hidden=true;safari.hidden=true;
+   status.textContent='Descargando directamente al iPhone para abrir Compartir…';
+   await prepareLocal({name:defaultName});return;
+  }
   start.disabled=true;status.textContent='Solicitando preparación prioritaria…';
   try{
    const data=await api('prepare-start',payload);
@@ -508,7 +521,33 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   save.target=panelDownloadFrame();
   status.textContent='Descarga alternativa solicitada. Puedes seguir en esta carpeta; revisa Archivos → Descargas.';
  };
- if(job)refresh();
+ if(direct){
+  start.textContent='↓ Guardar video en Fotos';
+  note.textContent='Este archivo queda en la caché privada del iPhone y se reutiliza mientras esté disponible.';
+  save.href=payload.directUrl;save.download=defaultName;
+  safari.href=payload.directUrl;
+  status.textContent='Guarda este video directamente en Fotos sin ocupar espacio temporal en Render.';
+  if(nativeShareAvailable()){
+   start.disabled=true;
+   (async()=>{
+    cacheKey=await panelShareCacheKey({
+     accountId:payload.account,source:payload.source,
+     purchaseId:payload.purchaseId,index:payload.index},Number(payload.size),defaultName);
+    if(cacheKey){
+     const cached=await panelShareCached(defaultName,cacheKey,Number(payload.size));
+     if(cached&&wrap.isConnected&&localState==='idle'){
+      localFile=cached.file;localCleanup=cached.cleanup;localState='ready';
+      markLocalReady();
+      status.textContent='Video ya guardado en este iPhone: puedes compartirlo sin volver a descargarlo.';
+     }
+    }
+   })().catch(()=>{}).finally(()=>{start.disabled=false;});
+  }else{
+   start.hidden=true;save.hidden=false;safari.hidden=false;
+   save.textContent='↓ Descargar archivo (alternativa)';
+   status.textContent='Este navegador no admite compartir el archivo. Puedes descargarlo en Archivos.';
+  }
+ }else if(job)refresh();
  return wrap;
 }
 function currentFavorite(){return favoriteItems.some(f=>String(f.account_id)===String(account?.id)&&String(f.id)===String(chat?.id));}
@@ -1709,7 +1748,13 @@ async function openPurchases(initialSource=null){
   catch(e){notice(e.message);}
  };card.append(jump);}
     for(const media of item.media){const row=el('div'),show=el('button',(media.type==='video'?'▶ Ver video':'🖼 Ver foto')+' '+(media.index+1));row.className='purchase-media';show.onclick=()=>{const node=el(media.type==='video'?'video':'img');node.className='purchase-preview';if(media.type==='video'){node.controls=true;node.playsInline=true;node.preload='metadata';}else node.alt='Foto comprada';node.src=url('purchase-media',item,media.index);node.onerror=()=>notice('No se pudo cargar este archivo. Vuelve a abrir Comprados para actualizarlo.');show.replaceWith(node);};const control=preparedDownloadControl({account:selected.id,peer:item.chat.handle,
-  purchase:item.token,index:media.index},media.name||(media.type==='video'?'video.mp4':'foto.jpg'));
+  purchase:item.token,index:media.index,
+  purchaseId:media.type==='video'?String(item.id):null,source:item.chat.id,
+  size:Number(media.size)||0,
+  directUrl:media.type==='video'&&Number(media.size)>0?
+   url('purchase-media',item,media.index)+'&download=1':null},
+  (media.name&&/\.(mp4|mov|m4v|webm|jpg|jpeg|png)$/i.test(media.name))?
+   media.name:(media.type==='video'?'video.mp4':'foto.jpg'));
   row.append(show,control);card.append(row);}
     list.append(card);
    }
