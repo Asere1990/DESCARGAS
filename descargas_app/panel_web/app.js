@@ -176,6 +176,26 @@ function panelNavInit(){
 const view=(v,record=true)=>{const before=$('workspace').dataset.view;if(record&&before!==v)panelNavSave();$('workspace').dataset.view=v;if(record&&before!==v)panelNavPush('view');if(v==='accounts')setTimeout(pumpStatuses,0);};
 function avatar(title){const a=el('div',title.split(/\s+/).slice(0,2).map(v=>v[0]).join('').toUpperCase());a.className='avatar';return a;}
 function fileUrl(op,m){return base+'/api/'+op+'?account='+account.id+'&peer='+encodeURIComponent(chat.handle)+(m?'&message='+m.id+(Number.isInteger(m.paid_index)?'&paid_index='+m.paid_index:''):'');}
+// Trigger iPhone/Safari file downloads inside a hidden, same-origin frame.
+// This keeps the account, purchased folder and browser history untouched even
+// when WebKit wants to show a standalone MP4 preview. Do not fetch a multi-GB
+// video into a Blob: let the browser stream its download natively.
+function panelDownloadFrame(){
+ const id='panel-file-download-frame';
+ let frame=document.getElementById(id);
+ if(!frame){
+  frame=document.createElement('iframe');
+  frame.id=id;
+  frame.name=id;
+  frame.title='Descarga privada de archivo';
+  frame.style.display='none';
+  frame.setAttribute('aria-hidden','true');
+  frame.setAttribute('tabindex','-1');
+  frame.referrerPolicy='no-referrer';
+  document.body.append(frame);
+ }
+ return frame.name;
+}
 const preparedDownloadJobs=new Map();
 function preparedDownloadControl(payload,defaultName='archivo'){
  const wrap=el('section');wrap.className='prepared-download';
@@ -246,17 +266,23 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   finally{start.disabled=false;}
  };
  save.onclick=event=>{
+  if(save.hidden||!save.href){event.preventDefault();return;}
   const webapp=window.Telegram?.WebApp;
   if(webapp?.initData&&typeof webapp.downloadFile==='function'&&
       (!webapp.isVersionAtLeast||webapp.isVersionAtLeast('8.0'))&&location.protocol==='https:'){
    event.preventDefault();
    const url=new URL(save.href,location.href).href;
    webapp.downloadFile({url,file_name:save.download},accepted=>{
-    if(!accepted)status.textContent='Telegram no inició el guardado. Usa «Abrir archivo en Safari».';
+    status.textContent=accepted?'Descarga iniciada en Telegram. Puedes continuar en esta carpeta.'
+      :'Telegram no inició el guardado. Prueba «Abrir archivo en Safari».';
    });
+   return;
   }
-  // Outside a Telegram Mini App, let Safari handle the ordinary native
-  // attachment link; never fetch a huge video into JavaScript memory.
+  // Safari/WKWebView must never navigate the TOP window to a big MP4.
+  // Use a same-origin hidden target to stream attachment bytes without
+  // allocating them inside JavaScript or resetting the panel navigation.
+  save.target=panelDownloadFrame();
+  status.textContent='Descarga solicitada. Puedes seguir en esta carpeta; revisa Descargas del iPhone.';
  };
  if(job)refresh();
  return wrap;
