@@ -226,6 +226,48 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text,["Foto original","Video original"])
         client.disconnect.assert_awaited_once()
 
+    async def test_bulk_partial_download_resumes_at_exact_byte_offset(self):
+        from pathlib import Path
+        import tempfile
+        item=NS(id=521,file=NS(size=10),media=object())
+        events=[]
+        class Client:
+            async def download_media(self,item,file,progress_callback):
+                Path(file).write_bytes(b"123456")
+                await progress_callback(6,10)
+                return file
+            async def iter_download(self,source,*,offset,file_size,request_size):
+                events.append((source,offset,file_size,request_size))
+                yield b"7890"
+        with tempfile.TemporaryDirectory() as directory:
+            file=str(Path(directory)/"521.mp4")
+            callback=AsyncMock()
+            result=await worker._verified_download_media(Client(),item,file,callback)
+            self.assertEqual(Path(result).read_bytes(),b"1234567890")
+            self.assertEqual(events[0][1:],[6,10,256*1024])
+            self.assertEqual(callback.await_args.args,(10,10))
+
+    async def test_bulk_must_never_upload_when_download_is_still_incomplete(self):
+        from pathlib import Path
+        import tempfile
+        item=NS(id=521,file=NS(size=10,ext=".mp4"),media=object())
+        class Client:
+            def __init__(self):self.attempts=0
+            async def download_media(self,item,file,progress_callback):
+                self.attempts+=1
+                Path(file).write_bytes(b"123456")
+                return file
+            async def iter_download(self,*args,**kwargs):
+                if False:yield b""
+        c=Client()
+        prepare=AsyncMock(return_value="should never upload")
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError,"tamaño original"):
+                await worker.prepare_album(worker._VerifiedBulkSource(c),[item],
+                                           directory,prepare,100,100)
+        self.assertEqual(c.attempts,3)
+        prepare.assert_not_awaited()
+
     async def test_busy_linked_account_never_enters_review_before_claim(self):
         job={"id":uuid.uuid4(),"run_no":1,"uid":77,"lease":"lease"}
         item={"message_id":520,"album":"","category":"photos"}
