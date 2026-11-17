@@ -27,59 +27,6 @@ LEASE=900
 class ReviewRequired(Exception):pass
 class RetryablePreflight(Exception):pass
 
-async def _verified_download_media(client,item,file,progress_callback):
-    """Bulk-only recovery of a short Telegram download; never upload partial bytes."""
-    target=Path(file)
-    expected=int(getattr(getattr(item,"file",None),"size",0) or 0)
-    for attempt in range(3):
-        target.unlink(missing_ok=True)
-        if expected:
-            await progress_callback(0,expected)
-        result=await client.download_media(item,file=str(target),
-                                           progress_callback=progress_callback)
-        actual=target.stat().st_size if target.exists() else 0
-        if result and actual>0 and (not expected or actual==expected):
-            return result
-        if expected and (not result or actual!=expected):
-            LOG.warning("Bulk media mismatch attempt=%d actual=%d expected=%d returned=%s",
-                        attempt+1,actual,expected,bool(result))
-            try:
-                # A zero-byte or oversized download needs a fresh direct
-                # stream from offset 0; a short download resumes from its
-                # precise byte offset. Never trust oversized/partial bytes.
-                offset=actual if 0<actual<expected else 0
-                actual=offset
-                source=getattr(item,"media",None) or item
-                with target.open("ab" if offset else "wb") as out:
-                    async for chunk in client.iter_download(
-                            source,offset=offset,file_size=expected,
-                            request_size=256*1024):
-                        size=len(chunk)
-                        if size>expected-actual:
-                            raise ValueError("Telegram envió bytes fuera del tamaño esperado.")
-                        out.write(chunk)
-                        actual+=size
-                        await progress_callback(actual,expected)
-                if actual==expected and target.stat().st_size==expected:
-                    return str(target)
-            except (asyncio.CancelledError,errors.FloodWaitError):
-                raise
-            except Exception as exc:
-                LOG.warning("Bulk media offset recovery deferred (%s)",
-                            type(exc).__name__)
-        if attempt<2:
-            await asyncio.sleep(attempt+1)
-    raise ValueError("El archivo descargado no coincide con el tamaño original; no se envió.")
-
-
-class _VerifiedBulkSource:
-    def __init__(self,client):
-        self.client=client
-
-    async def download_media(self,item,file,progress_callback):
-        return await _verified_download_media(self.client,item,file,progress_callback)
-
-
 async def _claim(s):
     lease=uuid.uuid4().hex
     now=time.time()
@@ -94,7 +41,8 @@ async def _claim(s):
                      AND ((status='review' AND error='El envío requiere revisión.')
                           OR (status='error' AND error IN
                              ('El archivo descargado no coincide con el tamaño original; no se envió.',
-                              'El archivo sigue incompleto tras reintentar la descarga; requiere revisión.')))
+                              'El archivo sigue incompleto tras reintentar la descarga; requiere revisión.',
+                              'La lectura directa de Telegram tampoco completó el archivo; requiere revisión manual.')))
                      AND NOT EXISTS (
                          SELECT 1 FROM descarga_bulk_deliveries d
                          WHERE d.job_id=descarga_bulk_jobs.id
@@ -263,6 +211,39 @@ async def _inflight(s,job):
            AND status IN ('preparing','archived','review') LIMIT 1""",
         job["id"],job["run_no"])
 
+# Only file-level preparation failures can be skipped. Access, capacity,
+# policy, Telegram delivery uncertainty and database failures remain blockers.
+SKIPPABLE_MEDIA_ERRORS=(
+    "El archivo descargado no coincide con el tamaño original; no se envió.",
+    "El archivo no se descargó completo.",
+    "El archivo supera el límite de descarga.",
+    "Archivo superior al límite permitido.",
+    "Álbum superior al límite permitido.",
+    "Algunos archivos del grupo original ya no están disponibles.",
+    "El mensaje no contiene multimedia compatible.",
+)
+
+def _skippable_media_error(exc):
+    return isinstance(exc,ValueError) and str(exc) in SKIPPABLE_MEDIA_ERRORS
+
+async def _skip_media(s,job,items,error):
+    # Claim only after proving that no delivery was ever prepared or sent.
+    # A skipped row is excluded by _candidate so the next pass advances.
+    now=time.time()
+    await s.repo.pool.executemany(
+        """INSERT INTO descarga_bulk_deliveries
+           (job_id,run_no,message_id,category,status,error,updated)
+           VALUES($1,$2,$3,$4,'skipped',$5,$6)
+           ON CONFLICT(job_id,run_no,message_id) DO NOTHING""",
+        [(job["id"],job["run_no"],int(item["message_id"]),
+          item["category"],str(error)[:160],now) for item in items])
+    await s.repo.pool.execute(
+        """UPDATE descarga_bulk_jobs SET error='',updated=$3
+           WHERE id=$1 AND lease=$2 AND status='publishing'""",
+        job["id"],job["lease"],now)
+    LOG.warning("Bulk skipped an undeliverable media item (preflight only)")
+
+
 async def _storage_peer(s):
     if not s.almacen:raise ValueError("No disponible.")
     try:return await s.bot.get_input_entity(s.almacen)
@@ -390,8 +371,7 @@ async def send_media(s,job,items):
             with tempfile.TemporaryDirectory(prefix="descargas-bulk-") as temp:
                 async def prepare(path,item):
                     return await prepare_media_for_bot(s.bot,client,path,item)
-                media=await prepare_album(_VerifiedBulkSource(client),ordered,temp,
-                                          prepare,MAX_FILE,MAX_ALBUM)
+                media=await prepare_album(client,ordered,temp,prepare,MAX_FILE,MAX_ALBUM)
                 # Claim immediately before Telegram posting, not before
                 # acquiring the user's session. A busy account is retryable.
                 # Resolving the archive peer can fail transiently and has no
@@ -496,6 +476,36 @@ async def _publish_reply(s,job,item):
         await _mark_review(s,job,[item],type(exc).__name__)
         raise ReviewRequired("Respuesta pendiente de revisión.") from exc
 
+async def _send_or_skip(s,job,rows):
+    try:
+        await send_media(s,job,rows)
+    except (asyncio.CancelledError,errors.FloodWaitError):
+        raise
+    except ValueError as exc:
+        if "transferencia en curso" in str(exc).lower():
+            raise
+        if await _inflight(s,job):
+            # An upload may already be at the private archive or destination.
+            # Never skip or retry any such uncertain delivery.
+            await _mark_review(s,job,rows,type(exc).__name__)
+            raise ReviewRequired("El envío requiere revisión.") from exc
+        if not _skippable_media_error(exc):
+            raise
+        if len(rows)>1:
+            # An album with one bad file must not discard its other items.
+            # Reconstruct members individually only after proving no send.
+            for single in rows:
+                await _send_or_skip(s,job,[single])
+        else:
+            await _skip_media(s,job,rows,exc)
+        return
+    except Exception as exc:
+        if not await _inflight(s,job):
+            raise RetryablePreflight(type(exc).__name__) from exc
+        await _mark_review(s,job,rows,type(exc).__name__)
+        raise ReviewRequired("El envío requiere revisión.") from exc
+
+
 async def publish_one(s,job):
     run=await s.repo.pool.fetchrow(
         "SELECT ranges FROM descarga_bulk_runs WHERE job_id=$1 AND run_no=$2",
@@ -512,26 +522,7 @@ async def publish_one(s,job):
         # Before each file/album, keep ordinary block and membership checks.
         await _verify_account(s,job)
         if not s.almacen:raise ValueError("Esta función está temporalmente deshabilitada.")
-        try:
-            await send_media(s,job,rows)
-        except (asyncio.CancelledError,errors.FloodWaitError):raise
-        except ValueError as exc:
-            # A busy linked account is expected in parallel readers. It has
-            # not claimed or sent anything and must NOT freeze the full run.
-            if "transferencia en curso" in str(exc).lower():
-                raise
-            if not await _inflight(s,job):
-                # Deterministic preflight failure: report the true validation
-                # error, not an ambiguous Telegram delivery.
-                raise
-            await _mark_review(s,job,rows,type(exc).__name__)
-            raise ReviewRequired("El envío requiere revisión.") from exc
-        except Exception as exc:
-            if not await _inflight(s,job):
-                # Nothing was claimed, archived or published: safe to retry.
-                raise RetryablePreflight(type(exc).__name__) from exc
-            await _mark_review(s,job,rows,type(exc).__name__)
-            raise ReviewRequired("El envío requiere revisión.") from exc
+        await _send_or_skip(s,job,rows)
         return
     reply=await _reply_candidate(s,job)
     if reply:
