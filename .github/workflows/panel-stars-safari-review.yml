@@ -7,6 +7,7 @@ on:
       - 'descargas_app/web_panel.py'
       - 'descargas_app/panel_web/app.js'
       - 'tests/test_panel_native_paid.py'
+      - 'tests/test_panel_native_stream.py'
       - 'tests/test_panel_purchases.cjs'
       - '.github/workflows/panel-stars-safari-review.yml'
   push:
@@ -34,4 +35,6 @@ jobs:
       - name: Dependencies
         run: pip install -r requirements.txt
       - name: Signed Safari download capability tests
-        run: python -m unittest discover -s tests -p 'test_panel_native_paid.py' -q
+        run: |
+          python -m unittest discover -s tests -p 'test_panel_native_paid.py' -q
+          python -m unittest discover -s tests -p 'test_panel_native_stream.py' -q
