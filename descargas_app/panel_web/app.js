@@ -204,6 +204,9 @@ function panelDownloadFrame(){
 // Cached files remain private to this browser; iOS may evict them under pressure.
 const PANEL_SHARE_DIRECTORY='panel-private-share-v2';
 const PANEL_SHARE_MAX_AGE=30*24*60*60*1000;
+// iOS may restart the entire webview while sharing a multi-GB File.
+// Keep large exports on the browser's native attachment path instead.
+const PANEL_NATIVE_SHARE_MAX_BYTES=128*1024*1024;
 let panelShareActive=null;
 function panelShareMime(name){
  return /\.mov$/i.test(name)?'video/quicktime':
@@ -214,6 +217,10 @@ function panelShareMime(name){
   /\.webp$/i.test(name)?'image/webp':'video/mp4';
 }
 function panelShareFile(diskFile,name){
+ // Never construct a multi-gigabyte File wrapper, which can crash WebKit.
+ // Large media remains in OPFS and must use a native attachment download
+ // to become visible in Files; it MUST NOT be passed to navigator.share().
+ if(diskFile.size>PANEL_NATIVE_SHARE_MAX_BYTES)return diskFile;
  // Direct use avoids copying >512 MiB through WebKit's File constructor.
  const type=panelShareMime(name);
  const file=diskFile.size>=512*1024*1024&&diskFile.type===type
@@ -464,6 +471,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  legacy.type='button';legacy.className='prepared-fallback';legacy.hidden=true;
  const key=JSON.stringify([payload.account,payload.peer,payload.purchase||payload.message,payload.index??payload.paid_index??0]);
  const direct=!!(payload.directUrl&&payload.purchaseId&&Number(payload.size)>0);
+ const largeDirect=direct&&Number(payload.size)>PANEL_NATIVE_SHARE_MAX_BYTES;
  let job=direct?null:(preparedDownloadJobs.get(key)||null);
  let localFile=null,localCleanup=null,localState='idle',localError='',cacheKey='';
  let localWritten=0,localTotal=0;
@@ -471,10 +479,20 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   typeof navigator.share==='function'&&typeof navigator.canShare==='function'&&
   typeof navigator.storage?.getDirectory==='function';
  const markLocalReady=()=>{
-  start.hidden=true;meter.hidden=true;save.hidden=false;
-  save.textContent='↗ Compartir video · Guardar video en Fotos';
-  safari.hidden=true;note.hidden=false;
-  status.textContent='Video listo. Pulsa Compartir y selecciona «Guardar video» en Fotos.';
+  start.hidden=true;meter.hidden=true;save.hidden=false;note.hidden=false;
+  const tooLarge=largeDirect||Number(localFile?.size)>PANEL_NATIVE_SHARE_MAX_BYTES;
+  if(tooLarge){
+   // On iPhone passing a >1 GB File to navigator.share can terminate
+   // WebKit and reload the whole panel. A native download is safer.
+   save.textContent='↓ Descargar video en Archivos';
+   legacy.hidden=false;
+   note.textContent='La copia en caché privada no aparece en Archivos ni en Fotos.';
+   status.textContent='Video completo en caché privada. Para guardarlo fuera del navegador, pulsa Descargar video en Archivos. Después abre Archivos → Descargas → Compartir → Guardar video.';
+  }else{
+   save.textContent='↗ Compartir video · Guardar video en Fotos';
+   safari.hidden=true;
+   status.textContent='Video listo. Pulsa Compartir y selecciona «Guardar video» en Fotos.';
+  }
  };
  const prepareLocal=async(data)=>{
   const url=direct?payload.directUrl:base+'/api/prepared-file?token='+encodeURIComponent(data.file_token);
@@ -592,7 +610,10 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   if(save.hidden){event.preventDefault();return;}
   // Calling navigator.share() synchronously from this click retains the iOS
   // user gesture. No network await or browser navigation occurs first.
-  if(localState==='ready'&&localFile){
+  // Never invoke iOS Share Sheet with a large File: on iPhone this can
+  // terminate the webview without emitting a JavaScript error.
+  if(localState==='ready'&&localFile&&
+     Number(localFile.size)>0&&Number(localFile.size)<=PANEL_NATIVE_SHARE_MAX_BYTES){
    event.preventDefault();
    const shared={files:[localFile]};
    try{
@@ -626,7 +647,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   // If iOS did not allow file sharing, keep the legacy private attachment
   // download, targeted at an invisible same-origin frame.
   save.target=panelDownloadFrame();
-  status.textContent='Descarga alternativa solicitada. Puedes seguir en esta carpeta; revisa Archivos → Descargas.';
+  status.textContent='Descarga nativa solicitada. Mantén abierta esta pantalla y comprueba Archivos → Descargas. La copia en caché privada no equivale a un archivo guardado.';
  };
  if(direct){
   wrap.append(legacy);
@@ -640,11 +661,16 @@ function preparedDownloadControl(payload,defaultName='archivo'){
    },defaultName);
    wrap.append(fallback);
   };
-  start.textContent='↓ Guardar video en Fotos';
-  note.textContent='Este archivo queda en la caché privada del iPhone y se reutiliza mientras esté disponible.';
+  start.textContent=largeDirect?'↓ Preparar copia privada por fragmentos':'↓ Guardar video en Fotos';
+  note.textContent='La caché privada del navegador no es la app Archivos ni la galería Fotos.';
   save.href=payload.directUrl;save.download=defaultName;
   safari.href=payload.directUrl;
-  status.textContent='Guarda este video directamente en Fotos sin ocupar espacio temporal en Render.';
+  if(largeDirect){
+   // Native iOS downloads avoid Web Share's multi-gigabyte memory pressure.
+   start.hidden=true;save.hidden=false;note.hidden=false;legacy.hidden=false;
+   save.textContent='↓ Descargar video en Archivos';
+   status.textContent='Para videos grandes, el botón Compartir puede reiniciar el iPhone. Usa Descargar video en Archivos; después podrás añadirlo a Fotos desde Archivos.';
+  }else status.textContent='Guarda este video en Fotos sin ocupar espacio temporal en Render.';
   if(nativeShareAvailable()){
    start.disabled=true;
    (async()=>{
@@ -656,14 +682,15 @@ function preparedDownloadControl(payload,defaultName='archivo'){
      if(cached&&wrap.isConnected&&localState==='idle'){
       localFile=cached.file;localCleanup=cached.cleanup;localState='ready';
       markLocalReady();
-      status.textContent='Video ya guardado en este iPhone: puedes compartirlo sin volver a descargarlo.';
+      if(largeDirect)status.textContent='Copia completa en la caché privada de este navegador, NO en Archivos ni Fotos. Por estabilidad, utiliza Descargar video en Archivos para exportarlo.';
+      else status.textContent='Video ya guardado en este iPhone: puedes compartirlo sin volver a descargarlo.';
      }
     }
    })().catch(()=>{}).finally(()=>{start.disabled=false;});
   }else{
    legacy.hidden=false;
    start.hidden=true;save.hidden=false;safari.hidden=false;
-   save.textContent='↓ Descargar archivo (alternativa)';
+   save.textContent='↓ Descargar archivo en Archivos';
    status.textContent='Este navegador no admite compartir el archivo. Puedes descargarlo en Archivos.';
   }
  }else if(job)refresh();
