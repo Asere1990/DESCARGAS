@@ -48,6 +48,37 @@ class SelectionTests(unittest.TestCase):
 
 
 class AccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_protected_channel_and_group_use_linked_session_without_skipping_source_guards(self):
+        # Telegram's noforwards flag must not reject a source before scanning.
+        # Membership, identity and destination checks remain separate guards.
+        @asynccontextmanager
+        async def lock(*args,**kwargs):
+            yield
+        fixtures=[
+            (bulk.types.Channel(id=777,title="Canal",photo=bulk.types.ChatPhotoEmpty(),
+                                date=None,broadcast=True,access_hash=789,noforwards=True),
+             -1000000000777,"channel",789),
+            (bulk.types.Chat(id=778,title="Grupo",photo=bulk.types.ChatPhotoEmpty(),
+                             participants_count=1,date=None,version=1,noforwards=True),
+             -778,"chat",0),
+        ]
+        for entity,source,kind,access_hash in fixtures:
+            async def dialogs(limit):
+                yield NS(id=source,name="Origen protegido",entity=entity)
+            client=NS(get_me=AsyncMock(return_value=NS(id=77)),
+                      iter_dialogs=dialogs,disconnect=AsyncMock())
+            svc=NS(repo=NS(account_lock=lock))
+            with patch.object(bulk,"_client_for",new_callable=AsyncMock,return_value=client):
+                info=await bulk._source_dialog(svc,77,source)
+                self.assertEqual((info["title"],info["type"],info["hash"]),
+                                 ("Origen protegido",kind,access_hash))
+                with self.assertRaisesRegex(ValueError,"no pertenece"):
+                    await bulk._source_dialog(svc,77,source-1)
+                client.get_me.return_value=NS(id=88)
+                with self.assertRaisesRegex(ValueError,"no corresponde"):
+                    await bulk._source_dialog(svc,77,source)
+            self.assertEqual(client.disconnect.await_count,3)
+
     async def test_destination_selector_shows_only_groups_where_user_is_admin(self):
         pool=NS(fetch=AsyncMock(return_value=[
           {"chat_id":-1001,"title":"Propio","chat_type":"supergroup"},
