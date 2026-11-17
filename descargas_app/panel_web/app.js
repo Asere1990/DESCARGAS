@@ -196,6 +196,83 @@ function panelDownloadFrame(){
  }
  return frame.name;
 }
+// Stream an already purchased, temporarily prepared video into Safari's
+// origin-private file system, then pass a real File to iOS Share Sheet.
+// Never call Response.blob()/arrayBuffer() for multi-GB videos.
+const PANEL_SHARE_DIRECTORY='panel-private-share-v1';
+const PANEL_SHARE_MAX_AGE=60*60*1000;
+let panelShareActive=null;
+async function panelShareStage(url,name,owner,progress){
+ if(typeof navigator.share!=='function'||typeof navigator.canShare!=='function'||
+    typeof navigator.storage?.getDirectory!=='function'||typeof File!=='function')
+  throw Error('Este navegador no admite compartir archivos directamente. Usa la descarga alternativa.');
+ if(panelShareActive&&panelShareActive.owner!==owner)
+  throw Error('Otro video está preparándose para Fotos. Termina ese archivo primero.');
+ const root=await navigator.storage.getDirectory();
+ const dir=await root.getDirectoryHandle(PANEL_SHARE_DIRECTORY,{create:true});
+ // Remove abandoned private files from earlier visits without changing any
+ // Telegram account, server-side download or browser's Photos library.
+ if(typeof dir.entries==='function'){
+  try{
+   for await(const [key] of dir.entries()){
+    const date=Number(key.split('-')[0]);
+    if(!Number.isFinite(date)||Date.now()-date>PANEL_SHARE_MAX_AGE)
+     await dir.removeEntry(key).catch(()=>{});
+   }
+  }catch{}
+ }
+ const suffix=/\.(mp4|mov|m4v|webm|jpg|jpeg|png|gif)$/i.exec(name)?.[0]||'.mp4';
+ const key=String(Date.now())+'-'+(typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?
+  crypto.randomUUID():String(Math.random()).slice(2))+suffix;
+ const handle=await dir.getFileHandle(key,{create:true});
+ const controller=new AbortController();
+ const entry={owner,controller,cleanup:async()=>{
+  try{await dir.removeEntry(key);}catch{}
+ }};
+ panelShareActive=entry;
+ let writer=null;
+ try{
+  const response=await fetch(url,{cache:'no-store',credentials:'same-origin',
+   signal:controller.signal});
+  if(!response.ok||!response.body?.getReader)
+   throw Error('No se pudo recibir el video preparado para Fotos.');
+  const total=Number(response.headers.get('Content-Length'))||0;
+  writer=await handle.createWritable();
+  let received=0,reader=response.body.getReader();
+  try{
+   for(;;){
+    const {done,value}=await reader.read();
+    if(done)break;
+    if(panelShareActive!==entry||String(account?.id)!==String(owner.accountId))
+     throw Error('La cuenta cambió. Se canceló la preparación local.');
+    if(!value?.length)continue;
+    await writer.write(value);received+=value.length;
+    progress(received,total);
+   }
+  }finally{reader.releaseLock?.();}
+  if(total&&received!==total)throw Error('La transferencia al iPhone quedó incompleta.');
+  await writer.close();writer=null;
+  const diskFile=await handle.getFile();
+  const type=/\.mov$/i.test(name)?'video/quicktime':
+   /\.webm$/i.test(name)?'video/webm':
+   /\.png$/i.test(name)?'image/png':
+   /\.(jpe?g)$/i.test(name)?'image/jpeg':
+   /\.gif$/i.test(name)?'image/gif':
+   /\.webp$/i.test(name)?'image/webp':'video/mp4';
+  // Blob/File parts are references to the OPFS-backed file, not a JS
+  // ArrayBuffer copy of the original multi-gigabyte video.
+  const file=new File([diskFile],name,{type,lastModified:Date.now()});
+  if(!navigator.canShare({files:[file]}))
+   throw Error('iPhone no permite compartir directamente este archivo. Usa la descarga alternativa.');
+  return {file,cleanup:entry.cleanup};
+ }catch(e){
+  if(writer){try{await writer.abort();}catch{}}
+  await entry.cleanup();
+  throw e;
+ }finally{
+  if(panelShareActive===entry)panelShareActive=null;
+ }
+}
 const preparedDownloadJobs=new Map();
 function preparedDownloadControl(payload,defaultName='archivo'){
  const wrap=el('section');wrap.className='prepared-download';
@@ -215,6 +292,50 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  wrap.append(start,status,meter,save,safari,note);
  const key=JSON.stringify([payload.account,payload.peer,payload.purchase||payload.message,payload.index??payload.paid_index??0]);
  let job=preparedDownloadJobs.get(key)||null;
+ let localFile=null,localCleanup=null,localState='idle',localError='';
+ let localWritten=0,localTotal=0;
+ const nativeShareAvailable=()=>typeof navigator!=='undefined'&&
+  typeof navigator.share==='function'&&typeof navigator.canShare==='function'&&
+  typeof navigator.storage?.getDirectory==='function';
+ const markLocalReady=()=>{
+  meter.hidden=true;save.hidden=false;
+  save.textContent='↗ Compartir video · Guardar video en Fotos';
+  safari.hidden=true;note.hidden=false;
+  status.textContent='Video listo. Pulsa Compartir y selecciona «Guardar video» en Fotos.';
+ };
+ const prepareLocal=async(data)=>{
+  const url=base+'/api/prepared-file?token='+encodeURIComponent(data.file_token);
+  const name=data.name||defaultName;
+  try{
+   const result=await panelShareStage(url,name,{accountId:payload.account,key},
+    (received,total)=>{
+     if(!wrap.isConnected)throw Error('Se cerró la vista antes de completar la preparación local.');
+     localWritten=received;localTotal=total;
+     meter.value=total?Math.min(99,Math.floor(100*received/total)):0;
+     status.textContent='Preparando para Fotos: '+meter.value+'% · '+
+      mb(received)+' MB'+(total?' de '+mb(total)+' MB':'');
+    });
+   localFile=result.file;localCleanup=result.cleanup;localState='ready';
+   // Private browser staging never becomes a permanent gallery cache.
+   setTimeout(()=>{
+    if(localCleanup===result.cleanup){
+     result.cleanup().catch(()=>{});
+     localFile=null;localCleanup=null;localState='error';
+     localError='La copia temporal del iPhone caducó. Puedes descargarla de nuevo.';
+    }
+   },30*60*1000);
+   if(wrap.isConnected)markLocalReady();
+   else if(localCleanup)await localCleanup();
+  }catch(error){
+   localState='error';localError=error.message||'No se pudo preparar para Compartir.';
+   localFile=null;meter.hidden=true;
+   if(wrap.isConnected){
+    save.hidden=false;save.textContent='↓ Descargar archivo (alternativa)';
+    safari.hidden=false;
+    status.textContent=localError+' Puedes usar la descarga alternativa.';
+   }
+  }
+ };
  let timer=null;
  const mb=n=>(Number(n||0)/1048576).toFixed(1);
  const next=()=>{
@@ -234,13 +355,27 @@ function preparedDownloadControl(payload,defaultName='archivo'){
     (data.total?' de '+mb(data.total)+' MB':'');
    next();
   }else if(phase==='ready'){
-   start.hidden=true;meter.hidden=true;
+   start.hidden=true;
    const url=base+'/api/prepared-file?token='+encodeURIComponent(data.file_token);
    save.href=url;save.download=data.name||defaultName;
-   safari.href=url;
-   status.textContent='Preparación completada (100 %). Ahora pulsa Guardar en mi teléfono.';
-   save.hidden=false;safari.hidden=false;note.hidden=false;
-   // Refresh short-lived capabilities while this view remains open.
+   safari.href=url;note.hidden=false;
+   if(localState==='ready'&&localFile){
+    markLocalReady();
+   }else if(localState==='fetching'){
+    meter.hidden=false;save.hidden=true;safari.hidden=true;
+   }else if(localState==='error'){
+    meter.hidden=true;save.hidden=false;safari.hidden=false;
+    save.textContent='↓ Descargar archivo (alternativa)';
+    status.textContent=localError+' Puedes usar la descarga alternativa.';
+   }else if(nativeShareAvailable()){
+    localState='fetching';meter.hidden=false;meter.value=0;save.hidden=true;safari.hidden=true;
+    status.textContent='Preparando el archivo en tu iPhone para abrir Compartir…';
+    prepareLocal(data);
+   }else{
+    meter.hidden=true;save.hidden=false;safari.hidden=false;
+    save.textContent='↓ Descargar archivo (alternativa)';
+    status.textContent='Este navegador no permite compartir archivos desde la web. Prueba la descarga alternativa.';
+   }
    clearTimeout(timer);
    if(wrap.isConnected)timer=setTimeout(refresh,35000);
   }else{
@@ -266,7 +401,29 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   finally{start.disabled=false;}
  };
  save.onclick=event=>{
-  if(save.hidden||!save.href){event.preventDefault();return;}
+  if(save.hidden){event.preventDefault();return;}
+  // Calling navigator.share() synchronously from this click retains the iOS
+  // user gesture. No network await or browser navigation occurs first.
+  if(localState==='ready'&&localFile){
+   event.preventDefault();
+   const shared={files:[localFile]};
+   try{
+    const result=navigator.share(shared);
+    status.textContent='En Compartir, selecciona «Guardar video» para añadirlo a Fotos.';
+    Promise.resolve(result).then(()=>{
+     status.textContent='Se entregó el video al menú Compartir. Comprueba tu galería Fotos.';
+    }).catch(error=>{
+     if(error?.name==='AbortError')status.textContent='Compartir cancelado. Puedes intentarlo otra vez.';
+     else{
+      safari.hidden=false;
+      status.textContent='iPhone no pudo compartir el video: '+(error?.message||'Reintenta.')+
+       ' También puedes usar la descarga alternativa.';
+     }
+    });
+   }catch(error){safari.hidden=false;status.textContent='No se pudo abrir Compartir: '+error.message;}
+   return;
+  }
+  if(!save.href){event.preventDefault();return;}
   const webapp=window.Telegram?.WebApp;
   if(webapp?.initData&&typeof webapp.downloadFile==='function'&&
       (!webapp.isVersionAtLeast||webapp.isVersionAtLeast('8.0'))&&location.protocol==='https:'){
@@ -278,11 +435,10 @@ function preparedDownloadControl(payload,defaultName='archivo'){
    });
    return;
   }
-  // Safari/WKWebView must never navigate the TOP window to a big MP4.
-  // Use a same-origin hidden target to stream attachment bytes without
-  // allocating them inside JavaScript or resetting the panel navigation.
+  // If iOS did not allow file sharing, keep the legacy private attachment
+  // download, targeted at an invisible same-origin frame.
   save.target=panelDownloadFrame();
-  status.textContent='Descarga solicitada. Puedes seguir en esta carpeta; revisa Descargas del iPhone.';
+  status.textContent='Descarga alternativa solicitada. Puedes seguir en esta carpeta; revisa Archivos → Descargas.';
  };
  if(job)refresh();
  return wrap;
