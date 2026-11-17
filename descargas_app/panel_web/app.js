@@ -460,6 +460,8 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  const note=el('small','El enlace temporal caduca; no se modifica ninguna cuenta vinculada.');
  note.hidden=true;
  wrap.append(start,status,meter,save,safari,note);
+ const legacy=el('button','↻ Usar preparación tradicional');
+ legacy.type='button';legacy.className='prepared-fallback';legacy.hidden=true;
  const key=JSON.stringify([payload.account,payload.peer,payload.purchase||payload.message,payload.index??payload.paid_index??0]);
  const direct=!!(payload.directUrl&&payload.purchaseId&&Number(payload.size)>0);
  let job=direct?null:(preparedDownloadJobs.get(key)||null);
@@ -503,6 +505,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
    localFile=null;meter.hidden=true;
    if(wrap.isConnected){
     if(direct){
+     legacy.hidden=false;
      start.hidden=false;start.textContent='↻ Reintentar guardar en Fotos';
      save.href=payload.directUrl;save.download=defaultName;
      safari.href=payload.directUrl;
@@ -572,6 +575,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   if(!account||String(account.id)!==String(payload.account))return notice('La cuenta cambió. Abre este archivo nuevamente.');
   if(direct){
    if(typeof payload.pausePreview==='function')payload.pausePreview();
+   legacy.hidden=true;
    start.hidden=true;localState='fetching';localError='';meter.hidden=false;meter.value=0;
    save.hidden=true;safari.hidden=true;
    status.textContent='Descargando directamente al iPhone para abrir Compartir…';
@@ -625,6 +629,17 @@ function preparedDownloadControl(payload,defaultName='archivo'){
   status.textContent='Descarga alternativa solicitada. Puedes seguir en esta carpeta; revisa Archivos → Descargas.';
  };
  if(direct){
+  wrap.append(legacy);
+  legacy.onclick=()=>{
+   if(localState==='fetching')return notice('Termina primero la transferencia actual.');
+   legacy.hidden=true;start.hidden=true;save.hidden=true;safari.hidden=true;meter.hidden=true;
+   status.textContent='Se activó la preparación tradicional, disponible debajo.';
+   const fallback=preparedDownloadControl({
+    account:payload.account,peer:payload.peer,
+    purchase:payload.purchase,index:payload.index
+   },defaultName);
+   wrap.append(fallback);
+  };
   start.textContent='↓ Guardar video en Fotos';
   note.textContent='Este archivo queda en la caché privada del iPhone y se reutiliza mientras esté disponible.';
   save.href=payload.directUrl;save.download=defaultName;
@@ -646,6 +661,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
     }
    })().catch(()=>{}).finally(()=>{start.disabled=false;});
   }else{
+   legacy.hidden=false;
    start.hidden=true;save.hidden=false;safari.hidden=false;
    save.textContent='↓ Descargar archivo (alternativa)';
    status.textContent='Este navegador no admite compartir el archivo. Puedes descargarlo en Archivos.';
