@@ -281,7 +281,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         c=Client()
         prepare=AsyncMock(return_value="should never upload")
         with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaisesRegex(ValueError,"tamaño original"):
+            with self.assertRaisesRegex(worker.SkippableMedia,"No se pudo descargar"):
                 await worker.prepare_album(worker._VerifiedBulkSource(c),[item],
                                            directory,prepare,100,100)
         self.assertEqual(c.attempts,3)
