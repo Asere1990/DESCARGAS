@@ -260,12 +260,114 @@ async function panelShareCached(name,key,size){
  }
  return {file:panelShareFile(diskFile,name),cleanup:async()=>{}};
 }
+// Large iPhone downloads use verified 32 MiB ranges, avoiding long-lived
+// 1–4 GB responses that can be interrupted by Safari/WebKit or proxies.
+// Use ONE OPFS writer for the whole request to avoid expensive file copies.
+const PANEL_SHARE_CHUNK_BYTES=32*1024*1024;
+const PANEL_SHARE_IDLE_MS=45000;
+const PANEL_SHARE_FAILURE_LIMIT=6;
+async function panelShareChunks(url,name,owner,progress,cacheKey,expectedSize){
+ if(panelShareActive)throw Error('Ya hay otro video descargándose en este iPhone.');
+ const dir=await panelShareDirectory();
+ const suffix=/\.(mp4|mov|m4v|webm|jpg|jpeg|png|gif)$/i.exec(name)?.[0]||'.mp4';
+ const key=cacheKey||(String(Date.now())+'-'+
+  (typeof crypto!=='undefined'&&typeof crypto.randomUUID==='function'?
+   crypto.randomUUID():String(Math.random()).slice(2))+suffix);
+ const handle=await dir.getFileHandle(key,{create:true});
+ const previous=await handle.getFile();
+ const keep=!!cacheKey&&previous.size>0&&previous.size<expectedSize;
+ let received=keep?previous.size:0;
+ // Browser private storage is different from the Render disk/RAM plan.
+ if(typeof navigator.storage?.estimate==='function'){
+  try{
+   const estimate=await navigator.storage.estimate();
+   const remaining=Number(estimate.quota)-Number(estimate.usage);
+   if(Number(estimate.quota)>0&&Number.isFinite(remaining)&&
+      remaining<expectedSize-received+16*1024*1024)
+    throw Error('El navegador del iPhone no dispone de espacio privado suficiente. Usa la descarga alternativa.');
+  }catch(error){if(/no dispone de espacio privado/.test(error.message||''))throw error;}
+ }
+ const entry={owner,controller:null,cleanup:async()=>{
+  if(!cacheKey)try{await dir.removeEntry(key);}catch{}
+ }};
+ panelShareActive=entry;
+ let writer=null,failures=0;
+ try{
+  writer=await handle.createWritable({keepExistingData:keep});
+  if(keep)await writer.seek(received);
+  progress(received,expectedSize);
+  while(received<expectedSize){
+   if(panelShareActive!==entry||String(account?.id)!==String(owner.accountId))
+    throw Error('La cuenta cambió. Se canceló la transferencia a Fotos.');
+   const start=received,end=Math.min(expectedSize,start+PANEL_SHARE_CHUNK_BYTES)-1;
+   const controller=new AbortController();entry.controller=controller;
+   let idle=null;
+   const arm=()=>{clearTimeout(idle);idle=setTimeout(()=>controller.abort(),PANEL_SHARE_IDLE_MS);};
+   let reader=null;
+   try{
+    arm();
+    const response=await fetch(url,{cache:'no-store',credentials:'same-origin',
+     headers:{Range:'bytes='+start+'-'+end},signal:controller.signal});
+    if(response.status!==206||!response.body?.getReader)
+     throw Error('El servidor no entregó el fragmento solicitado (HTTP '+response.status+').');
+    const range=response.headers.get('Content-Range')||'';
+    const parsed=/^bytes (\d+)-(\d+)\/(\d+)$/.exec(range);
+    if(!parsed||Number(parsed[1])!==start||Number(parsed[2])!==end||
+       Number(parsed[3])!==expectedSize)
+     throw Error('El servidor devolvió un rango incorrecto; se detuvo para no guardar un archivo dañado.');
+    const length=Number(response.headers.get('Content-Length'))||0;
+    if(length&&length!==end-start+1)
+     throw Error('El servidor anunció un tamaño incorrecto.');
+    reader=response.body.getReader();
+    while(true){
+     arm();
+     const {done,value:bytes}=await reader.read();
+     if(done)break;
+     if(panelShareActive!==entry||String(account?.id)!==String(owner.accountId))
+      throw Error('La cuenta cambió. Se canceló la transferencia a Fotos.');
+     if(!bytes?.length)continue;
+     if(received+bytes.length>end+1)
+      throw Error('El servidor envió más datos de los solicitados.');
+     await writer.write(bytes);
+     received+=bytes.length;progress(received,expectedSize);
+    }
+    if(received!==end+1)
+     throw Error('Fragmento incompleto; reanudando desde el último byte recibido.');
+    failures=0;
+   }catch(error){
+    if(error?.name==='QuotaExceededError')
+     throw Error('Se agotó el espacio del navegador. Usa la descarga alternativa.');
+    if(/cuenta cambió|rango incorrecto|tamaño incorrecto|más datos/.test(error.message||''))
+     throw error;
+    if(++failures>=PANEL_SHARE_FAILURE_LIMIT)
+     throw Error('La red se interrumpió repetidamente en '+Math.round(received/1048576)+
+      ' MB. El progreso recibido queda conservado cuando el navegador permita guardarlo.');
+    await new Promise(resolve=>setTimeout(resolve,Math.min(4500,500*failures)));
+   }finally{
+    clearTimeout(idle);
+    if(reader){try{reader.releaseLock?.();}catch{}}
+    if(entry.controller===controller)entry.controller=null;
+   }
+  }
+  await writer.close();writer=null;
+  const diskFile=await handle.getFile();
+  if(diskFile.size!==expectedSize)
+   throw Error('El tamaño final no coincide con el archivo comprado.');
+  return {file:panelShareFile(diskFile,name),cleanup:entry.cleanup};
+ }catch(error){
+  if(writer){try{await writer.close();}catch{try{await writer.abort();}catch{}}}
+  if(!cacheKey)await entry.cleanup();
+  throw error;
+ }finally{if(panelShareActive===entry)panelShareActive=null;}
+}
 // Stream the response into OPFS in bounded chunks. A new request resumes a
 // partial file with HTTP Range; a truncated response never becomes "ready".
 async function panelShareStage(url,name,owner,progress,cacheKey='',expectedSize=0){
  if(typeof navigator.share!=='function'||typeof navigator.canShare!=='function'||
     typeof navigator.storage?.getDirectory!=='function'||typeof File!=='function')
   throw Error('Este navegador no admite compartir archivos directamente. Usa la descarga alternativa.');
+ if(expectedSize>0)
+  return panelShareChunks(url,name,owner,progress,cacheKey,expectedSize);
  if(panelShareActive)
   throw Error('Otro video está transfiriéndose a Fotos. Termina ese archivo primero.');
  const dir=await panelShareDirectory();
@@ -469,6 +571,7 @@ function preparedDownloadControl(payload,defaultName='archivo'){
  start.onclick=async()=>{
   if(!account||String(account.id)!==String(payload.account))return notice('La cuenta cambió. Abre este archivo nuevamente.');
   if(direct){
+   if(typeof payload.pausePreview==='function')payload.pausePreview();
    start.hidden=true;localState='fetching';localError='';meter.hidden=false;meter.value=0;
    save.hidden=true;safari.hidden=true;
    status.textContent='Descargando directamente al iPhone para abrir Compartir…';
@@ -1748,7 +1851,7 @@ async function openPurchases(initialSource=null){
   catch(e){notice(e.message);}
  };card.append(jump);}
     for(const media of item.media){const row=el('div'),show=el('button',(media.type==='video'?'▶ Ver video':'🖼 Ver foto')+' '+(media.index+1));row.className='purchase-media';show.onclick=()=>{const node=el(media.type==='video'?'video':'img');node.className='purchase-preview';if(media.type==='video'){node.controls=true;node.playsInline=true;node.preload='metadata';}else node.alt='Foto comprada';node.src=url('purchase-media',item,media.index);node.onerror=()=>notice('No se pudo cargar este archivo. Vuelve a abrir Comprados para actualizarlo.');show.replaceWith(node);};const control=preparedDownloadControl({account:selected.id,peer:item.chat.handle,
-  purchase:item.token,index:media.index,
+  purchase:item.token,index:media.index,pausePreview:stopMedia,
   purchaseId:media.type==='video'?String(item.id):null,source:item.chat.id,
   size:Number(media.size)||0,
   directUrl:media.type==='video'&&Number(media.size)>0?
