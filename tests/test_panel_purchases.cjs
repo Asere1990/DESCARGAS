@@ -347,3 +347,21 @@ test('Starting a large Stars download pauses the paid video preview',async()=>{
  assert.equal(video.paused,true);
  assert.equal(video.src,undefined);
 });
+
+test('Large Stars videos always retain the legacy preparation fallback',async()=>{
+ const purchase=item();
+ purchase.media=[{type:'video',index:0,name:'Large.mp4',size:1600000000}];
+ const s=setup(async()=>({items:[purchase],next:null}));
+ s.context.navigator={};
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ const legacy=control.children[6];
+ assert.equal(legacy.hidden,false);
+ assert.match(legacy.textContent,/preparación tradicional/);
+ legacy.onclick();
+ assert.equal(legacy.hidden,true);
+ const old=control.children[7];
+ assert.equal(old.tagName,'SECTION');
+ assert.match(old.children[0].textContent,/Preparar descarga prioritaria/);
+});
