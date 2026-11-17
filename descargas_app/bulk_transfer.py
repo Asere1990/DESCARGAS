@@ -300,8 +300,13 @@ async def current(service,uid,ident=None):
                ORDER BY created DESC LIMIT 1""",service.bot_id,uid)
     if not row or row["status"]=="detached":return {"job":None}
     counts=_counts(row["counts"])
+    skipped=0
     ranges={}
     if int(row["run_no"])>0:
+        skipped=int(await service.repo.pool.fetchval(
+            """SELECT count(*) FROM descarga_bulk_deliveries
+               WHERE job_id=$1 AND run_no=$2 AND status='skipped'""",
+            row["id"],row["run_no"]) or 0)
         run=await service.repo.pool.fetchrow(
             "SELECT ranges FROM descarga_bulk_runs WHERE job_id=$1 AND run_no=$2",
             row["id"],row["run_no"])
@@ -311,7 +316,7 @@ async def current(service,uid,ident=None):
     return {"job":{"id":str(row["id"]),"source":row["source_title"],"destination":row["target_title"],
                    "status":row["status"],"counts":counts,"scan_count":sum(counts.values()),
                    "run_no":int(row["run_no"]),"selected":int(row["run_total"]),
-                   "published":int(row["run_done"]),"ranges":ranges,
+                   "published":int(row["run_done"]),"skipped":skipped,"ranges":ranges,
                    "error":str(row["error"] or "")[:180]}}
 
 def valid_ranges(counts,raw):
