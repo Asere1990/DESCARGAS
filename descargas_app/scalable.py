@@ -124,6 +124,41 @@ class ScaleService(Service):
         try:
             LOG.warning('Scale startup role=%s phase=database',self.role)
             await self.repo.start()
+            # One-time, read-only stall diagnosis. No account sessions, captions,
+            # destination IDs or message bodies are logged.
+            if self.role=='web':
+                try:
+                    import hashlib as _bulk_hashlib
+                    bulk_rows=await self.repo.pool.fetch("""
+                        SELECT j.uid,j.source_id,j.target_id,j.status,j.error,
+                               j.run_no,j.run_done,j.run_total,j.scan_cursor,
+                               floor(extract(epoch FROM now())-j.updated)::bigint AS age_seconds,
+                               floor(greatest(0,j.pause_until-extract(epoch FROM now())))::bigint AS wait_seconds,
+                               floor(greatest(0,j.lease_until-extract(epoch FROM now())))::bigint AS lease_seconds,
+                               (SELECT coalesce(json_agg(row_to_json(d)), '[]'::json)
+                                  FROM (SELECT message_id,status,error,
+                                               archive_id IS NOT NULL AS archived,
+                                               destination_id IS NOT NULL AS posted
+                                          FROM descarga_bulk_deliveries
+                                         WHERE job_id=j.id
+                                         ORDER BY updated DESC LIMIT 4) d) AS recent
+                          FROM descarga_bulk_jobs j
+                         WHERE j.updated > extract(epoch FROM now())-7200
+                           AND j.status <> 'detached'
+                         ORDER BY j.updated DESC LIMIT 30
+                    """)
+                    for _br in bulk_rows:
+                        _finger=_bulk_hashlib.sha256(
+                            f"{_br['uid']}|{_br['source_id']}|{_br['target_id']}".encode()
+                        ).hexdigest()[:12]
+                        LOG.warning(
+                            "BULK_DIAG fp=%s status=%s age=%s wait=%s lease=%s run=%s done=%s total=%s cursor=%s error=%r recent=%s",
+                            _finger,_br['status'],_br['age_seconds'],_br['wait_seconds'],
+                            _br['lease_seconds'],_br['run_no'],_br['run_done'],
+                            _br['run_total'],_br['scan_cursor'],str(_br['error'] or '')[:100],
+                            _br['recent'])
+                except Exception as exc:
+                    LOG.warning("BULK_DIAG query failed (%s)",type(exc).__name__)
             LOG.warning('Scale startup role=%s phase=configuration',self.role)
             if self.role in ('worker','export'):
                 for _ in range(60):
