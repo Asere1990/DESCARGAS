@@ -191,6 +191,28 @@ class TelegramPanel:
                 if not authorized(actor):raise web.HTTPForbidden()
                 await require_account(self.s,uid,actor)
         finally:ACTOR.reset(token)
+    @asynccontextmanager
+    async def paid_stream_account(self, actor, uid):
+        """Independent read-only Telegram connection for large paid downloads.
+
+        This does not acquire the linked account's transfer lock, nor occupy
+        interactive panel slots. The saved session and workers remain unchanged.
+        """
+        if not authorized(actor):
+            raise web.HTTPForbidden()
+        await require_account(self.s, uid, actor)
+        marker = ACTOR.set(actor)
+        try:
+            async with asyncio.timeout(90 * 60):
+                async with connected_parallel(self.s, uid) as client:
+                    client.flood_sleep_threshold = 0
+                    row = await self.s.repo.account(uid)
+                    if not row or not row['session']:
+                        raise ValueError('La cuenta vinculada ya no está disponible.')
+                    yield client, row['generation']
+        finally:
+            ACTOR.reset(marker)
+
     async def target(self,actor,uid,generation,client,handle):
         data=self.unpack(handle,'peer')
         if data.get('uid')!=uid or data.get('generation')!=generation or data.get('actor')!=actor:raise ValueError('El chat no corresponde a esta cuenta. Abre su lista otra vez.')
@@ -394,7 +416,12 @@ class TelegramPanel:
             return {'items':list(reversed(items)),'next':rows[59].id if len(rows)>60 else None,'title':name(entity),'status':self.features.status(entity)}
     async def media(self,request,actor,uid,handle,mid,thumb=False,avatar=False,purchase=None,index=0,paid_index=None):
         # Transfers are streamed and never saved to the download queue, ALMACEN or Dropbox.
-        async with self.transfers,self.account(actor,uid,timeout=300) as (client,generation):
+        # Paid videos can take much longer than the 5-minute interactive limit.
+        # The read-only connection does not touch the existing account locks.
+        paid_download = purchase is not None and not thumb and request.query.get('download') == '1'
+        context = (self.paid_stream_account(actor, uid) if paid_download
+                   else self.account(actor, uid, timeout=300))
+        async with self.transfers, context as (client,generation):
             entity=await self.target(actor,uid,generation,client,handle)
             if avatar:
                 data=await client.download_profile_photo(entity,file=bytes,download_big=False)
@@ -432,6 +459,8 @@ class TelegramPanel:
                 await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
                 return web.Response(body=data,content_type='image/jpeg',headers=HEADERS)
             size=info['size'];start=0;end=size-1;status=200
+            if paid_download and (not size or size > 4 * 1024**3):
+                raise ValueError('El video comprado no tiene un tamaño válido de hasta 4 GB.')
             if request.headers.get('Range'):
                 match=re.fullmatch(r'bytes=(\d*)-(\d*)',request.headers['Range'])
                 if not match or not size or not any(match.groups()):raise web.HTTPRequestRangeNotSatisfiable(headers={'Content-Range':f'bytes */{size}'})
