@@ -213,6 +213,19 @@ def mount(app,service):
         except Exception as exc:
             log.error("Gallery API request failed (%s)",type(exc).__name__)
             raise web.HTTPServiceUnavailable(text="Operación no disponible. Inténtalo después.") from None
+    async def manual_r2_bytes(request):
+        # Isolated 16-MiB max relay for administrator uploads when the R2
+        # bucket rejects CORS configuration. Never accepts public media.
+        uid=await g.auth(request)
+        if not is_admin(uid):
+            raise web.HTTPForbidden(text="Solo administradores.")
+        g.db()
+        from . import manual_upload
+        result=await manual_upload.receive_bytes(g,uid,request)
+        response=web.json_response(result,headers={"Cache-Control":"no-store"})
+        if request.get("wg_admin_renew"):
+            admin_browser.set_cookie(response,request["wg_admin_renew"])
+        return response
     async def login(request):
         g.db()
         return await admin_browser.login(g,request)
@@ -314,6 +327,8 @@ def mount(app,service):
     app.router.add_post("/web-galerias/admin/notice-upload",notices_upload)
     app.router.add_get("/web-galerias/notice-media/{notice}",notice_media)
     app.router.add_post("/web-galerias/api",api)
+    app.router.add_put("/web-galerias/admin/manual-r2-bytes/{upload}/{segment}",
+                       manual_r2_bytes)
     app.router.add_post("/web-galerias/telegram-feed",token_web_hook)
     app.router.add_get("/web-galerias/media/{item}/{kind:thumb|view}",media)
     app.router.add_get("/web-galerias/cover/{folder}",cover)

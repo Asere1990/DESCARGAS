@@ -1,6 +1,7 @@
 """Focused regression checks for isolated manual R2 gallery uploads."""
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace as NS
+from unittest.mock import AsyncMock, patch
 
 from aiohttp import web
 from web_galerias import manual_upload as manual
@@ -98,6 +99,111 @@ class CorsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("url", out)
         self.assertFalse(out["multipart"])
 
+
+
+
+class RelayRequest:
+    def __init__(self, upload, segment, body, length=None):
+        self.match_info = {"upload": upload, "segment": segment}
+        self.content_length = len(body) if length is None else length
+        self.content = self
+        self.body = body
+
+    async def iter_chunked(self, size):
+        for index in range(0, len(self.body), size):
+            yield self.body[index:index + size]
+
+
+class RelayS3(FakeS3):
+    def __init__(self):
+        super().__init__()
+        self.received = []
+
+    def put_object(self, **kwargs):
+        self.received.append(("put", kwargs))
+        return {"ETag": '"test"'}
+
+    def upload_part(self, **kwargs):
+        self.received.append(("part", kwargs))
+        return {"ETag": '"test-part"'}
+
+
+class CorsFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cors_access_denied_keeps_upload_available_via_relay(self):
+        from botocore.exceptions import ClientError
+
+        class DeniedS3(RelayS3):
+            def get_bucket_cors(self, **kwargs):
+                raise ClientError({"Error": {"Code": "AccessDenied",
+                                             "Message": "No CORS permission"}},
+                                  "GetBucketCors")
+        g = FakeGallery(DeniedS3())
+        result = await manual.info(g)
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["transport"], "relay")
+        self.assertEqual(result["max_bytes"], 2 * 1024 ** 3)
+        self.assertEqual(result["part_size"], 16 * 1024 ** 2)
+
+    async def test_existing_cors_keeps_direct_browser_uploads(self):
+        client = RelayS3()
+        client.existing = [{"AllowedOrigins": ["https://cloudflare-t2gf.onrender.com"],
+                            "AllowedMethods": ["PUT"],
+                            "AllowedHeaders": ["Content-Type"]}]
+        result = await manual.info(FakeGallery(client))
+        self.assertEqual(result["transport"], "direct")
+        self.assertEqual(client.writes, [])
+
+    async def test_admin_relay_uploads_exact_parts_without_whole_video(self):
+        s3 = RelayS3()
+        g = FakeGallery(s3)
+        row = {"status": "uploading", "bytes": 11, "multipart_id": "multi-id",
+               "object_key": "manual/7/uuid/original.mp4",
+               "thumb_key": "manual/7/uuid/thumb.jpg", "mime": "video/mp4"}
+        with patch.object(manual, "PART_SIZE", 8), patch.object(
+                manual, "row_for", new_callable=AsyncMock, return_value=row) as owner:
+            first = await manual.receive_bytes(
+                g, 17, RelayRequest("valid-uuid", "1", b"12345678"))
+            second = await manual.receive_bytes(
+                g, 17, RelayRequest("valid-uuid", "2", b"abc"))
+        self.assertEqual(first, {"ok": True, "bytes": 8})
+        self.assertEqual(second, {"ok": True, "bytes": 3})
+        self.assertEqual([i[1]["PartNumber"] for i in s3.received], [1, 2])
+        self.assertEqual([i[1]["Body"] for i in s3.received],
+                         [b"12345678", b"abc"])
+        self.assertEqual(owner.await_count, 2)
+        self.assertEqual(owner.await_args.args[1], 17)
+
+    async def test_relay_rejects_partial_part_without_uploading(self):
+        s3 = RelayS3()
+        g = FakeGallery(s3)
+        row = {"status": "uploading", "bytes": 11, "multipart_id": "multi-id",
+               "object_key": "manual/7/uuid/original.mp4",
+               "thumb_key": "manual/7/uuid/thumb.jpg", "mime": "video/mp4"}
+        with patch.object(manual, "PART_SIZE", 8), patch.object(
+                manual, "row_for", new_callable=AsyncMock, return_value=row):
+            with self.assertRaises(web.HTTPBadRequest):
+                await manual.receive_bytes(
+                    g, 17, RelayRequest("valid-uuid", "1", b"1234"))
+            with self.assertRaises(web.HTTPBadRequest):
+                await manual.receive_bytes(
+                    g, 17, RelayRequest("valid-uuid", "9", b"12345678"))
+        self.assertEqual(s3.received, [])
+
+    async def test_relay_single_file_and_thumbnail_use_private_keys(self):
+        s3 = RelayS3()
+        g = FakeGallery(s3)
+        row = {"status": "uploading", "bytes": 6, "multipart_id": None,
+               "object_key": "manual/7/uuid/original.jpg",
+               "thumb_key": "manual/7/uuid/thumb.jpg", "mime": "image/jpeg"}
+        with patch.object(manual, "row_for", new_callable=AsyncMock,
+                          return_value=row):
+            await manual.receive_bytes(
+                g, 17, RelayRequest("valid-uuid", "thumb", b"jpeg"))
+            await manual.receive_bytes(
+                g, 17, RelayRequest("valid-uuid", "file", b"123456"))
+        self.assertEqual([record[0] for record in s3.received], ["put", "put"])
+        self.assertEqual([record[1]["Key"] for record in s3.received],
+                         [row["thumb_key"], row["object_key"]])
 
 
 class CaptionFakeConnection:
