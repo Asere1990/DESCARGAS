@@ -243,12 +243,12 @@ test('large purchased Stars videos stream directly without a server prepare job'
  assert.match(control.children[1].textContent,/Archivos/);
  assert.deepEqual(calls,['purchases?account=22']);
 });
-test('a complete large video cached on iPhone opens Share without another Telegram transfer',async()=>{
+test('a cached 2GB video never calls iOS Share Sheet or leaves the panel',async()=>{
  const purchase=item();
  purchase.media=[{type:'video',index:0,name:'Large.mp4',size:2*1024**3}];
  let requests=0,transfer=0;
  const s=setup(async op=>{requests++;return {items:[purchase],next:null};});
- const large={size:2*1024**3,type:'video/mp4',lastModified:Date.now(),name:'cached-large.mp4'};
+ const large={size:2*1024**3,type:'',lastModified:Date.now(),name:'cached-large.mp4'};
  const dir={
   async *entries(){},
   async getFileHandle(){return {async getFile(){return large;}};}
@@ -256,22 +256,30 @@ test('a complete large video cached on iPhone opens Share without another Telegr
  s.context.crypto={subtle:{async digest(){return new Uint8Array(32).buffer;}}};
  s.context.TextEncoder=TextEncoder;
  const shared=[];
+ s.context.File=class TestFile{
+  constructor(){throw Error('Must not wrap 2GB file into WebKit File');}
+ };
  s.context.navigator={
   storage:{async getDirectory(){return {async getDirectoryHandle(){return dir;}};}},
-  canShare({files}){return files.length===1&&files[0]===large;},
-  share({files}){shared.push(files[0]);return Promise.resolve();}
+  canShare(){throw Error('Must not call canShare for a 2GB file');},
+  share(data){shared.push(data);throw Error('Do not open native Share for 2GB');}
  };
- s.context.fetch=async()=>{transfer++;throw Error('Cached video must not be re-fetched');};
+ s.context.fetch=async()=>{transfer++;throw Error('Do not fetch the file while browsing the cache');};
  await s.context.openPurchases();
  const list=s.root().children[1];list.children[0].onclick();
- await new Promise(setImmediate);await new Promise(setImmediate);
+ for(let i=0;i<8;i++)await new Promise(setImmediate);
  const control=list.children[2].children[4].children[1],save=control.children[3];
  assert.equal(save.hidden,false);
- assert.match(control.children[1].textContent,/sin volver a descargarlo/);
+ assert.match(save.textContent,/Descargar video en Archivos/);
+ assert.match(control.children[1].textContent,/NO en Archivos ni Fotos/);
  let prevented=0;
  save.onclick({preventDefault(){prevented++;}});
- assert.equal(prevented,1);
- assert.equal(shared[0],large);
+ assert.equal(prevented,0); // Browser handles attachment in a hidden iframe.
+ assert.equal(shared.length,0);
+ assert.equal(s.frames.size,1);
+ assert.equal(save.target,'panel-file-download-frame');
+ assert.equal(s.$('management').open,true);
+ assert.match(save.href,/purchase-media\?.*download=1/);
  assert.equal(transfer,0);
  assert.equal(requests,1);
 });
@@ -364,4 +372,24 @@ test('Large Stars videos always retain the legacy preparation fallback',async()=
  const old=control.children[7];
  assert.equal(old.tagName,'SECTION');
  assert.match(old.children[0].textContent,/Preparar descarga prioritaria/);
+});
+
+test('a large uncached video shows native Files download without initiating OPFS staging',async()=>{
+ const purchase=item();
+ purchase.media=[{type:'video',index:0,name:'Large.mp4',size:1600000000}];
+ const s=setup(async()=>({items:[purchase],next:null}));
+ s.context.navigator={};
+ await s.context.openPurchases();
+ const list=s.root().children[1];list.children[0].onclick();
+ const control=list.children[2].children[4].children[1];
+ const start=control.children[0],save=control.children[3],legacy=control.children[6];
+ assert.equal(start.hidden,true);
+ assert.equal(save.hidden,false);
+ assert.match(save.textContent,/Archivos/);
+ assert.equal(legacy.hidden,false);
+ let prevented=0;
+ save.onclick({preventDefault(){prevented++;}});
+ assert.equal(prevented,0);
+ assert.equal(save.target,'panel-file-download-frame');
+ assert.equal(s.frames.size,1);
 });
