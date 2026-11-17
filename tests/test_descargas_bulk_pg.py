@@ -113,6 +113,44 @@ class BulkPostgresTests(unittest.IsolatedAsyncioTestCase):
             "SELECT status,error FROM descarga_bulk_jobs WHERE id=$1",unsafe)
         self.assertEqual(still["status"],"review")
 
+    async def test_incomplete_media_retry_preserves_published_messages(self):
+        now=time.time()
+        safe=uuid.uuid4()
+        unsafe=uuid.uuid4()
+        bot_id=977734
+        for ident in (safe,unsafe):
+            await self.conn.execute(
+                """INSERT INTO descarga_bulk_jobs
+                   (id,bot_id,uid,generation,source_id,source_title,
+                    target_id,target_title,created,updated,status,run_no,error,
+                     run_total,run_done)
+                   VALUES($1,$2,77,1,-100777,'Origen',-100888,'Destino',
+                          $3,$3,'error',1,
+                          'El archivo descargado no coincide con el tamaño original; no se envió.',
+                          336,66)""",ident,bot_id,now-120)
+            await self.conn.execute(
+                """INSERT INTO descarga_bulk_runs(job_id,run_no,ranges,selected,started)
+                   VALUES($1,1,'{}'::jsonb,336,$2)""",ident,now-120)
+        await self.conn.execute(
+            """INSERT INTO descarga_bulk_deliveries
+               (job_id,run_no,message_id,category,status,archive_id,destination_id,updated)
+               VALUES($1,1,520,'photos','published',400,500,$2)""",safe,now-90)
+        await self.conn.execute(
+            """INSERT INTO descarga_bulk_deliveries
+               (job_id,run_no,message_id,category,status,archive_id,updated)
+               VALUES($1,1,521,'photos','archived',401,$2)""",unsafe,now-80)
+        svc=NS(bot_id=bot_id,repo=NS(pool=self.conn))
+        selected=await worker._claim(svc)
+        self.assertEqual(selected["id"],safe)
+        self.assertEqual(selected["status"],"publishing")
+        self.assertEqual(selected["run_done"],66)
+        self.assertEqual(selected["error"],
+                         "Reanudación verificada tras archivo incompleto.")
+        self.assertIsNone(await worker._claim(svc))
+        still=await self.conn.fetchval(
+            "SELECT status FROM descarga_bulk_jobs WHERE id=$1",unsafe)
+        self.assertEqual(still,"error")
+
     async def test_twenty_independent_destination_jobs_and_atomic_limit(self):
         """21 simultaneous requests may create only 20 jobs for one user."""
         bot_id,uid=77777,88888
