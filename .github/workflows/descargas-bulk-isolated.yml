@@ -6,6 +6,11 @@ on:
       - 'descargas_app/**'
       - 'tests/test_descargas_bulk_*'
       - '.github/workflows/descargas-bulk-isolated.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'descargas_app/bulk_transfer.py'
+      - 'tests/test_descargas_bulk.py'
   workflow_dispatch:
 jobs:
   verify:
