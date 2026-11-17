@@ -193,12 +193,14 @@ async def cors_ready(g):
 async def info(g):
     if not g.storage.ready:
         return {"ready": False, "reason": "Cloudflare R2 no está configurado."}
+    # Keep browser-to-R2 presigned PUT when CORS is available. An R2 key with
+    # object permission but no bucket-CORS permission must not disable uploads:
+    # the admin can use bounded same-origin parts through CLOUDFLARE instead.
     cors = await cors_ready(g)
     return {
-        "ready": bool(cors),
-        "reason": "" if cors else (
-            "La clave R2 no pudo habilitar CORS. Hay que permitir PUT desde "
-            "https://cloudflare-t2gf.onrender.com en el bucket privado."),
+        "ready": True,
+        "transport": "direct" if cors else "relay",
+        "reason": "",
         "max_bytes": MAX_SIZE,
         "part_size": PART_SIZE,
         "types": sorted(TYPES),
@@ -208,9 +210,9 @@ async def info(g):
 async def begin(g, uid, data):
     if not g.storage.ready:
         raise web.HTTPServiceUnavailable(text="Cloudflare R2 no está disponible.")
-    if not await cors_ready(g):
-        raise web.HTTPServiceUnavailable(
-            text="Falta habilitar permisos CORS para subida directa a R2.")
+    # CORS controls browser-to-R2 requests, not server-to-R2 object writes.
+    # When CORS is unavailable, signed admin requests send one bounded part
+    # at a time via CLOUDFLARE; the original never lives on this server.
     folder = positive(data.get("folder"), "Galería")
     folder_row = await g.db().fetchrow("""
         SELECT f.id FROM wg_folders f
@@ -313,6 +315,82 @@ async def part_url(g, uid, data):
         raise web.HTTPBadRequest(text="Parte fuera del archivo.")
     return {"url": presign(g.storage, "upload_part", row["object_key"],
                            UploadId=row["multipart_id"], PartNumber=part)}
+
+
+async def receive_bytes(g, uid, request):
+    """Admin-only, same-origin fallback for one R2 upload part at a time.
+
+    No Telegram access and no full-file buffering. Only an already-created,
+    admin-owned upload UUID can be written; published and foreign media cannot
+    be changed through this endpoint.
+    """
+    if not g.storage.ready:
+        raise web.HTTPServiceUnavailable(text="Cloudflare R2 no disponible.")
+    row = await row_for(g, uid, {"upload": request.match_info.get("upload")})
+    if row["status"] != "uploading":
+        raise web.HTTPConflict(text="Esta subida ya no está activa.")
+    segment = request.match_info.get("segment", "")
+    client = g.storage._client()
+    bucket = g.storage.bucket
+    if segment == "thumb":
+        target_key = row["thumb_key"]
+        maximum = MAX_THUMB
+        expected = None
+        operation = "put_thumb"
+    elif segment == "file" and not row["multipart_id"]:
+        target_key = row["object_key"]
+        maximum = int(row["bytes"])
+        expected = maximum
+        operation = "put_file"
+    elif segment.isdecimal() and row["multipart_id"]:
+        number = positive(segment, "Parte")
+        parts = math.ceil(int(row["bytes"]) / PART_SIZE)
+        if number > parts:
+            raise web.HTTPBadRequest(text="Parte fuera del archivo.")
+        target_key = row["object_key"]
+        expected = min(PART_SIZE, int(row["bytes"]) - PART_SIZE * (number - 1))
+        maximum = expected
+        operation = "put_part"
+    else:
+        raise web.HTTPBadRequest(text="Fragmento de subida incorrecto.")
+    length = request.content_length
+    if length is not None and (length <= 0 or length > maximum or
+                               (expected is not None and length != expected)):
+        raise web.HTTPBadRequest(text="Tamaño del fragmento incorrecto.")
+    # Limits simultaneous in-flight memory and upload bandwidth for a
+    # large (up to 1000-item) batch; never retain a 2-GiB video locally.
+    gate = getattr(g, "_manual_upload_relay_limit", None)
+    if gate is None:
+        gate = asyncio.Semaphore(3)
+        g._manual_upload_relay_limit = gate
+    async with gate:
+        data = bytearray()
+        async for chunk in request.content.iter_chunked(256 * 1024):
+            if len(data) + len(chunk) > maximum:
+                raise web.HTTPRequestEntityTooLarge(
+                    max_size=maximum, actual_size=len(data) + len(chunk))
+            data.extend(chunk)
+        if not data or (expected is not None and len(data) != expected):
+            raise web.HTTPBadRequest(text="Fragmento incompleto; reintenta.")
+        try:
+            if operation == "put_part":
+                await asyncio.to_thread(
+                    client.upload_part, Bucket=bucket, Key=target_key,
+                    UploadId=row["multipart_id"], PartNumber=number,
+                    Body=bytes(data))
+            else:
+                await asyncio.to_thread(
+                    client.put_object, Bucket=bucket, Key=target_key,
+                    Body=bytes(data),
+                    ContentType="image/jpeg" if operation == "put_thumb"
+                                else row["mime"],
+                    CacheControl="private, max-age=3600")
+        except ClientError as exc:
+            LOG.warning("R2 admin relay part rejected (%s)",
+                        str(exc.response.get("Error", {}).get("Code", "unknown"))[:40])
+            raise web.HTTPServiceUnavailable(
+                text="Cloudflare rechazó este fragmento; vuelve a intentarlo.") from None
+    return {"ok": True, "bytes": len(data)}
 
 
 async def finish(g, uid, data):
