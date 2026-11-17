@@ -92,6 +92,9 @@ def _counts(raw):
     return {kind:int((raw or {}).get(kind,0)) for kind in KINDS}
 
 def category(message):
+    # Stars content is excluded without any purchase or account mutation.
+    if isinstance(getattr(message,"media",None),types.MessageMediaPaidMedia):
+        return ""
     if getattr(message,"photo",None):return "photos"
     if getattr(message,"gif",None):return "gifs"
     if getattr(message,"video",None):return "videos"
@@ -308,10 +311,17 @@ async def current(service,uid,ident=None):
         if run:
             value=run["ranges"]
             ranges=json.loads(value) if isinstance(value,str) else dict(value)
+    skipped=0
+    if int(row["run_no"])>0:
+        skipped=await service.repo.pool.fetchval(
+            """SELECT count(*) FROM descarga_bulk_deliveries
+               WHERE job_id=$1 AND run_no=$2 AND status='skipped'""",
+            row["id"],row["run_no"])
     return {"job":{"id":str(row["id"]),"source":row["source_title"],"destination":row["target_title"],
                    "status":row["status"],"counts":counts,"scan_count":sum(counts.values()),
                    "run_no":int(row["run_no"]),"selected":int(row["run_total"]),
-                   "published":int(row["run_done"]),"ranges":ranges,
+                   "published":int(row["run_done"]),"skipped":int(skipped or 0),
+                   "ranges":ranges,
                    "error":str(row["error"] or "")[:180]}}
 
 def valid_ranges(counts,raw):
