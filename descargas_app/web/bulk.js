@@ -139,8 +139,9 @@
       byId("bulk-progress-text").textContent="Sin transferencia activa.";
       return;
     }
-    const total=Number(job.selected||0),done=Number(job.published||0);
-    const pct=job.status==="finished"?100:(total?Math.min(100,done/total*100):0);
+    const total=Number(job.selected||0),done=Number(job.published||0),
+          skipped=Number(job.skipped||0);
+    const pct=job.status==="finished"?100:(total?Math.min(100,(done+skipped)/total*100):0);
     byId("bulk-progress-bar").style.width=pct.toFixed(1)+"%";
     const stages={
       scanning:"Escaneando el historial",waiting_scan:"Esperando a Telegram para escanear",
@@ -152,7 +153,7 @@
     };
     const name=stages[job.status]||job.status;
     const extra=scanning?" · "+fmt(job.scan_count)+" archivos identificados":
-      total?" · "+fmt(done)+" de "+fmt(total)+" archivos en esta selección":"";
+      total?" · "+fmt(done)+" publicados, "+fmt(skipped)+" omitidos de "+fmt(total):"";
     byId("bulk-progress-text").textContent=name+extra+
       (job.error?" · "+job.error:"");
   }
