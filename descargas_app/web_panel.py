@@ -76,9 +76,14 @@ def input_peer(data):
 
 def source_id(data):return data['id'] if data['kind'] in ('user','self') else -(1000000000000+data['id']) if data['kind']=='channel' else -data['id']
 
+def message_expiry(message):
+    period=getattr(message,'ttl_period',None)
+    return message.date.timestamp()+period if period and message.date else None
+
 def media_info(message):
     media=getattr(message,'media',None)
-    if getattr(media,'ttl_seconds',None) or getattr(message,'ttl_period',None):return None
+    expires=message_expiry(message)
+    if getattr(media,'ttl_seconds',None) or (expires is not None and expires<=time.time()):return None
     if getattr(message,'photo',None):
         sizes=getattr(message.photo,'sizes',[]) or []
         size=max([getattr(x,'size',0) or max(getattr(x,'sizes',[]) or [0]) for x in sizes]+[0])
@@ -94,7 +99,8 @@ def media_info(message):
       'duration':getattr(video or audio,'duration',0) or 0,'width':getattr(video,'w',0) or 0,'height':getattr(video,'h',0) or 0}
 
 def message_data(m,protected=False):
-    if getattr(m,'ttl_period',None) or getattr(getattr(m,'media',None),'ttl_seconds',None):return None
+    expires=message_expiry(m)
+    if getattr(getattr(m,'media',None),'ttl_seconds',None) or (expires is not None and expires<=time.time()):return None
     paid=isinstance(getattr(m,'media',None),types.MessageMediaPaidMedia)
     pieces=[]
     if paid:
@@ -108,7 +114,7 @@ def message_data(m,protected=False):
     return {'id':m.id,'date':m.date.timestamp() if m.date else 0,'out':bool(m.out),'text':str(getattr(m,'message','') or '')[:16000],
       'sender':name(sender) if sender else '', 'sender_id':getattr(m,'sender_id',None),
       'reply':getattr(getattr(m,'reply_to',None),'reply_to_msg_id',None),'grouped':str(m.grouped_id) if getattr(m,'grouped_id',None) else None,
-      'media':info,'paid_media':pieces if paid else None,
+      'media':info,'paid_media':pieces if paid else None,**({'expires_at':expires} if expires is not None else {}),
       'paid_stars':getattr(m.media,'stars_amount',0) if paid else None,
       'protected':bool(protected or getattr(m,'noforwards',False)),
       'reply_external':bool(getattr(getattr(m,'reply_to',None),'reply_to_peer_id',None)),**extra_message(m)}
@@ -430,11 +436,13 @@ class TelegramPanel:
                 await require_source(self.s,uid,utils.get_peer_id(entity),client=client,entity=entity,actor=actor)
                 if not authorized(actor):raise web.HTTPForbidden()
                 return web.Response(body=data,content_type='image/jpeg',headers=HEADERS)
+            source_expiry=None
             if purchase is not None:
                 from .panel_purchases import resolve
                 m=await resolve(self,actor,uid,generation,client,entity,purchase,index)
             else:
                 m=await client.get_messages(entity,ids=mid)
+                if m:source_expiry=message_expiry(m)
                 if m and isinstance(getattr(m,'media',None),types.MessageMediaPaidMedia):
                     await reveal_purchased(client,entity,[m],self._paid_checked,(uid,generation))
                     try:owned=purchased_items(m)
@@ -447,7 +455,7 @@ class TelegramPanel:
                     m=owned[paid_index]
                 elif paid_index is not None:
                     raise ValueError('El mensaje seleccionado no contiene archivos comprados.')
-            if not m:raise ValueError('Archivo no disponible.')
+            if not m or (source_expiry is not None and source_expiry<=time.time()):raise ValueError('Archivo no disponible.')
             info=media_info(m)
             if not info:raise ValueError('Archivo no disponible o temporal.')
             if thumb:
