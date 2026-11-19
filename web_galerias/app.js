@@ -1794,13 +1794,28 @@ function previewAdmin(){
     &&f.telegram_videos_total!==null&&f.telegram_videos_total!==undefined;
   const originCount=document.createElement("p");originCount.className="admin-origin-count";
   originCount.textContent=!hasLiveSources?
-    "Sin conexiones de Telegram · contenido conservado en R2":
+    "Sin sincronización con cuenta vinculada":
     hasTelegramTotals?
       "En Telegram: "+pretty(f.telegram_photos_total)+" fotos · "+pretty(f.telegram_videos_total)+" videos":
       "En Telegram: consultando totales…";
   const chevron=document.createElement("span");chevron.className="admin-gallery-chevron";
   chevron.textContent="Detalles ▾";
-  trigger.append(cover,title,count,originCount,chevron);
+  const botRoute=(S.admin.bot_routes||[]).find(x=>Number(x.folder)===Number(f.id));
+  const methods=document.createElement("span");
+  methods.className="admin-feed-methods";
+  for(const [configured,kind,label] of [
+    [hasLiveSources,"account","Cuenta vinculada"],
+    [botRoute,"bot","Publicaciones del grupo"]
+  ]){
+    if(!configured)continue;
+    const badge=document.createElement("span");
+    badge.className="admin-feed-badge admin-feed-"+kind;
+    badge.textContent=label;
+    methods.append(badge);
+  }
+  trigger.append(cover,title,count,originCount);
+  if(methods.childElementCount)trigger.append(methods);
+  trigger.append(chevron);
   const details=document.createElement("div");details.className="admin-gallery-detail hidden";
   details.id="admin-folder-details-"+f.id;
   trigger.setAttribute("aria-controls",details.id);
@@ -1932,9 +1947,9 @@ function previewAdmin(){
   };
 
   const sourceControls=document.createElement("section");
-  sourceControls.className="admin-source-controls";
+  sourceControls.className="admin-source-controls admin-feed-section admin-feed-account";
   const sourceHeading=document.createElement("h4");
-  sourceHeading.textContent="Conexiones de Telegram";
+  sourceHeading.textContent="Sincronizar con cuenta vinculada";
   const sourceHelp=document.createElement("p");
   sourceHelp.className="muted";
   sourceHelp.textContent=hasLiveSources?
@@ -2005,11 +2020,10 @@ function previewAdmin(){
     sourceControls.append(line);
   }
   // Optional, independent Telegram BOT feed: distinct from linked accounts.
-  const botRoute=(S.admin.bot_routes||[]).find(x=>Number(x.folder)===Number(f.id));
   const botFeed=document.createElement("section");
-  botFeed.className="admin-source-controls";
+  botFeed.className="admin-source-controls admin-feed-section admin-feed-bot";
   const botTitle=document.createElement("h4");
-  botTitle.textContent="Bot automático · TOKEN_WEB";
+  botTitle.textContent="Recibir publicaciones del grupo";
   const botStatus=document.createElement("p");
   botStatus.className="muted";
   botStatus.textContent=botRoute?
@@ -2018,7 +2032,7 @@ function previewAdmin(){
       " · en cola "+pretty(botRoute.queued)+
       (botRoute.skipped?" · omitidos "+pretty(botRoute.skipped):"")+
       (botRoute.failed?" · errores "+pretty(botRoute.failed):""):
-    "Sin Group ID asignado. No modifica las fuentes actuales.";
+    "Sin grupo asignado. El bot agrega las publicaciones nuevas del grupo.";
   botFeed.append(botTitle,botStatus);
   const receiver=S.admin.bot_receiver||{};
   if(receiver.mode==="webhook_conflict"){
@@ -2075,8 +2089,8 @@ function previewAdmin(){
     botFeed.append(state);
   }
   const botAssign=document.createElement("button");
-  botAssign.type="button";botAssign.className="small-btn";
-  botAssign.textContent=botRoute?"Cambiar Group ID del bot":"＋ Agregar nuevo Group ID";
+  botAssign.type="button";botAssign.className="small-btn admin-feed-action";
+  botAssign.textContent=botRoute?"Cambiar grupo del bot":"＋ Asociar grupo al bot";
   botAssign.onclick=async()=>{
     if(!S.admin.bot_enabled)
       return notice("Primero configura TOKEN_WEB en CLOUDFLARE.");
@@ -2112,9 +2126,8 @@ function previewAdmin(){
     };
     botFeed.append(botRemove);
   }
-  sourceControls.append(botFeed);
   const addSource=document.createElement("button");addSource.type="button";
-  addSource.className="small-btn";addSource.textContent="＋ Agregar grupo o canal";
+  addSource.className="small-btn admin-feed-action";addSource.textContent="＋ Agregar grupo o canal";
   addSource.setAttribute("aria-label","Agregar otro grupo o canal a esta carpeta");
   addSource.onclick=async()=>{
     const peer=prompt("ID completo del otro grupo o canal que alimentará esta carpeta (ej.: -1001234567890):","");
@@ -2142,7 +2155,8 @@ function previewAdmin(){
   browse.onclick=()=>{S.returnFromAdmin=true;openFolder({
     id:f.id,name:f.public_name||("Galería "+f.id),photos:f.visible_photos,videos:f.visible_videos
   });};
-  buttons.append(browse,edit,publicEdit,addSource,choose);
+  sourceControls.append(addSource);
+  buttons.append(browse,edit,publicEdit,choose);
   if(f.has_custom_cover){
    const resetPhoto=document.createElement("button");resetPhoto.type="button";
    resetPhoto.className="small-btn";resetPhoto.textContent="Quitar foto";
@@ -2202,7 +2216,27 @@ function previewAdmin(){
   note.className="admin-reindex-hint";
   note.textContent="Para volver a recorrer el historial y detectar archivos antiguos"+
     " que antes no se reconocían, utiliza Revisar origen. No borra los originales respaldados.";
-  details.append(info,sourceControls,pick,buttons,note,examples);
+  details.append(info,sourceControls,botFeed);
+  if(f.active&&!f.parent_folder){
+    const manual=document.createElement("section");
+    manual.className="admin-source-controls admin-feed-section admin-feed-phone";
+    const heading=document.createElement("h4");
+    heading.textContent="Subir desde el teléfono";
+    const openUpload=document.createElement("button");
+    openUpload.type="button";
+    openUpload.className="small-btn admin-feed-action";
+    openUpload.textContent="Elegir fotos y videos";
+    openUpload.onclick=()=>{
+      const panel=$("manual-r2-panel");
+      $("manual-r2-folder").value=String(f.id);
+      panel.open=true;
+      panel.scrollIntoView({block:"start",behavior:"smooth"});
+      panel.querySelector("summary").focus({preventScroll:true});
+    };
+    manual.append(heading,openUpload);
+    details.append(manual);
+  }
+  details.append(pick,buttons,note,examples);
   function setExpanded(open){
     card.classList.toggle("expanded",open);
     details.classList.toggle("hidden",!open);

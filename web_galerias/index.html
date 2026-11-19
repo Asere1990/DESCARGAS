@@ -11,9 +11,9 @@
 <link rel="icon" type="image/png" href="/web-galerias/icon/192.png">
 <link rel="preload" as="image" fetchpriority="high" href="/web-galerias/assets/intro-poster">
 <title>Web Galerías</title>
-<link rel="stylesheet" href="/web-galerias/static/style.css?v=entry-current-design-20261113-v1-cancel-ui">
+<link rel="stylesheet" href="/web-galerias/static/style.css?v=entry-current-design-20261113-v1-cancel-ui-admin-feed-1">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="/web-galerias/static/app.js?v=playback-range-android-ios-20261113-v2-playback-alert-cubanitas-billing-20261113"></script>
+<script defer src="/web-galerias/static/app.js?v=playback-range-android-ios-20261113-v2-playback-alert-cubanitas-billing-20261113-admin-feed-1"></script>
 <script defer src="/web-galerias/static/admin_tools.js?v=admin-original-media-20261112-v1"></script>
 <script defer src="/web-galerias/static/manual_upload.js?v=manual-r2-20261114-v2-caption"></script>
 <script defer src="/web-galerias/static/broadcast_ui.js?v=announcements-20261112-v1"></script>
@@ -199,7 +199,7 @@
      <button data-tab="avisos">📣 Aviso general</button></nav>
    <div id="tab-carpetas" class="tab">
     <div class="admin-folder-first"><h2>Galerías</h2><div id="admin-folders"></div></div>
-    <details class="panel-card admin-tools-fold"><summary>＋ Agregar carpeta ▾</summary>
+    <details class="panel-card admin-tools-fold admin-feed-section admin-feed-account"><summary>＋ Crear carpeta y sincronizar con cuenta vinculada ▾</summary>
      <label>Group ID o Channel ID<input id="new-peer" placeholder="-1001234567890" inputmode="numeric"></label>
      <label>Cuenta que ve el historial completo (DESCARGAS o DATOS)
       <input id="new-source-uid" inputmode="text" maxlength="30"
@@ -214,9 +214,9 @@
      <img id="new-cover-preview" class="new-cover-preview hidden" alt="Vista previa de portada seleccionada">
      <p class="muted">JPEG, PNG o WebP · hasta 5 MB. Podrás cambiarla después.</p>
      <p id="new-cover-status" class="muted" role="status"></p>
-     <button id="add-folder" class="primary compact">Agregar a la galería</button></details>
-    <details id="manual-r2-panel" class="panel-card admin-tools-fold">
-     <summary>☁ Subir fotos y videos directamente a Cloudflare R2 ▾</summary>
+     <button id="add-folder" class="primary compact admin-feed-action">Agregar a la galería</button></details>
+    <details id="manual-r2-panel" class="panel-card admin-tools-fold admin-feed-section admin-feed-phone">
+     <summary>↑ Subir desde el teléfono ▾</summary>
      <p class="muted">Solo administradores. Selecciona una galería y las fotos o videos de tu teléfono. Aparecerán en esa carpeta cuando se confirme su subida y miniatura. DESCARGAS y DATOS siguen funcionando igual.</p>
      <label for="manual-r2-folder">Carpeta de destino
       <select id="manual-r2-folder"><option value="">Selecciona una galería…</option></select>
@@ -225,7 +225,7 @@
       <input id="manual-r2-files" type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,.avif,.mp4,.mov,.webm,image/jpeg,image/png,image/webp,image/heic,image/heif,image/avif,video/mp4,video/quicktime,video/webm" multiple>
      </label>
      <p class="muted">Hasta 2 GiB por archivo y 1,000 seleccionados por tanda. Los videos deben poder abrirse en tu teléfono para generar su miniatura. Si una subida se interrumpe, vuelve a seleccionar el mismo archivo para reanudarla.</p>
-     <button id="manual-r2-start" type="button" class="primary compact">↑ Subir a esta galería</button>
+     <button id="manual-r2-start" type="button" class="primary compact admin-feed-action">↑ Subir a esta galería</button>
      <progress id="manual-r2-progress" max="1" value="0"></progress>
      <p id="manual-r2-status" class="muted" aria-live="polite" role="status"></p>
      <div id="manual-r2-caption-panel" class="panel-card hidden" role="group" aria-labelledby="manual-r2-caption-title">

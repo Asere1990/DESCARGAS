@@ -1260,3 +1260,17 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #tab-diseno .editor-logo-setting #edit-logo-image-preview{
  width:auto;max-width:100%;object-fit:contain;
 }
+
+/* Vías de carga en el panel de administrador. */
+.admin-feed-account{--feed-accent:#91c9ff;--feed-bg:#143252}
+.admin-feed-bot{--feed-accent:#85e4ac;--feed-bg:#123b2b}
+.admin-feed-phone{--feed-accent:#ffbd83;--feed-bg:#4b2b14}
+#admin .admin-feed-section{border-inline-start:3px solid var(--feed-accent)}
+#admin .admin-feed-section > h4,#admin .admin-feed-section > summary{color:var(--feed-accent)}
+#admin .admin-feed-action,#admin .admin-feed-badge{
+ background:var(--feed-bg);
+ border:1px solid var(--feed-accent);
+ color:var(--feed-accent);
+}
+.admin-feed-methods{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.admin-feed-badge{padding:3px 8px;border-radius:999px;font-size:.78rem;font-weight:650}
