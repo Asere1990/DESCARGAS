@@ -60,6 +60,13 @@ def configured(g):
                 and re.fullmatch(r"[a-fA-F0-9]{32}", g.s.api_hash))
 
 
+def pending_step(g, actor):
+    attempt = g.history_logins.get(actor)
+    if not attempt or attempt["expires"] <= time.monotonic():
+        return None
+    return {key: attempt.get(key) for key in ("step", "folder", "flow", "delivery")}
+
+
 async def overview(g, actor, folder=None):
     if not getattr(g, "history_import_ready", False):
         return {"ready": False, "linked": False, "imports": []}
@@ -73,7 +80,7 @@ async def overview(g, actor, folder=None):
     """, folder)
     accounts = [str(row["uid"]) for row in readers]
     return {"ready": True, "linked": str(actor) in accounts, "uid": str(actor),
-            "accounts": accounts, "imports": [dict(r) for r in rows]}
+            "accounts": accounts, "pending": pending_step(g, actor), "imports": [dict(r) for r in rows]}
 
 
 async def login(g, actor, step, data):
@@ -85,6 +92,7 @@ async def login(g, actor, step, data):
                 pending.pop(uid)
         attempt = pending.get(actor)
         if step == "send":
+            folder = identifier(data["folder"]) if "folder" in data else None
             phone = re.sub(r"[ ()-]", "", str(data.get("phone", "")).strip())
             if not re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
                 raise web.HTTPBadRequest(text="Escribe el teléfono con su prefijo internacional.")
@@ -116,6 +124,7 @@ async def login(g, actor, step, data):
                     flow = secrets.token_urlsafe(18)
                     pending[actor] = {
                         "flow": flow, "phone": phone, "hash": sent.phone_code_hash,
+                        "folder": folder, "delivery": delivery,
                         "session": g.s.cipher.encrypt(client.session.save().encode()),
                         "expires": now + 300, "tries": 0, "step": "code",
                     }
@@ -168,6 +177,8 @@ async def login(g, actor, step, data):
 async def operation(g, actor, op, data):
     if not getattr(g, "history_import_ready", False):
         raise web.HTTPServiceUnavailable(text="La importación directa aún no está disponible.")
+    if op == "pending":
+        return {"pending": pending_step(g, actor)}
     if op == "status":
         return await overview(g, actor, identifier(data.get("folder")))
     if op in ("send", "code", "password"):

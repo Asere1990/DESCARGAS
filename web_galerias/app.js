@@ -1820,12 +1820,23 @@ function historyImportSection(folder, history, imports){
  const link=button("Vincular cuenta de Telegram");
  const auth=document.createElement("form");
  auth.className="admin-history-form hidden";
- link.onclick=()=>{
-  auth.classList.toggle("hidden");
-  if(auth.classList.contains("hidden"))auth.replaceChildren();
-  else setStep("send");
+ auth.dataset.auth="true";
+ link.onclick=async()=>{
+  if(!auth.classList.contains("hidden")){
+   auth.classList.add("hidden");
+   auth.replaceChildren();
+   return;
+  }
+  link.disabled=true;
+  link.dataset.opening="true";
+  try{
+   const {pending}=await api("admin-history-pending");
+   auth.classList.remove("hidden");
+   setStep(pending?.step||"send",pending?.flow,pending?.delivery);
+  }catch(e){notice(e.message);}
+  finally{link.disabled=false;delete link.dataset.opening;}
  };
- function setStep(step,flow,delivery){
+ function setStep(step,flow,delivery,focus=true){
   const options={
    send:["Teléfono de la cuenta con prefijo internacional","tel","tel","phone","Pedir código"],
    code:["Código de verificación","text","numeric","code","Confirmar código"],
@@ -1852,9 +1863,10 @@ function historyImportSection(folder, history, imports){
    event.preventDefault();
    submit.disabled=true;
    try{
-    const result=await api("admin-history-"+step,{[key]:input.value,flow});
+    const result=await api("admin-history-"+step,{[key]:input.value,flow,folder:folder.id});
     input.value="";
     if(result.step==="linked"){
+     auth.classList.add("hidden");
      await loadAdmin();
      const added=document.querySelector("#admin-folder-details-"+folder.id+
        " .admin-history-form select");
@@ -1864,7 +1876,13 @@ function historyImportSection(folder, history, imports){
    }catch(e){notice(e.message);}
    finally{submit.disabled=false;}
   };
-  input.focus();
+  if(focus)input.focus();
+ }
+ const pending=history.pending;
+ if(pending && pending.folder===folder.id){
+  S.adminExpanded.add(folder.id);
+  auth.classList.remove("hidden");
+  setStep(pending.step,pending.flow,pending.delivery,false);
  }
  const check=button("Actualizar progreso");
  check.onclick=async()=>{
@@ -2414,9 +2432,15 @@ function previewAdmin(){
    "⚠ Sincronizador detenido o pendiente de conexión")+
   "</p><p>Agregar carpeta → iniciar copia; ocultar carpeta → ocultar solo a clientes; restaurar → volver a mostrarla. Las carpetas ocultas siguen sincronizando. No se borran archivos de R2.</p>";
 }
-async function loadAdmin(){
+function historyFormOpen(){
+ return !!document.querySelector("#admin .admin-feed-history form:not(.hidden)[data-auth],#admin .admin-feed-history button[data-opening]");
+}
+async function loadAdmin(background=false){
  try{
-  S.admin=await api("admin-overview");
+  if(background && historyFormOpen())return;
+  const overview=await api("admin-overview");
+  if(background && historyFormOpen())return;
+  S.admin=overview;
   previewAdmin();
   window.CubanitasTools?.adminRefreshed?.(S.admin);
   window.GalleryManualUpload?.refreshed?.(S.admin);
@@ -3174,5 +3198,5 @@ setInterval(()=>{
 setInterval(()=>{
   if(!S.me?.admin||document.hidden||$("admin").classList.contains("hidden"))return;
   if(document.querySelector("#admin input:focus,#admin textarea:focus,#admin select:focus"))return;
-  loadAdmin().catch(()=>{});
+  loadAdmin(true).catch(()=>{});
 },60000);

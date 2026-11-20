@@ -51,6 +51,14 @@ class HistoryTests(IsolatedAsyncioTestCase):
         self.assertEqual(uid, 20)
         self.assertEqual(self.cipher.decrypt(encrypted), b"separate-session")
 
+    async def test_returning_from_telegram_restores_only_the_current_admin_step(self):
+        result = await history.login(self.gallery, 10, "send", {"phone": "+15555555555", "folder": 17})
+        saved = history.pending_step(self.gallery, 10)
+        self.assertEqual(saved, {"folder": 17, **result})
+        self.assertIsNone(history.pending_step(self.gallery, 11))
+        self.gallery.history_logins[10]["expires"] = 0
+        self.assertIsNone(history.pending_step(self.gallery, 10))
+
     async def test_code_delivery_matches_telegram_response(self):
         self.client.send_code_request.return_value.type = auth.SentCodeTypeSms(length=5)
         result = await history.login(self.gallery, 10, "send", {"phone": "+1 (555) 555-5555"})
