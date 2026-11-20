@@ -2168,7 +2168,24 @@ function previewAdmin(){
    };
    buttons.append(resetPhoto);
   }
-  buttons.append(remove);
+  const deleteFolder=document.createElement("button");
+  deleteFolder.type="button";deleteFolder.className="small-btn delete-gallery-folder";
+  deleteFolder.textContent="Eliminar carpeta";
+  deleteFolder.onclick=async()=>{
+   const name=f.public_name||f.name||("Galería "+f.id);
+   if(!confirm("¿Eliminar «"+name+"» y todas sus fotos y videos de Web Galerías? "+
+     "Se desvincularán sus fuentes. Se conservarán los archivos de R2. "+
+     "Esta acción no se puede deshacer desde el panel."))return;
+   deleteFolder.disabled=true;
+   try{
+    await api("admin-folder-delete",{folder:f.id,confirm:"ELIMINAR_CARPETA"});
+    S.adminExpanded.delete(f.id);
+    await loadAdmin();await refresh(true);
+    notice("Carpeta eliminada de Web Galerías.");
+   }catch(e){notice(e.message);}
+   finally{deleteFolder.disabled=false;}
+  };
+  buttons.append(remove,deleteFolder);
   if(hasLiveSources)buttons.append(reset);
   const audit=document.createElement("button");audit.type="button";audit.className="small-btn";
   audit.textContent="Revalidar 10 incidencias";

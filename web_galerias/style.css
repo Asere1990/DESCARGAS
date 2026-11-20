@@ -1274,3 +1274,5 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 }
 .admin-feed-methods{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .admin-feed-badge{padding:3px 8px;border-radius:999px;font-size:.78rem;font-weight:650}
+
+#admin .delete-gallery-folder{background:#9d2b3a;border-color:#d95062;color:#fff}

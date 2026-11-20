@@ -361,6 +361,48 @@ async def admin_op(g,uid,op,data):
                              folder,name.strip())
         await g.log(uid,op)
         return {"ok":True}
+    if op=="admin-folder-delete":
+        folder=identifier(data.get("folder"))
+        if data.get("confirm")!="ELIMINAR_CARPETA":
+            raise web.HTTPBadRequest(text="Confirma la eliminación de la carpeta.")
+        async with db.acquire() as conn,conn.transaction():
+            target=await conn.fetchval("""
+                SELECT f.id FROM wg_folders f WHERE f.id=$1
+                  AND NOT EXISTS(SELECT 1 FROM wg_folder_sources s
+                                 WHERE s.source_folder=f.id)
+                FOR UPDATE OF f
+            """,folder)
+            if target is None:
+                return {"ok":True,"deleted":False}
+            sources=await conn.fetch("""
+                SELECT f.id FROM wg_folders f JOIN wg_folder_sources s
+                  ON s.source_folder=f.id WHERE s.parent_folder=$1
+                ORDER BY f.id FOR UPDATE OF f
+            """,folder)
+            folders=[folder,*(row["id"] for row in sources)]
+            # These tables are created lazily by optional ingestion workers.
+            optional_tables=("wg_bot_feed_items","wg_manual_uploads","wg_discovery",
+                             "wg_source_peers","wg_replies","wg_media_text_dirty")
+            installed=await conn.fetch("""
+                SELECT name FROM unnest($1::text[]) AS t(name)
+                WHERE to_regclass(name) IS NOT NULL
+            """,list(optional_tables))
+            for row in installed:
+                await conn.execute(
+                    f"DELETE FROM {row['name']} WHERE folder=ANY($1::bigint[])",folders)
+            await conn.execute("""
+                UPDATE wg_personal_folders SET cover_media=NULL
+                WHERE cover_media IN (SELECT id FROM wg_media WHERE folder=ANY($1::bigint[]))
+            """,folders)
+            await conn.execute("DELETE FROM wg_user_folders WHERE folder=ANY($1::bigint[])",folders)
+            await conn.execute("""
+                DELETE FROM wg_folder_order WHERE scope='public' AND folder=ANY($1::bigint[])
+            """,folders)
+            await conn.execute("DELETE FROM wg_media_removals WHERE folder=ANY($1::bigint[])",folders)
+            await conn.execute("DELETE FROM wg_media WHERE folder=ANY($1::bigint[])",folders)
+            await conn.execute("DELETE FROM wg_folders WHERE id=ANY($1::bigint[])",folders)
+        await g.log(uid,op)
+        return {"ok":True,"deleted":True}
     if op=="admin-folder-remove":
         folder=identifier(data.get("folder"))
         # Solo ocultar a los clientes: sincronización Telegram/R2 continúa.
