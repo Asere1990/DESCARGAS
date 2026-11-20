@@ -1785,11 +1785,23 @@ function historyImportSection(folder, history, imports){
   control.textContent=label;
   return control;
  }
- const [accountLabel,account]=field("Telegram ID de la cuenta","text",history.uid,"numeric");
+ const accountLabel=document.createElement("label");
+ accountLabel.textContent="Cuenta de Telegram";
+ const account=document.createElement("select");
+ account.required=true;
+ const placeholder=new Option("Vincula una cuenta para importar","");
+ placeholder.disabled=true;
+ account.append(placeholder);
+ const accounts=history.accounts||[];
+ for(const uid of accounts)account.append(new Option(uid,uid));
+ account.value=accounts.includes(imports[0]?.uid)?imports[0].uid:
+   accounts.includes(history.uid)?history.uid:(accounts[0]||"");
+ accountLabel.append(account);
  const [peerLabel,peer]=field("ID del grupo o canal origen","text",imports[0]?.peer||"");
- account.autocomplete=peer.autocomplete="off";
+ peer.autocomplete="off";
  const start=button(imports.length?"Importar o reanudar":"Importar");
  start.type="submit";
+ start.disabled=!accounts.length;
  form.append(accountLabel,peerLabel,start);
  form.onsubmit=async(event)=>{
   event.preventDefault();
@@ -1803,9 +1815,9 @@ function historyImportSection(folder, history, imports){
    await loadAdmin();
    notice("Importación en cola. Puedes cerrar el panel mientras se ejecuta.");
   }catch(e){notice(e.message);}
-  finally{start.disabled=false;}
+  finally{start.disabled=!accounts.length;}
  };
- const link=button(history.linked?"Volver a vincular mi cuenta":"Vincular mi cuenta de Telegram");
+ const link=button("Vincular cuenta de Telegram");
  const auth=document.createElement("form");
  auth.className="admin-history-form hidden";
  link.onclick=()=>{
@@ -1813,9 +1825,9 @@ function historyImportSection(folder, history, imports){
   if(auth.classList.contains("hidden"))auth.replaceChildren();
   else setStep("send");
  };
- function setStep(step){
+ function setStep(step,flow){
   const options={
-   send:["Teléfono de la cuenta "+history.uid,"tel","tel","phone","Pedir código"],
+   send:["Teléfono de la cuenta con prefijo internacional","tel","tel","phone","Pedir código"],
    code:["Código enviado por Telegram","text","numeric","code","Confirmar código"],
    password:["Contraseña de verificación en dos pasos de Telegram","password","","password","Vincular"]
   };
@@ -1828,12 +1840,15 @@ function historyImportSection(folder, history, imports){
    event.preventDefault();
    submit.disabled=true;
    try{
-    const result=await api("admin-history-"+step,{[key]:input.value});
+    const result=await api("admin-history-"+step,{[key]:input.value,flow});
     input.value="";
     if(result.step==="linked"){
      await loadAdmin();
-     notice("Cuenta autorizada para importar el historial.");
-    }else setStep(result.step);
+     const added=document.querySelector("#admin-folder-details-"+folder.id+
+       " .admin-history-form select");
+     if(added)added.value=result.account;
+     notice("Cuenta "+result.account+" lista para importar.");
+    }else setStep(result.step,result.flow);
    }catch(e){notice(e.message);}
    finally{submit.disabled=false;}
   };

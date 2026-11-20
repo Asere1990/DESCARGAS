@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import re
+import secrets
 import time
 
 from aiohttp import web
@@ -9,7 +10,6 @@ from telethon import errors
 
 from .core import identifier
 from .media_types import classify
-from .permissions import is_admin
 
 LOG = logging.getLogger("web-galerias-history")
 
@@ -55,15 +55,16 @@ async def overview(g, actor, folder=None):
     if not getattr(g, "history_import_ready", False):
         return {"ready": False, "linked": False, "imports": []}
     db = g.db()
-    linked = await db.fetchval("SELECT 1 FROM wg_history_readers WHERE uid=$1", actor)
+    readers = await db.fetch("SELECT uid FROM wg_history_readers ORDER BY uid")
     rows = await db.fetch("""
         SELECT folder, peer::text, uid::text, cursor, copied, state, error
         FROM wg_history_imports
         WHERE ($1::bigint IS NULL OR folder=$1)
         ORDER BY folder, peer
     """, folder)
-    return {"ready": True, "linked": bool(linked), "uid": str(actor),
-            "imports": [dict(r) for r in rows]}
+    accounts = [str(row["uid"]) for row in readers]
+    return {"ready": True, "linked": str(actor) in accounts, "uid": str(actor),
+            "accounts": accounts, "imports": [dict(r) for r in rows]}
 
 
 async def login(g, actor, step, data):
@@ -84,7 +85,7 @@ async def login(g, actor, step, data):
             pending.pop(actor, None)
             client = g.s.client("")
         else:
-            if not attempt or attempt["step"] != step:
+            if not attempt or attempt["step"] != step or attempt["flow"] != data.get("flow"):
                 raise web.HTTPBadRequest(text="Solicita un nuevo código de Telegram.")
             if attempt["tries"] >= 5:
                 pending.pop(actor, None)
@@ -96,12 +97,13 @@ async def login(g, actor, step, data):
                 await client.connect()
                 if step == "send":
                     sent = await client.send_code_request(phone)
+                    flow = secrets.token_urlsafe(18)
                     pending[actor] = {
-                        "phone": phone, "hash": sent.phone_code_hash,
+                        "flow": flow, "phone": phone, "hash": sent.phone_code_hash,
                         "session": g.s.cipher.encrypt(client.session.save().encode()),
                         "expires": now + 300, "tries": 0, "step": "code",
                     }
-                    return {"step": "code"}
+                    return {"step": "code", "flow": flow}
                 if step == "code":
                     code = str(data.get("code", "")).strip()
                     if not re.fullmatch(r"[0-9]{4,10}", code):
@@ -112,21 +114,21 @@ async def login(g, actor, step, data):
                     except errors.SessionPasswordNeededError:
                         attempt.update(step="password", tries=0,
                                        session=g.s.cipher.encrypt(client.session.save().encode()))
-                        return {"step": "password"}
+                        return {"step": "password", "flow": attempt["flow"]}
                 else:
                     password = str(data.get("password", ""))
                     if not 0 < len(password) <= 1024:
                         raise web.HTTPBadRequest(text="Escribe la contraseña de Telegram.")
                     me = await client.sign_in(password=password)
                 pending.pop(actor, None)
-                if not me or me.bot or me.id != actor:
+                if not me or me.bot:
                     await client.log_out()
-                    raise web.HTTPForbidden(text="El teléfono debe corresponder al Telegram ID con el que entraste al panel.")
+                    raise web.HTTPForbidden(text="Autoriza una cuenta personal de Telegram.")
                 await g.db().execute("""
                     INSERT INTO wg_history_readers(uid,session) VALUES($1,$2)
                     ON CONFLICT(uid) DO UPDATE SET session=excluded.session
-                """, actor, g.s.cipher.encrypt(client.session.save().encode()))
-                return {"step": "linked"}
+                """, me.id, g.s.cipher.encrypt(client.session.save().encode()))
+                return {"step": "linked", "account": str(me.id)}
         except (errors.PhoneCodeInvalidError, errors.PasswordHashInvalidError):
             raise web.HTTPBadRequest(text="Telegram rechazó el código o la contraseña.") from None
         except (errors.PhoneCodeExpiredError, errors.PhoneCodeHashEmptyError):
@@ -156,8 +158,6 @@ async def operation(g, actor, op, data):
     if not re.fullmatch(r"-[1-9][0-9]{2,18}", raw_peer) or int(raw_peer) <= -(2**63):
         raise web.HTTPBadRequest(text="Escribe el ID negativo completo del grupo o canal.")
     peer = int(raw_peer)
-    if not is_admin(uid):
-        raise web.HTTPForbidden(text="El Telegram ID debe estar autorizado en admins.txt.")
     async with g.db().acquire() as conn, conn.transaction():
         target = await conn.fetchval("""
             SELECT id FROM wg_folders f WHERE id=$1 AND NOT EXISTS (
@@ -203,7 +203,7 @@ async def import_history(g, job):
     db = g.db()
     uid, source = job["uid"], job["source"]
     token = await db.fetchval("SELECT session FROM wg_history_readers WHERE uid=$1", uid)
-    if not token or not is_admin(uid):
+    if not token:
         raise ImportPaused("La cuenta debe autorizarse en Web Galerías.")
     client = g.s.client(g.s.cipher.decrypt(token).decode())
     last_checked = float("-inf")
@@ -212,7 +212,7 @@ async def import_history(g, job):
         nonlocal last_checked
         now = time.monotonic()
         if now - last_checked >= 3:
-            if not is_admin(uid) or not await db.fetchval(
+            if not await db.fetchval(
                 "SELECT 1 FROM wg_history_imports WHERE source=$1 AND state='running'", source
             ):
                 raise ImportPaused("La importación perdió acceso a la carpeta o a la cuenta.")

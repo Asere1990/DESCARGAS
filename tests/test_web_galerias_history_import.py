@@ -34,10 +34,25 @@ class HistoryTests(IsolatedAsyncioTestCase):
             db=lambda: self.db,
         )
 
-    async def test_login_checks_telegram_identity_before_saving_session(self):
-        await history.login(self.gallery, 10, "send", {"phone": "+15555555555"})
+    async def test_admin_links_the_verified_account_under_its_own_telegram_id(self):
+        pending = await history.login(self.gallery, 10, "send", {"phone": "+15555555555"})
+        code = {"code": "12345", "flow": pending["flow"]}
+        with self.assertRaises(web.HTTPBadRequest):
+            await history.login(self.gallery, 11, "code", code)
+        with self.assertRaises(web.HTTPBadRequest):
+            await history.login(self.gallery, 10, "code", {**code, "flow": "old"})
+        self.db.execute.assert_not_awaited()
+        result = await history.login(self.gallery, 10, "code", code)
+        self.assertEqual(result, {"step": "linked", "account": "20"})
+        _, uid, encrypted = self.db.execute.await_args.args
+        self.assertEqual(uid, 20)
+        self.assertEqual(self.cipher.decrypt(encrypted), b"separate-session")
+
+    async def test_login_rejects_bot_accounts(self):
+        self.client.sign_in.return_value.bot = True
+        pending = await history.login(self.gallery, 10, "send", {"phone": "+15555555555"})
         with self.assertRaises(web.HTTPForbidden):
-            await history.login(self.gallery, 10, "code", {"code": "12345"})
+            await history.login(self.gallery, 10, "code", {"code": "12345", "flow": pending["flow"]})
         self.db.execute.assert_not_awaited()
         self.client.log_out.assert_awaited_once()
 
@@ -54,8 +69,7 @@ class HistoryTests(IsolatedAsyncioTestCase):
 
         self.client.iter_messages = iter_messages
         job = {"uid": 10, "source": 3, "peer": -100123, "cursor": 6, "stop_at": 9}
-        with (patch.object(history, "is_admin", return_value=True),
-              patch.object(history, "classify", return_value=("video", "video/mp4", "video")),
+        with (patch.object(history, "classify", return_value=("video", "video/mp4", "video")),
               patch("web_galerias.sync.catalog", new_callable=AsyncMock) as catalog,
               patch("web_galerias.sync.backup_one", new_callable=AsyncMock) as backup):
             await history.import_history(self.gallery, job)
