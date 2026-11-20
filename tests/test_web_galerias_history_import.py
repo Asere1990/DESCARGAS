@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from aiohttp import web
 from cryptography.fernet import Fernet
+from telethon.tl.types import auth
 
 from web_galerias import history_import as history
 
@@ -22,7 +23,8 @@ class HistoryTests(IsolatedAsyncioTestCase):
         self.cipher = Fernet(Fernet.generate_key())
         self.client = SimpleNamespace(
             connect=AsyncMock(), disconnect=AsyncMock(), log_out=AsyncMock(),
-            send_code_request=AsyncMock(return_value=SimpleNamespace(phone_code_hash="hash")),
+            send_code_request=AsyncMock(return_value=SimpleNamespace(
+                phone_code_hash="hash", type=auth.SentCodeTypeApp(length=5))),
             sign_in=AsyncMock(return_value=SimpleNamespace(id=20, bot=False)),
             session=SimpleNamespace(save=lambda: "separate-session"),
             get_me=AsyncMock(return_value=SimpleNamespace(id=10)),
@@ -36,6 +38,7 @@ class HistoryTests(IsolatedAsyncioTestCase):
 
     async def test_admin_links_the_verified_account_under_its_own_telegram_id(self):
         pending = await history.login(self.gallery, 10, "send", {"phone": "+15555555555"})
+        self.assertIn("chat oficial", pending["delivery"])
         code = {"code": "12345", "flow": pending["flow"]}
         with self.assertRaises(web.HTTPBadRequest):
             await history.login(self.gallery, 11, "code", code)
@@ -47,6 +50,19 @@ class HistoryTests(IsolatedAsyncioTestCase):
         _, uid, encrypted = self.db.execute.await_args.args
         self.assertEqual(uid, 20)
         self.assertEqual(self.cipher.decrypt(encrypted), b"separate-session")
+
+    async def test_code_delivery_matches_telegram_response(self):
+        self.client.send_code_request.return_value.type = auth.SentCodeTypeSms(length=5)
+        result = await history.login(self.gallery, 10, "send", {"phone": "+1 (555) 555-5555"})
+        self.assertIn("app Mensajes", result["delivery"])
+        self.client.send_code_request.assert_awaited_once_with("+15555555555")
+
+    async def test_email_setup_required_does_not_open_code_form(self):
+        self.client.send_code_request.return_value.type = auth.SentCodeTypeSetUpEmailRequired()
+        with self.assertRaises(web.HTTPConflict) as raised:
+            await history.login(self.gallery, 10, "send", {"phone": "+15555555555"})
+        self.assertIn("configurar un correo", raised.exception.text)
+        self.assertEqual(self.gallery.history_logins, {})
 
     async def test_login_rejects_bot_accounts(self):
         self.client.sign_in.return_value.bot = True

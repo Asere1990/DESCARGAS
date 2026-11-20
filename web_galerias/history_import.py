@@ -7,6 +7,7 @@ import time
 
 from aiohttp import web
 from telethon import errors
+from telethon.tl.types import auth
 
 from .core import identifier
 from .media_types import classify
@@ -46,6 +47,14 @@ SESSION_ERRORS = (
 )
 
 
+CODE_DELIVERY = {
+    auth.SentCodeTypeApp: "Busca el código en el chat oficial «Telegram» de la cuenta que estás vinculando. Revisa también sus otros dispositivos.",
+    auth.SentCodeTypeSms: "Revisa la app Mensajes del teléfono de la cuenta.",
+    auth.SentCodeTypeCall: "Telegram indicó una llamada de voz que dicta el código.",
+    auth.SentCodeTypeEmailCode: "Revisa el correo configurado para iniciar sesión en Telegram.",
+}
+
+
 def configured(g):
     return bool(g.storage.ready and g.s.cipher and g.s.api_id.isdigit()
                 and re.fullmatch(r"[a-fA-F0-9]{32}", g.s.api_hash))
@@ -76,7 +85,7 @@ async def login(g, actor, step, data):
                 pending.pop(uid)
         attempt = pending.get(actor)
         if step == "send":
-            phone = str(data.get("phone", "")).strip()
+            phone = re.sub(r"[ ()-]", "", str(data.get("phone", "")).strip())
             if not re.fullmatch(r"\+[1-9][0-9]{6,14}", phone):
                 raise web.HTTPBadRequest(text="Escribe el teléfono con su prefijo internacional.")
             if now < g.history_next_code.get(actor, 0):
@@ -97,13 +106,20 @@ async def login(g, actor, step, data):
                 await client.connect()
                 if step == "send":
                     sent = await client.send_code_request(phone)
+                    delivery_type = type(sent.type)
+                    delivery = CODE_DELIVERY.get(delivery_type)
+                    if not delivery:
+                        LOG.warning("Gallery code delivery unsupported (%s)", delivery_type.__name__)
+                        if delivery_type is auth.SentCodeTypeSetUpEmailRequired:
+                            raise web.HTTPConflict(text="Telegram requiere configurar un correo de inicio de sesión en su app oficial antes de enviar un código.")
+                        raise web.HTTPConflict(text="Telegram eligió un método de verificación que este panel aún no admite.")
                     flow = secrets.token_urlsafe(18)
                     pending[actor] = {
                         "flow": flow, "phone": phone, "hash": sent.phone_code_hash,
                         "session": g.s.cipher.encrypt(client.session.save().encode()),
                         "expires": now + 300, "tries": 0, "step": "code",
                     }
-                    return {"step": "code", "flow": flow}
+                    return {"step": "code", "flow": flow, "delivery": delivery}
                 if step == "code":
                     code = str(data.get("code", "")).strip()
                     if not re.fullmatch(r"[0-9]{4,10}", code):
@@ -137,7 +153,13 @@ async def login(g, actor, step, data):
         except errors.FloodWaitError as exc:
             g.history_next_code[actor] = time.monotonic() + max(60, exc.seconds)
             raise web.HTTPTooManyRequests(text=f"Telegram pide esperar {exc.seconds} segundos.") from None
-        except (errors.RPCError, OSError, TimeoutError):
+        except errors.PhoneNumberInvalidError:
+            raise web.HTTPBadRequest(text="Telegram rechazó el teléfono. Revisa el número y el prefijo internacional.") from None
+        except TimeoutError:
+            LOG.warning("Gallery Telegram request timed out at step %s", step)
+            raise web.HTTPServiceUnavailable(text="Telegram tardó demasiado en responder. Espera un minuto antes de solicitar otro código.") from None
+        except (errors.RPCError, OSError) as exc:
+            LOG.warning("Gallery Telegram request failed at step %s (%s)", step, type(exc).__name__)
             raise web.HTTPBadRequest(text="Telegram no pudo completar la vinculación. Revisa los datos e inténtalo de nuevo.") from None
         finally:
             await client.disconnect()

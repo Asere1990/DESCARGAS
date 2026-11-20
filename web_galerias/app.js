@@ -1825,10 +1825,10 @@ function historyImportSection(folder, history, imports){
   if(auth.classList.contains("hidden"))auth.replaceChildren();
   else setStep("send");
  };
- function setStep(step,flow){
+ function setStep(step,flow,delivery){
   const options={
    send:["Teléfono de la cuenta con prefijo internacional","tel","tel","phone","Pedir código"],
-   code:["Código enviado por Telegram","text","numeric","code","Confirmar código"],
+   code:["Código de verificación","text","numeric","code","Confirmar código"],
    password:["Contraseña de verificación en dos pasos de Telegram","password","","password","Vincular"]
   };
   const [name,type,mode,key,action]=options[step];
@@ -1836,6 +1836,18 @@ function historyImportSection(folder, history, imports){
   input.autocomplete=step==="code"?"one-time-code":step==="password"?"current-password":"tel";
   const submit=button(action);submit.type="submit";
   auth.replaceChildren(label,submit);
+  if(step==="code"){
+   const back=button("Volver al teléfono");
+   back.onclick=()=>setStep("send");
+   auth.append(back);
+   if(delivery){
+    const hint=document.createElement("p");
+    hint.className="admin-history-delivery";
+    hint.setAttribute("role","status");
+    hint.textContent=delivery;
+    auth.prepend(hint);
+   }
+  }
   auth.onsubmit=async(event)=>{
    event.preventDefault();
    submit.disabled=true;
@@ -1848,7 +1860,7 @@ function historyImportSection(folder, history, imports){
        " .admin-history-form select");
      if(added)added.value=result.account;
      notice("Cuenta "+result.account+" lista para importar.");
-    }else setStep(result.step,result.flow);
+    }else setStep(result.step,result.flow,result.delivery);
    }catch(e){notice(e.message);}
    finally{submit.disabled=false;}
   };

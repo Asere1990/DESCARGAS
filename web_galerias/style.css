@@ -1284,3 +1284,5 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #admin .admin-history-form label{display:grid;gap:4px;flex:1 1 180px}
 #admin .admin-history-form :is(input,select){width:100%;box-sizing:border-box}
 #admin .admin-feed-history > button{margin:4px 8px 4px 0}
+
+#admin .admin-history-delivery{flex:1 0 100%;margin:0}
