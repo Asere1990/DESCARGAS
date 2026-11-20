@@ -354,10 +354,11 @@ def combine_admin_rows(rows,links):
         result.append(root)
     return result
 
-def public_sources_sql(field='folder',placeholder='$1'):
+def public_sources_sql(field='folder',placeholder='$1',*,include_hidden=False):
     """Use indexed per-source folder IDs; media row IDs remain globally unique."""
+    visibility = "" if include_hidden else " AND origin.active"
     return (f"(({field}={placeholder} OR {field} IN ("
             f"SELECT source_folder FROM wg_folder_sources "
             f"WHERE parent_folder={placeholder})) AND EXISTS ("
             f"SELECT 1 FROM wg_folders origin "
-            f"WHERE origin.id={field} AND origin.active))")
+            f"WHERE origin.id={field}{visibility}))")
