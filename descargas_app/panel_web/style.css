@@ -181,3 +181,14 @@
 .media-return{display:block;width:100%;text-align:center;padding:13px 12px;color:#167acc;background:#f0f7ff;font-weight:600;border-top:1px solid #deebfa}
 .management-return{white-space:nowrap;font-size:14px;font-weight:600;padding:8px 6px;color:#167acc}
 #media-back:focus-visible,#management-back:focus-visible{outline:3px solid #0089ff;outline-offset:2px}
+
+.account-message-link{
+ display:grid;place-items:center;min-height:32px;padding:0 8px;
+ border:1px solid #9dc7e8;border-radius:9px;background:#e7f4ff;
+ color:#0673bb;font-size:11px;font-weight:800;text-decoration:none
+}
+.account-message-link[aria-disabled="true"]{opacity:.4;cursor:not-allowed}
+.account-card>.account-message-link{position:absolute;right:10px;top:49px;z-index:2}
+.account-card>.account{min-height:83px}
+.favorite-account-actions{display:grid;grid-template-columns:auto auto;align-items:center;gap:4px}
+.favorite-account-actions>.account-message-link{grid-column:1 / -1}
