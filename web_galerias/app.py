@@ -176,8 +176,9 @@ class Gallery(GalleryCore):
         if op=="reserve":return await downloads.reserve(self,uid,data.get("ids"))
         raise web.HTTPNotFound()
 
-def mount(app,service):
+def mount(app,service,*,enable_history_import=False):
     g=Gallery(service)
+    g.enable_history_import=enable_history_import
     async def page(request):
         content=(ROOT/"index.html").read_text(encoding="utf-8")
         if not request.path.rstrip("/").endswith("/admin"):
@@ -343,7 +344,7 @@ def mount(app,service):
         g.closed=True
         tasks=(g.sync_task,g.priority_task,g.bot_feed_task,g.intro_poster_task,g.customer_bridge_task,
                g.dedupe_task,g.risk_task,g.moderation_task,g.broadcast_task,
-               g.media_text_task,g.ocr_task,g.video_diagnostic_task,g.task)
+               g.media_text_task,g.ocr_task,g.video_diagnostic_task,g.history_import_task,g.task)
         for task in tasks:
             if task:task.cancel()
         await asyncio.gather(*(t for t in tasks if t),return_exceptions=True)

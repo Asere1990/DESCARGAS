@@ -94,6 +94,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op.startswith("admin-history-"):
+        from . import history_import
+        return await history_import.operation(g,uid,op.removeprefix("admin-history-"),data)
     if op=="admin-bot-feed-activate":
         from . import bot_feed
         return await bot_feed.activate_receiver(g,data)
@@ -227,7 +230,15 @@ async def admin_op(g,uid,op,data):
             log_module.warning("Optional bot route listing unavailable (%s)",
                                type(exc).__name__)
             bot_routes=[]
-        return {"folders":result_folders,
+        history={"ready":False,"linked":False,"imports":[]}
+        if getattr(g,"history_import_ready",False):
+            from . import history_import
+            try:
+                history=await history_import.overview(g,uid)
+            except Exception as exc:
+                __import__("logging").getLogger("web-galerias").warning(
+                    "Optional history listing unavailable (%s)",type(exc).__name__)
+        return {"folders":result_folders,"history":history,
             "bot_routes":bot_routes,"bot_enabled":bool(bot_feed.token()),
             "bot_receiver":bot_feed.receiver_status(g),
             "users":[],  # Never preload thousands of visitors on overview.

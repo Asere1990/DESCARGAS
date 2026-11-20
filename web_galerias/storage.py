@@ -100,7 +100,8 @@ class PrivateStorage:
                     if chunk:
                         await queue.put(bytes(chunk))
             finally:
-                await queue.put(None)
+                if not asyncio.current_task().cancelling():
+                    await queue.put(None)
 
         producer = asyncio.create_task(prefetch())
         try:

@@ -1749,6 +1749,109 @@ function openFolderPicker(){
  $("folder-picker").classList.remove("hidden");
 }
 
+function historyImportSection(folder, history, imports){
+ const section=document.createElement("section");
+ section.className="admin-source-controls admin-feed-section admin-feed-history";
+ const heading=document.createElement("h4");
+ heading.textContent="Importar historial de Telegram";
+ const status=document.createElement("div");
+ status.setAttribute("aria-live","polite");
+ function showImports(rows){
+  status.replaceChildren();
+  const labels={queued:"En espera",running:"Importando",done:"Completado",failed:"En pausa"};
+  for(const job of rows){
+   const line=document.createElement("p");
+   line.textContent=job.peer+" · "+(labels[job.state]||job.state)+" · "+
+    pretty(job.copied)+" archivos copiados"+(job.error?" · "+job.error:"");
+   status.append(line);
+  }
+  if(!rows.length)status.textContent="Copia las fotos y videos del historial visible cuando pulses Importar.";
+ }
+ showImports(imports);
+ const form=document.createElement("form");
+ form.className="admin-history-form";
+ function field(label,type,value="",mode=""){
+  const control=document.createElement("label");
+  control.textContent=label;
+  const input=document.createElement("input");
+  input.type=type;input.value=value;input.required=true;
+  if(mode)input.inputMode=mode;
+  control.append(input);
+  return [control,input];
+ }
+ function button(label){
+  const control=document.createElement("button");
+  control.type="button";control.className="small-btn admin-feed-action";
+  control.textContent=label;
+  return control;
+ }
+ const [accountLabel,account]=field("Telegram ID de la cuenta","text",history.uid,"numeric");
+ const [peerLabel,peer]=field("ID del grupo o canal origen","text",imports[0]?.peer||"");
+ account.autocomplete=peer.autocomplete="off";
+ const start=button(imports.length?"Importar o reanudar":"Importar");
+ start.type="submit";
+ form.append(accountLabel,peerLabel,start);
+ form.onsubmit=async(event)=>{
+  event.preventDefault();
+  if(!confirm("¿Importar las fotos y videos visibles del grupo a «"+
+     (folder.public_name||folder.name)+"»?"))return;
+  start.disabled=true;
+  try{
+   await api("admin-history-start",{
+    folder:folder.id,account:account.value.trim(),peer:peer.value.trim()
+   });
+   await loadAdmin();
+   notice("Importación en cola. Puedes cerrar el panel mientras se ejecuta.");
+  }catch(e){notice(e.message);}
+  finally{start.disabled=false;}
+ };
+ const link=button(history.linked?"Volver a vincular mi cuenta":"Vincular mi cuenta de Telegram");
+ const auth=document.createElement("form");
+ auth.className="admin-history-form hidden";
+ link.onclick=()=>{
+  auth.classList.toggle("hidden");
+  if(auth.classList.contains("hidden"))auth.replaceChildren();
+  else setStep("send");
+ };
+ function setStep(step){
+  const options={
+   send:["Teléfono de la cuenta "+history.uid,"tel","tel","phone","Pedir código"],
+   code:["Código enviado por Telegram","text","numeric","code","Confirmar código"],
+   password:["Contraseña de verificación en dos pasos de Telegram","password","","password","Vincular"]
+  };
+  const [name,type,mode,key,action]=options[step];
+  const [label,input]=field(name,type,"",mode);
+  input.autocomplete=step==="code"?"one-time-code":step==="password"?"current-password":"tel";
+  const submit=button(action);submit.type="submit";
+  auth.replaceChildren(label,submit);
+  auth.onsubmit=async(event)=>{
+   event.preventDefault();
+   submit.disabled=true;
+   try{
+    const result=await api("admin-history-"+step,{[key]:input.value});
+    input.value="";
+    if(result.step==="linked"){
+     await loadAdmin();
+     notice("Cuenta autorizada para importar el historial.");
+    }else setStep(result.step);
+   }catch(e){notice(e.message);}
+   finally{submit.disabled=false;}
+  };
+  input.focus();
+ }
+ const check=button("Actualizar progreso");
+ check.onclick=async()=>{
+  check.disabled=true;
+  try{
+   const result=await api("admin-history-status",{folder:folder.id});
+   showImports(result.imports);
+  }catch(e){notice(e.message);}
+  finally{check.disabled=false;}
+ };
+ section.append(heading,status,form,check,link,auth);
+ return section;
+}
+
 function previewAdmin(){
  if(!S.admin)return;
  const root=$("admin-folders");root.replaceChildren();
@@ -1801,11 +1904,14 @@ function previewAdmin(){
   const chevron=document.createElement("span");chevron.className="admin-gallery-chevron";
   chevron.textContent="Detalles ▾";
   const botRoute=(S.admin.bot_routes||[]).find(x=>Number(x.folder)===Number(f.id));
+  const history=S.admin.history||{};
+  const imports=(history.imports||[]).filter(job=>job.folder===f.id);
   const methods=document.createElement("span");
   methods.className="admin-feed-methods";
   for(const [configured,kind,label] of [
     [hasLiveSources,"account","Cuenta vinculada"],
-    [botRoute,"bot","Publicaciones del grupo"]
+    [botRoute,"bot","Publicaciones del grupo"],
+    [imports.length,"history","Historial de Telegram"]
   ]){
     if(!configured)continue;
     const badge=document.createElement("span");
@@ -2253,6 +2359,7 @@ function previewAdmin(){
     manual.append(heading,openUpload);
     details.append(manual);
   }
+  if(history.ready)details.append(historyImportSection(f,history,imports));
   details.append(pick,buttons,note,examples);
   function setExpanded(open){
     card.classList.toggle("expanded",open);

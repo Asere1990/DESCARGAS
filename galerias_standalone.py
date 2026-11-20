@@ -156,7 +156,7 @@ async def verify_r2():
 service=IsolatedGalleryService()
 app=web.Application(client_max_size=512*1024)
 app.on_startup.append(service.start)
-mount(app,service)
+mount(app,service,enable_history_import=True)
 app.on_cleanup.append(service.close)
 
 async def health(request):
