@@ -94,6 +94,9 @@ def cleaned_design(value):
 async def admin_op(g,uid,op,data):
     if not is_admin(uid):raise web.HTTPForbidden(text="Solo administradores.")
     db=g.db()
+    if op.startswith("admin-interval-"):
+        from . import interval_import
+        return await interval_import.operation(g,uid,op.removeprefix("admin-interval-"),data)
     if op.startswith("admin-history-"):
         from . import history_import
         return await history_import.operation(g,uid,op.removeprefix("admin-history-"),data)
@@ -239,6 +242,7 @@ async def admin_op(g,uid,op,data):
                 __import__("logging").getLogger("web-galerias").warning(
                     "Optional history listing unavailable (%s)",type(exc).__name__)
         return {"folders":result_folders,"history":history,
+            "intervals_ready":getattr(g,"interval_import_ready",False),
             "bot_routes":bot_routes,"bot_enabled":bool(bot_feed.token()),
             "bot_receiver":bot_feed.receiver_status(g),
             "users":[],  # Never preload thousands of visitors on overview.

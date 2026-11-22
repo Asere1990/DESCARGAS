@@ -200,7 +200,7 @@ def mount(app,service,*,enable_history_import=False):
         return web.Response(text=content,content_type="text/html",headers=headers)
     async def static(request):
         name=request.match_info["name"]
-        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css","admin_account.js","admin_account.css","broadcast_ui.js","manual_upload.js"):raise web.HTTPNotFound()
+        if name not in ("app.js","style.css","admin_tools.js","admin_mirror.js","admin_mirror.css","admin_account.js","admin_account.css","broadcast_ui.js","manual_upload.js","interval_import.js"):raise web.HTTPNotFound()
         return web.FileResponse(ROOT/name,headers={
             "Cache-Control":"no-cache","X-Content-Type-Options":"nosniff"})
     async def api(request):
@@ -344,7 +344,7 @@ def mount(app,service,*,enable_history_import=False):
         g.closed=True
         tasks=(g.sync_task,g.priority_task,g.bot_feed_task,g.intro_poster_task,g.customer_bridge_task,
                g.dedupe_task,g.risk_task,g.moderation_task,g.broadcast_task,
-               g.media_text_task,g.ocr_task,g.video_diagnostic_task,g.history_import_task,g.task)
+               g.media_text_task,g.ocr_task,g.video_diagnostic_task,g.history_import_task,g.interval_import_task,g.task)
         for task in tasks:
             if task:task.cancel()
         await asyncio.gather(*(t for t in tasks if t),return_exceptions=True)
