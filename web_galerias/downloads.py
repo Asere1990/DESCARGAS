@@ -11,8 +11,16 @@ from aiohttp import web
 from .core import identifier,utc_day
 from .storage import NotConfigured
 
-def temporary_link(g,uid,item,kind):
-    payload={"uid":uid,"item":item,"kind":kind,"until":int(time.time()+300)}
+LARGE_DOWNLOAD = 500 * 1024**2
+MAX_DOWNLOAD = 4 * 1024**3
+TELEGRAM_DOWNLOAD_HEADERS = {
+    "Access-Control-Allow-Origin": "https://web.telegram.org",
+    "Access-Control-Expose-Headers": "Content-Disposition, Content-Range, Accept-Ranges",
+}
+
+
+def temporary_link(g,uid,item,kind,*,duration=300):
+    payload={"uid":uid,"item":item,"kind":kind,"until":int(time.time()+duration)}
     return g.s.cipher.encrypt(json.dumps(payload,separators=(",",":")).encode()).decode()
 
 def validate_link(g,value,kind):
@@ -43,7 +51,7 @@ async def media(g,request):
 
 
 
-async def stream_playback(g,request,key,mime):
+async def stream_playback(g,request,key,mime,*,attachment=None):
     """Authorized same-origin HTTP range fallback for Safari/Telegram WebViews.
 
     Never buffers an entire video, writes to R2, or consumes a download ticket.
@@ -63,6 +71,9 @@ async def stream_playback(g,request,key,mime):
     headers={"Cache-Control":"private, no-store",
              "Accept-Ranges":"bytes",
              "X-Content-Type-Options":"nosniff"}
+    if attachment is not None:
+        headers.update(TELEGRAM_DOWNLOAD_HEADERS)
+        headers["Content-Disposition"] = f'attachment; filename="{safe_filename(attachment,mime)}"'
     if request.method=="HEAD":
         try:
             obj=await asyncio.to_thread(lambda:client.head_object(**args))
@@ -157,11 +168,14 @@ async def save_file(g,request):
     p=validate_link(g,request.query.get("t"),"save")
     uid=identifier(p["uid"]);item=identifier(request.match_info["item"])
     if item!=p["item"]:raise web.HTTPForbidden()
-    row=await g.db().fetchrow("""SELECT folder,file_key,filename,mime
+    row=await g.db().fetchrow("""SELECT folder,file_key,filename,mime,size
       FROM wg_media WHERE id=$1 AND state='ready'""",item)
     if not row or not await g.permitted(uid,row["folder"]):
         raise web.HTTPForbidden(text="Archivo no autorizado.")
     if not row["file_key"]:raise web.HTTPNotFound()
+    if row["size"] > LARGE_DOWNLOAD:
+        name = safe_filename(row["filename"],row["mime"])
+        return await stream_playback(g,request,row["file_key"],row["mime"],attachment=name)
     return await stream_object(g,request,row["file_key"],row["filename"],row["mime"])
 
 async def reserve(g,uid,ids):
@@ -189,8 +203,10 @@ async def reserve(g,uid,ids):
             OR EXISTS(SELECT 1 FROM wg_user_folders u WHERE u.uid=$2 AND u.folder=f.id))
            """,ids,uid,__import__("web_galerias.permissions",fromlist=["is_admin"]).is_admin(uid))
         if len(rows)!=len(ids):raise web.HTTPForbidden(text="Uno o más archivos no están autorizados.")
-        if sum(max(0,x["size"]) for x in rows)>500*1024*1024:
-            raise web.HTTPBadRequest(text="El lote supera 500 MB; selecciona menos videos.")
+        total = sum(max(0,x["size"]) for x in rows)
+        if total > MAX_DOWNLOAD:
+            raise web.HTTPBadRequest(text="El lote supera 4 GB; selecciona menos archivos.")
+        large_single = len(ids) == 1 and total > LARGE_DOWNLOAD
         used=0
         if not unlimited:
             await c.execute("""INSERT INTO wg_quota(uid,day,used) VALUES($1,$2,0)
@@ -199,16 +215,17 @@ async def reserve(g,uid,ids):
             if used+len(ids)>daily_limit:
                 raise web.HTTPForbidden(text=f"Te quedan {max(0,daily_limit-used)} descargas hoy.")
             await c.execute("UPDATE wg_quota SET used=used+$3 WHERE uid=$1 AND day=$2",uid,day,len(ids))
-        ticket=secrets.token_urlsafe(30)
-        await c.execute("""INSERT INTO wg_download_tickets(token,uid,ids,day,expires)
-            VALUES($1,$2,$3,$4,$5)""",ticket,uid,ids,day,time.time()+300)
+        if not large_single:
+            ticket=secrets.token_urlsafe(30)
+            await c.execute("""INSERT INTO wg_download_tickets(token,uid,ids,day,expires)
+                VALUES($1,$2,$3,$4,$5)""",ticket,uid,ids,day,time.time()+300)
     ordered={row["id"]:row for row in rows}
     files=[{"id":item,"url":"/web-galerias/file/"+str(item)+"?t="+
-            temporary_link(g,uid,item,"save"),
+            temporary_link(g,uid,item,"save",duration=1800 if large_single else 300),
             "name":safe_filename(ordered[item]["filename"],ordered[item]["mime"]),
             "mime":ordered[item]["mime"],"size":max(0,ordered[item]["size"])}
             for item in ids]
-    return {"url":"/web-galerias/download/"+ticket,"count":len(ids),
+    return {"url":files[0]["url"] if large_single else "/web-galerias/download/"+ticket,"count":len(ids),
             "files":files,"name":files[0]["name"] if len(files)==1 else "web-galerias.zip",
             "remaining":None if unlimited else max(0,daily_limit-used-len(ids)),
             "quota_unlimited":unlimited,"quota_daily_limit":daily_limit,
@@ -218,12 +235,15 @@ async def download(g,request):
     token=request.match_info["ticket"]
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,100}",token):raise web.HTTPNotFound()
     db=g.db()
-    row=await db.fetchrow("""UPDATE wg_download_tickets SET consumed=TRUE
-       WHERE token=$1 AND consumed=FALSE AND expires>$2 RETURNING uid,ids,day""",
-       token,time.time())
+    if request.method == "HEAD":
+        query = "SELECT uid,ids,day FROM wg_download_tickets WHERE token=$1 AND consumed=FALSE AND expires>$2"
+    else:
+        query = """UPDATE wg_download_tickets SET consumed=TRUE
+            WHERE token=$1 AND consumed=FALSE AND expires>$2 RETURNING uid,ids,day"""
+    row=await db.fetchrow(query,token,time.time())
     if not row:raise web.HTTPGone(text="La descarga ha vencido o ya se utilizó.")
     uid=row["uid"];ids=row["ids"]
-    data=await db.fetch("""SELECT id,folder,file_key,filename,mime FROM wg_media
+    data=await db.fetch("""SELECT id,folder,file_key,filename,mime,size FROM wg_media
           WHERE id=ANY($1::bigint[]) AND state='ready'""",ids)
     if len(data)!=len(ids) or not all(await asyncio.gather(
         *(g.permitted(uid,x["folder"]) for x in data))):
@@ -232,6 +252,11 @@ async def download(g,request):
     if len(data)==1:
         item=data[0]
         return await stream_object(g,request,item["file_key"],item["filename"],item["mime"])
+    if request.method == "HEAD":
+        return web.Response(headers=ZIP_HEADERS)
+    if sum(max(0,item["size"]) for item in data) > LARGE_DOWNLOAD:
+        by_id = {item["id"]:item for item in data}
+        return await stream_zip(g,request,[by_id[item_id] for item_id in ids])
     # Comprimir directamente desde R2 a un archivo temporal, nunca cargar todo en RAM.
     def make_zip(destination):
         with zipfile.ZipFile(destination,"w",compression=zipfile.ZIP_STORED,allowZip64=True) as archive:
@@ -258,3 +283,59 @@ async def download(g,request):
             await response.write(chunk)
         await response.write_eof()
         return response
+
+
+ZIP_HEADERS = {
+    "Content-Type": "application/zip",
+    "Content-Disposition": 'attachment; filename="web-galerias.zip"',
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    **TELEGRAM_DOWNLOAD_HEADERS,
+}
+
+
+class ZipOutput:
+    """Unseekable destination. zipfile uses ZIP64 data descriptors."""
+    def __init__(self):
+        self.buffer = bytearray()
+
+    def write(self, data):
+        self.buffer.extend(data)
+        return len(data)
+
+    def flush(self):
+        pass
+
+    async def drain(self, response):
+        if self.buffer:
+            data = bytes(self.buffer)
+            self.buffer.clear()
+            await response.write(data)
+
+
+async def stream_zip(g,request,items):
+    response = web.StreamResponse(headers=ZIP_HEADERS)
+    output = ZipOutput()
+    client = g.storage._client()
+    try:
+        await response.prepare(request)
+        with zipfile.ZipFile(output,"w",compression=zipfile.ZIP_STORED,allowZip64=True) as archive:
+            for index,item in enumerate(items,1):
+                name = safe_filename(item["filename"],item["mime"])
+                obj = await asyncio.to_thread(
+                    client.get_object,Bucket=g.storage.bucket,Key=g.storage.safe_key(item["file_key"]),
+                )
+                body = obj["Body"]
+                try:
+                    with archive.open(f"{index:02d}_{name}","w",force_zip64=True) as entry:
+                        while chunk := await asyncio.to_thread(body.read,256*1024):
+                            entry.write(chunk)
+                            await output.drain(response)
+                    await output.drain(response)
+                finally:
+                    await asyncio.to_thread(body.close)
+        await output.drain(response)
+        await response.write_eof()
+    except (ConnectionResetError,BrokenPipeError):
+        logging.getLogger("web-galerias").info("Client stopped ZIP download")
+    return response
