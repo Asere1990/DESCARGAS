@@ -104,14 +104,14 @@ window.GalleryIntervals = (() => {
   accountSelect.value = result.accounts.includes(selected) ? selected : (result.accounts[0] || "");
   accountSelect.onchange();
   jobList.replaceChildren();
-  for (const job of result.jobs) {
+  for (const [index, job] of result.jobs.entries()) {
    const line = element("section");
    line.className = "panel-card";
    const state = job.phase === "count" && job.state === "running" ? "Contando archivos" : labels[job.state];
    const links = element("p", job.first_link + " → " + job.last_link);
    links.className = "interval-links";
    line.append(
-    element("h4", "Intervalo " + job.id + " · " + state),
+    element("h4", "Intervalo " + (index + 1) + " · " + state),
     element("p", (job.uid ? "Cuenta " + job.uid : "Sin cuenta") +
      (job.folder_name ? " · " + job.folder_name : "")),
     links
