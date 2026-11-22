@@ -33,6 +33,7 @@ window.GalleryIntervals = (() => {
    await context.api("admin-interval-" + operation, data);
    if (refreshFolders) await context.loadAdmin();
    await update(true);
+   return true;
   } catch (error) {
    context.notice(error.message);
   } finally {
@@ -73,9 +74,9 @@ window.GalleryIntervals = (() => {
    const control = button(label, () => act(control, operation, {id:job.id}));
    line.append(control);
   }
-  if (["running", "queued"].includes(job.state)) action("Pausar", "pause");
-  if (["running", "queued", "paused", "failed"].includes(job.state)) action("Detener", "stop");
-  if (["paused", "stopped", "failed"].includes(job.state) && job.uid) action("Reanudar", "resume");
+  if (["running", "queued", "failed"].includes(job.state)) action("Pausar intervalo", "pause");
+  if (["running", "queued", "paused", "failed"].includes(job.state)) action("Detener intervalo", "stop");
+  if (["paused", "stopped", "failed"].includes(job.state) && job.uid) action("Reanudar intervalo", "resume");
   if (["paused", "stopped", "failed", "counted", "done"].includes(job.state) && accounts.length) {
    const select = element("select");
    select.append(new Option("Seleccionar cuenta", ""));
@@ -89,12 +90,33 @@ window.GalleryIntervals = (() => {
     line.append(field("Cambiar cuenta del intervalo", select), change);
    }
   }
-  const remove = button("Eliminar", () => {
+  const remove = button("Eliminar intervalo", () => {
    if (confirm("¿Eliminar el intervalo y su avance? Los archivos ya publicados se conservan.")) {
     act(remove, "delete", {id:job.id});
    }
   });
   line.append(remove);
+ }
+
+ function updateProgress(container, job, number) {
+  container.replaceChildren();
+  if (job.phase === "count") {
+   if (job.state === "running") {
+    const pending = element("progress");
+    pending.setAttribute("aria-label", "Contando archivos del intervalo " + number);
+    container.append(pending);
+   }
+   return;
+  }
+  const total = Number(job.photos) + Number(job.videos);
+  const copied = Number(job.copied);
+  const percent = job.state === "done" ? 100 :
+   (total > 0 ? Math.min(99, Math.floor(copied * 100 / total)) : 0);
+  const progress = element("progress");
+  progress.max = 100;
+  progress.value = percent;
+  progress.setAttribute("aria-label", "Progreso del intervalo " + number);
+  container.append(element("p", percent + "% · " + copied + " de " + total + " archivos copiados"), progress);
  }
 
  function render(result) {
@@ -104,9 +126,10 @@ window.GalleryIntervals = (() => {
   accountSelect.value = result.accounts.includes(selected) ? selected : (result.accounts[0] || "");
   accountSelect.onchange();
   jobList.replaceChildren();
-  for (const [index, job] of result.jobs.entries()) {
+  for (const [index, job] of [...result.jobs].reverse().entries()) {
    const line = element("section");
    line.className = "panel-card";
+   line.dataset.intervalJob = job.id;
    const state = job.phase === "count" && job.state === "running" ? "Contando archivos" : labels[job.state];
    const links = element("p", job.first_link + " → " + job.last_link);
    links.className = "interval-links";
@@ -118,8 +141,12 @@ window.GalleryIntervals = (() => {
    );
    if (job.peer) {
     line.append(element("p", job.photos + " fotos · " + job.videos + " videos · " +
-      job.albums + " álbumes" + (job.phase === "copy" ? " · " + job.copied + " copiados" : "")));
+      job.albums + " álbumes"));
    }
+   const progress = element("div");
+   progress.className = "interval-progress";
+   updateProgress(progress, job, index + 1);
+   line.append(progress);
    if (job.error) line.append(element("p", job.error));
    if (job.state === "counted") line.append(destination(job));
    actions(line, job, result.accounts);
@@ -133,7 +160,15 @@ window.GalleryIntervals = (() => {
   try {
    const result = await context.api("admin-interval-status");
    if (request !== updateNumber || !root().open) return;
-   if (!force && jobList.contains(document.activeElement)) return;
+   if (!force && jobList.contains(document.activeElement) &&
+       document.activeElement.matches("input,select")) {
+    const jobs = new Map(result.jobs.map(job => [job.id, job]));
+    for (const [index, line] of Array.from(jobList.children).entries()) {
+     const job = jobs.get(line.dataset.intervalJob);
+     if (job) updateProgress(line.querySelector(".interval-progress"), job, index + 1);
+    }
+    return;
+   }
    const snapshot = JSON.stringify(result);
    if (force || snapshot !== rendered) {
     render(result);
@@ -165,9 +200,13 @@ window.GalleryIntervals = (() => {
   count.disabled = true;
   form.append(field("Cuenta vinculada a Web Galerías", accountSelect),
    field("Enlace de inicio", first), field("Enlace final", last), count);
-  form.onsubmit = event => {
+  form.onsubmit = async event => {
    event.preventDefault();
-   act(count, "count", {account:accountSelect.value, first:first.value, last:last.value});
+   const links = {account:accountSelect.value, first:first.value, last:last.value};
+   if (await act(count, "count", links) && first.value === links.first && last.value === links.last) {
+    first.value = "";
+    last.value = "";
+   }
   };
   unlink = button("Desvincular cuenta", () => {
    if (accountSelect.value &&
