@@ -1749,6 +1749,89 @@ function openFolderPicker(){
  $("folder-picker").classList.remove("hidden");
 }
 
+function galleryHistoryLogin(history,folderId,onLinked){
+ function field(label,type,value="",mode=""){
+  const control=document.createElement("label");
+  control.textContent=label;
+  const input=document.createElement("input");
+  input.type=type;input.value=value;input.required=true;
+  if(mode)input.inputMode=mode;
+  control.append(input);
+  return [control,input];
+ }
+ function button(label){
+  const control=document.createElement("button");
+  control.type="button";control.className="small-btn admin-feed-action";
+  control.textContent=label;
+  return control;
+ }
+ const link=button("Vincular cuenta de Telegram");
+ const auth=document.createElement("form");
+ auth.className="admin-history-form hidden";
+ auth.dataset.auth="true";
+ link.onclick=async()=>{
+  if(!auth.classList.contains("hidden")){
+   auth.classList.add("hidden");
+   auth.replaceChildren();
+   return;
+  }
+  link.disabled=true;
+  link.dataset.opening="true";
+  try{
+   const {pending}=await api("admin-history-pending");
+   auth.classList.remove("hidden");
+   setStep(pending?.step||"send",pending?.flow,pending?.delivery);
+  }catch(e){notice(e.message);}
+  finally{link.disabled=false;delete link.dataset.opening;}
+ };
+ function setStep(step,flow,delivery,focus=true){
+  const options={
+   send:["Teléfono de la cuenta con prefijo internacional","tel","tel","phone","Pedir código"],
+   code:["Código de verificación","text","numeric","code","Confirmar código"],
+   password:["Contraseña de verificación en dos pasos de Telegram","password","","password","Vincular"]
+  };
+  const [name,type,mode,key,action]=options[step];
+  const [label,input]=field(name,type,"",mode);
+  input.autocomplete=step==="code"?"one-time-code":step==="password"?"current-password":"tel";
+  const submit=button(action);submit.type="submit";
+  auth.replaceChildren(label,submit);
+  if(step==="code"){
+   const back=button("Volver al teléfono");
+   back.onclick=()=>setStep("send");
+   auth.append(back);
+   if(delivery){
+    const hint=document.createElement("p");
+    hint.className="admin-history-delivery";
+    hint.setAttribute("role","status");
+    hint.textContent=delivery;
+    auth.prepend(hint);
+   }
+  }
+  auth.onsubmit=async(event)=>{
+   event.preventDefault();
+   submit.disabled=true;
+   try{
+    const result=await api("admin-history-"+step,{[key]:input.value,flow,...(folderId==null?{}:{folder:folderId})});
+    input.value="";
+    if(result.step==="linked"){
+     auth.classList.add("hidden");
+     await onLinked(result.account);
+     notice("Cuenta "+result.account+" lista para importar.");
+    }else setStep(result.step,result.flow,result.delivery);
+   }catch(e){notice(e.message);}
+   finally{submit.disabled=false;}
+  };
+  if(focus)input.focus();
+ }
+ const pending=history.pending;
+ if(pending && pending.folder===folderId){
+  if(folderId!=null)S.adminExpanded.add(folderId);
+  auth.classList.remove("hidden");
+  setStep(pending.step,pending.flow,pending.delivery,false);
+ }
+ return [link,auth];
+}
+
 function historyImportSection(folder, history, imports){
  const section=document.createElement("section");
  section.className="admin-source-controls admin-feed-section admin-feed-history";
@@ -1817,73 +1900,11 @@ function historyImportSection(folder, history, imports){
   }catch(e){notice(e.message);}
   finally{start.disabled=!accounts.length;}
  };
- const link=button("Vincular cuenta de Telegram");
- const auth=document.createElement("form");
- auth.className="admin-history-form hidden";
- auth.dataset.auth="true";
- link.onclick=async()=>{
-  if(!auth.classList.contains("hidden")){
-   auth.classList.add("hidden");
-   auth.replaceChildren();
-   return;
-  }
-  link.disabled=true;
-  link.dataset.opening="true";
-  try{
-   const {pending}=await api("admin-history-pending");
-   auth.classList.remove("hidden");
-   setStep(pending?.step||"send",pending?.flow,pending?.delivery);
-  }catch(e){notice(e.message);}
-  finally{link.disabled=false;delete link.dataset.opening;}
- };
- function setStep(step,flow,delivery,focus=true){
-  const options={
-   send:["Teléfono de la cuenta con prefijo internacional","tel","tel","phone","Pedir código"],
-   code:["Código de verificación","text","numeric","code","Confirmar código"],
-   password:["Contraseña de verificación en dos pasos de Telegram","password","","password","Vincular"]
-  };
-  const [name,type,mode,key,action]=options[step];
-  const [label,input]=field(name,type,"",mode);
-  input.autocomplete=step==="code"?"one-time-code":step==="password"?"current-password":"tel";
-  const submit=button(action);submit.type="submit";
-  auth.replaceChildren(label,submit);
-  if(step==="code"){
-   const back=button("Volver al teléfono");
-   back.onclick=()=>setStep("send");
-   auth.append(back);
-   if(delivery){
-    const hint=document.createElement("p");
-    hint.className="admin-history-delivery";
-    hint.setAttribute("role","status");
-    hint.textContent=delivery;
-    auth.prepend(hint);
-   }
-  }
-  auth.onsubmit=async(event)=>{
-   event.preventDefault();
-   submit.disabled=true;
-   try{
-    const result=await api("admin-history-"+step,{[key]:input.value,flow,folder:folder.id});
-    input.value="";
-    if(result.step==="linked"){
-     auth.classList.add("hidden");
-     await loadAdmin();
-     const added=document.querySelector("#admin-folder-details-"+folder.id+
-       " .admin-history-form select");
-     if(added)added.value=result.account;
-     notice("Cuenta "+result.account+" lista para importar.");
-    }else setStep(result.step,result.flow,result.delivery);
-   }catch(e){notice(e.message);}
-   finally{submit.disabled=false;}
-  };
-  if(focus)input.focus();
- }
- const pending=history.pending;
- if(pending && pending.folder===folder.id){
-  S.adminExpanded.add(folder.id);
-  auth.classList.remove("hidden");
-  setStep(pending.step,pending.flow,pending.delivery,false);
- }
+ const [link,auth]=galleryHistoryLogin(history,folder.id,async account=>{
+  await loadAdmin();
+  const added=document.querySelector("#admin-folder-details-"+folder.id+" .admin-history-form select");
+  if(added)added.value=account;
+ });
  const check=button("Actualizar progreso");
  check.onclick=async()=>{
   check.disabled=true;
@@ -2433,7 +2454,7 @@ function previewAdmin(){
   "</p><p>Agregar carpeta → iniciar copia; ocultar carpeta → ocultar solo a clientes; restaurar → volver a mostrarla. Las carpetas ocultas siguen sincronizando. No se borran archivos de R2.</p>";
 }
 function historyFormOpen(){
- return !!document.querySelector("#admin .admin-feed-history form:not(.hidden)[data-auth],#admin .admin-feed-history button[data-opening]");
+ return !!document.querySelector("#admin .admin-feed-history form:not(.hidden)[data-auth],#admin .admin-feed-history button[data-opening],#admin-interval-import form:not(.hidden)[data-auth],#admin-interval-import button[data-opening]");
 }
 async function loadAdmin(background=false){
  try{
@@ -2442,6 +2463,7 @@ async function loadAdmin(background=false){
   if(background && historyFormOpen())return;
   S.admin=overview;
   previewAdmin();
+  window.GalleryIntervals?.refreshed(overview,api,notice,galleryHistoryLogin,loadAdmin);
   window.CubanitasTools?.adminRefreshed?.(S.admin);
   window.GalleryManualUpload?.refreshed?.(S.admin);
   await window.CubanitasTools?.refreshUserStats?.();

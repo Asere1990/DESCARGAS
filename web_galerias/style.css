@@ -1286,3 +1286,7 @@ body.gallery-viewer-open #album #folder-drop-tray{visibility:hidden;pointer-even
 #admin .admin-feed-history > button{margin:4px 8px 4px 0}
 
 #admin .admin-history-delivery{flex:1 0 100%;margin:0}
+
+.admin-feed-intervals{--feed-accent:#91eadb;--feed-bg:#163a39}
+#admin-interval-import .interval-links{overflow-wrap:anywhere}
+#admin-interval-import .small-btn{margin:4px 6px 4px 0}
