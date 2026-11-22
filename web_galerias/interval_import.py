@@ -311,7 +311,7 @@ async def count_interval(g, job, client, guard):
         await check_limit(conn, job["uid"], peer, job["id"])
         await conn.execute("""
             UPDATE wg_interval_jobs SET peer=$3,first_message=$4,last_message=$5,
-                cursor=$4-1,photos=$6,videos=$7,albums=$8,state='counted'
+                cursor=$4::bigint-1,photos=$6,videos=$7,albums=$8,state='counted'
             WHERE id=$1 AND revision=$2 AND state='running'
         """, job["id"], job["revision"], peer, low, high, photos, videos, len(albums))
 
