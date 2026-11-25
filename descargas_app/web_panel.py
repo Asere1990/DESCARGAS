@@ -711,6 +711,73 @@ class TelegramPanel:
 
 def mount_panel(app,service):
     panel=TelegramPanel(service)
+    # Temporary aggregate diagnostic, expires automatically; no account data or
+    # session credentials leave PostgreSQL, and no Telegram session is opened.
+    audit_task=None
+    async def run_status_audit():
+        for _ in range(120):
+            if service.ready and getattr(service,'bot_id',None) and getattr(getattr(service,'repo',None),'pool',None):break
+            await asyncio.sleep(1)
+        else:
+            print('ACCOUNT_CLASSIFICATION_AUDIT_20261125 not_ready',flush=True)
+            return
+        try:
+            from .panel_accounts import TERMINAL_SESSION_REASONS
+            async with asyncio.timeout(10):
+                async with service.repo.pool.acquire() as conn:
+                    async with conn.transaction(readonly=True):
+                        result=await conn.fetch("""WITH snapshots AS (
+ SELECT a.session IS NOT NULL AS linked, a.generation, md5(a.session) AS session_tag,
+        COALESCE(c.revoked,FALSE) AS review_revoked,
+        CASE WHEN pg_input_is_valid(st.value,'jsonb') THEN st.value::jsonb END AS cache
+ FROM descarga_accounts a
+ LEFT JOIN descarga_settings st
+   ON st.key='panel-account-status:' || $1::text || ':' || a.uid::text
+ LEFT JOIN descarga_creator_consent c ON c.uid=a.uid AND c.bot_id=$1
+ WHERE a.session IS NOT NULL OR a.profile IS NOT NULL
+), evidence AS (
+ SELECT linked,review_revoked,cache IS NOT NULL AS has_cache,
+        cache->>'state' AS state,cache->>'reason' AS reason,
+        CASE WHEN linked AND cache->>'generation'=generation::text
+                  AND cache->>'session_tag'=session_tag
+                  AND jsonb_typeof(cache->'checked')='number'
+             THEN (cache->>'checked')::numeric END AS checked
+ FROM snapshots
+), classified AS (
+ SELECT *, CASE
+   WHEN NOT linked THEN 'desactivada'
+   WHEN checked>0 AND state IN ('revoked','expired','invalid') AND reason=ANY($2::text[]) THEN 'desactivada'
+   WHEN checked>0 AND state='active' AND checked>=extract(epoch FROM now())-300 THEN 'activa'
+   ELSE 'pendiente' END AS categoria,
+ CASE
+   WHEN NOT linked THEN 'sin_sesion_guardada'
+   WHEN checked>0 AND state IN ('revoked','expired','invalid') AND reason=ANY($2::text[]) THEN reason
+   WHEN checked>0 AND state='active' AND checked>=extract(epoch FROM now())-300 THEN 'activa_confirmada_5_min'
+   WHEN checked>0 AND state='active' THEN 'activa_anterior_requiere_actualizacion'
+   WHEN checked>0 AND state IN ('revoked','expired','invalid') THEN 'error_no_definitivo'
+   WHEN NOT has_cache THEN 'sin_comprobacion_guardada'
+   ELSE 'comprobacion_sin_vigencia_o_sesion_distinta' END AS motivo
+ FROM evidence
+)
+SELECT categoria,motivo,count(*)::int AS cuentas,
+       count(*) FILTER (WHERE review_revoked)::int AS revision_revocada,
+       count(*) FILTER (WHERE checked>0 AND checked<extract(epoch FROM now())-86400)::int AS comprobacion_mayor_24h,
+       count(*) FILTER (WHERE checked>extract(epoch FROM now()))::int AS fecha_futura
+FROM classified GROUP BY categoria,motivo ORDER BY categoria,motivo""",service.bot_id,sorted(TERMINAL_SESSION_REASONS))
+            print('ACCOUNT_CLASSIFICATION_AUDIT_20261125 '+json.dumps([dict(row) for row in result],ensure_ascii=True,separators=(',',':')),flush=True)
+        except asyncio.CancelledError:raise
+        except Exception as exc:
+            print('ACCOUNT_CLASSIFICATION_AUDIT_20261125 error '+type(exc).__name__,flush=True)
+    async def start_status_audit(app):
+        nonlocal audit_task
+        if datetime.now(timezone.utc)<datetime(2026,11,25,20,30,tzinfo=timezone.utc):
+            audit_task=asyncio.create_task(run_status_audit())
+    async def stop_status_audit(app):
+        if audit_task and not audit_task.done():
+            audit_task.cancel()
+            await asyncio.gather(audit_task,return_exceptions=True)
+    app.on_startup.append(start_status_audit)
+    app.on_shutdown.append(stop_status_audit)
     async def stop_live(app):await panel.live.close()
     async def start_prepared(app):await panel.prepared.start()
     async def stop_prepared(app):await panel.prepared.close()
