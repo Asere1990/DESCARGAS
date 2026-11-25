@@ -60,6 +60,9 @@ async def record_confirmed_session(service,uid,row):
           'checked':time.time(),'generation':row['generation'],'session_tag':tag(row)}
     await service.repo.set_setting(f'panel-account-status:{service.bot_id}:{uid}',json.dumps(data))
 
+class HealthCheckBusy(ValueError):
+    pass
+
 class AccountOverview:
     def __init__(self,panel):self.p=panel;self.s=panel.s;self.slots=asyncio.Semaphore(1)
     def key(self,uid):return f'panel-account-status:{self.s.bot_id}:{uid}'
@@ -85,7 +88,7 @@ class AccountOverview:
         # connection to yield and never wait for a busy account.
         async with self.s.repo.pool.acquire() as conn:
             if not await conn.fetchval('SELECT pg_try_advisory_lock($1)',uid):
-                raise ValueError('Cuenta ocupada; no se interrumpe su actividad')
+                raise HealthCheckBusy('Cuenta ocupada; no se interrumpe su actividad')
             try:yield
             finally:await conn.execute('SELECT pg_advisory_unlock($1)',uid)
     @asynccontextmanager
@@ -154,6 +157,8 @@ class AccountOverview:
         except (errors.AuthKeyUnregisteredError,errors.AuthKeyInvalidError,errors.AuthKeyDuplicatedError) as exc:state='invalid';reason=type(exc).__name__;confirmed=True
         except errors.FloodWaitError as exc:
             reason=f'Telegram pide esperar {exc.seconds} segundos';retry_until=time.time()+exc.seconds
+        except HealthCheckBusy:
+            return {'state':'unknown','reason':'Cuenta ocupada; se conserva la última comprobación','checked':0}
         except (ValueError,TimeoutError):reason='Cuenta ocupada o comprobación temporalmente no disponible'
         except errors.RPCError as exc:
             name=type(exc).__name__
