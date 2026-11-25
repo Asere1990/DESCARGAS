@@ -1229,8 +1229,8 @@ $('compose-text').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey
 const overviewAccounts=new Map(),accountCards=new Map();
 let accountGroups=new Map(),accountTab='active',statusQueue=[],statusBusy=false,overviewRun=0,overviewSearching=false,overviewPending=[];
 const accountStates={active:'Activa',revoked:'Sesión revocada',expired:'Sesión vencida',invalid:'Sin sesión válida',unknown:'Sin verificar'};
-function statusGroup(state){return state==='active'?'active':'inactive';}
-function buildAccountGroups(){accountGroups.clear();$('accounts').replaceChildren();for(const [key,title] of [['active','Cuentas activas'],['inactive','Cuentas no activas o sin verificar']]){const section=el('section'),heading=el('h2',title),list=el('div');section.className='account-group';section.append(heading,list);$('accounts').append(section);accountGroups.set(key,{section,heading,list,title});}updateAccountGroups();}
+function statusGroup(state){return panelAdmin||state==='active'?'active':'inactive';}
+function buildAccountGroups(){accountGroups.clear();$('accounts').replaceChildren();for(const [key,title] of [['active','Cuentas activas'],['inactive','Cuentas desactivadas']]){const section=el('section'),heading=el('h2',title),list=el('div');section.className='account-group';section.append(heading,list);$('accounts').append(section);accountGroups.set(key,{section,heading,list,title});}updateAccountGroups();}
 function updateAccountGroups(){
  const selected=panelReviewer?'active':accountTab,partial=accountsNext?'+':'';
  for(const [key,group] of accountGroups){
@@ -1244,7 +1244,6 @@ function updateAccountGroups(){
  }
  $('account-tab-inactive').hidden=panelReviewer;
  const note=$('account-tab-note'),parts=[];
- if(selected==='inactive')parts.push('Incluye cuentas sin verificar; no significa que su sesión esté revocada.');
  if(accountsNext)parts.push('Contadores parciales (+): puedes cargar más cuentas.');
  note.textContent=parts.join(' ');
  note.hidden=!parts.length;
@@ -1256,7 +1255,7 @@ function setAccountTab(value){
 }
 $('account-tab-active').onclick=()=>setAccountTab('active');
 $('account-tab-inactive').onclick=()=>setAccountTab('inactive');
-function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;updateAccountMessageLink(card.message,a);card.addContact.disabled=!contactPhone(a);card.addContact.title=card.addContact.disabled?'No hay teléfono disponible':'Añadir este teléfono a Contactos';card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';card.status.textContent=accountStates[state]||accountStates.unknown;card.status.dataset.state=state;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');if(typeof updateAccountFavoriteStar==='function')updateAccountFavoriteStar(a);const group=accountGroups.get(statusGroup(state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
+function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;updateAccountMessageLink(card.message,a);card.addContact.disabled=!contactPhone(a);card.addContact.title=card.addContact.disabled?'No hay teléfono disponible':'Añadir este teléfono a Contactos';card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';card.status.textContent=panelAdmin?accountStates.active:(accountStates[state]||accountStates.unknown);card.status.dataset.state=panelAdmin?'active':state;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');if(typeof updateAccountFavoriteStar==='function')updateAccountFavoriteStar(a);const group=accountGroups.get(statusGroup(state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
 async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);if(status.state!=='unknown'||!a.status?.checked||status.reason==='La sesión cambió; vuelve a comprobar')a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){if(!a.status?.checked)a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
 async function pumpStatuses(){if(statusBusy||overviewSearching||operationBusy||!statusQueue.length||$('workspace').dataset.view!=='accounts')return;statusBusy=true;const a=statusQueue.shift();try{await verifyAccount(a);}finally{statusBusy=false;pumpStatuses();}}
 function queueStatus(a){if(!a.statusQueued&&(!a.status?.checked||Date.now()/1000-a.status.checked>300)){a.statusQueued=true;statusQueue.push(a);pumpStatuses();}}
@@ -1618,7 +1617,7 @@ function metadataSearchHit(a){
  button.append(el('span','@username: '+(a.username?'@'+a.username.replace(/^@/,''):'No disponible')));
  button.append(el('span','Teléfono: '+(a.phone||'No disponible')));
  button.append(el('span','País: '+(a.country||'No disponible')));
- button.append(el('small','Estado: '+(accountStates[a.status?.state]||accountStates.unknown)));
+ button.append(el('small','Estado: '+(panelAdmin?accountStates.active:(accountStates[a.status?.state]||accountStates.unknown))));
  button.onclick=()=>selectAccount(a).catch(e=>notice(e.message));
  $('accounts-results').append(button);
 }
