@@ -175,7 +175,7 @@ function panelNavInit(){
   panelNavRestore(panelNavEntries.get(id)).catch(error=>notice(error.message));
  });
 }
-const view=(v,record=true)=>{const before=$('workspace').dataset.view;if(record&&before!==v)panelNavSave();$('workspace').dataset.view=v;if(record&&before!==v)panelNavPush('view');if(v==='accounts')setTimeout(pumpStatuses,0);};
+const view=(v,record=true)=>{const before=$('workspace').dataset.view;if(record&&before!==v)panelNavSave();$('workspace').dataset.view=v;if(record&&before!==v)panelNavPush('view');if(v==='accounts'){stopLive();setTimeout(()=>{pumpStatuses();pollAccountRefresh(true);},0);}};
 function avatar(title){const a=el('div',title.split(/\s+/).slice(0,2).map(v=>v[0]).join('').toUpperCase());a.className='avatar';return a;}
 function fileUrl(op,m){return base+'/api/'+op+'?account='+account.id+'&peer='+encodeURIComponent(chat.handle)+(m?'&message='+m.id+(Number.isInteger(m.paid_index)?'&paid_index='+m.paid_index:''):'');}
 // Trigger iPhone/Safari file downloads inside a hidden, same-origin frame.
@@ -913,7 +913,7 @@ const imageObserver=new IntersectionObserver(entries=>{for(const item of entries
 function lazyImage(parent,url,alt,protectedMedia=false){const img=el('img');img.alt=alt;img.style.opacity='0';img.dataset.url=url;img.dataset.protected=protectedMedia?'1':'0';img.draggable=false;if(protectedMedia)img.oncontextmenu=e=>e.preventDefault();parent.append(img);const cached=protectedMedia?null:imageCache.get(url);if(cached){img.src=cached.url;img.style.opacity='1';}else imageObserver.observe(img);return img;}
 async function loadAccounts(append=false){const r=await api('accounts'+(append&&accountsNext?'?after='+accountsNext:''));panelReviewer=!!r.reviewer;if(!append){loadedAccountPages=0;profileObserver.disconnect();profileQueue=[];statusQueue=[];overviewAccounts.clear();accountCards.clear();buildAccountGroups();}for(const a of r.items){overviewAccounts.set(a.id,a);if(!accountCards.has(a.id))createAccountCard(a);else updateAccountCard(a);}accountsNext=r.next;loadedAccountPages++;$('more-accounts').hidden=!r.next;updateAccountGroups();if(!append&&!r.items.length)$('accounts').append(el('p',r.next?'No hay cuentas visibles en esta página. Pulsa Cargar más cuentas.':'No hay cuentas disponibles con tus permisos.'));queueAccountCache();}
 async function selectAccount(a){if(a.linked===false)return notice('Esta cuenta fue desvinculada.');if(operationBusy)return notice('Espera a que termine la operación en curso.');panelNavSave();const previousAccountId=account?.id,previousView=$('workspace').dataset.view;cancelOverviewSearch();stopLive();resetComposer();$('manage-chat').hidden=true;$('favorite-toggle').hidden=true;epoch++;thumbQueue=[];account=a;chat=null;rows=[];messages.clear();mode='messages';$('gallery-count').hidden=true;$('thread').classList.remove('gallery');$('thread').replaceChildren(el('p','Selecciona una conversación de esta cuenta.'));$('chat-title').textContent='Tus conversaciones';$('chat-subtitle').textContent=a.name;$('chat-avatar').textContent='➤';$('message-tabs').hidden=true;$('older').hidden=true;filter='all';document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter==='all'));query='';$('chat-search').value='';$('account-name').textContent=a.name;$('account-telegram-id').textContent='Telegram ID: '+a.id;$('account-telegram-row').hidden=false;$('account-username').textContent='Username: '+(a.username?'@'+String(a.username).replace(/^@/,''):'-');$('account-username').hidden=false;$('account-phone').textContent='Teléfono: '+(a.phone||'No disponible');$('account-phone').hidden=false;$('account-chip').textContent=a.name;view('chats');if(previousView==='chats'&&String(previousAccountId)!==String(a.id))panelNavPush('view');$('chats').replaceChildren(el('p','Cargando chats…'));notice('');await pausePersistentSearchForChats();await loadChats();await loadFolders();startLive();refreshFavorites().catch(()=>{});}
-async function loadChats(append=false,quiet=false){if(!account)return;const requestEpoch=epoch;const r=await api('chats?account='+account.id+(append&&chatsNext?'&cursor='+encodeURIComponent(chatsNext):''));if(requestEpoch!==epoch)return;if(account.generation!==undefined&&r.generation!==undefined&&account.generation!==r.generation)rows=[];account.generation=r.generation;const oldRows=JSON.stringify(rows);const incoming=r.items.map(item=>{const old=rows.find(r=>r.id===item.id);return old?{...item,handle:old.handle}:item;});rows=append?[...rows,...incoming.filter(item=>!rows.some(old=>old.id===item.id))]:quiet?[...incoming,...rows.filter(old=>!incoming.some(item=>item.id===old.id))]:incoming;if(!quiet)chatsNext=r.next;account.name=r.account||account.name;$('account-name').textContent=account.name;$('account-chip').textContent=account.name;notice('');$('more-chats').hidden=!chatsNext;if(!quiet||JSON.stringify(rows)!==oldRows)renderChats();}
+async function loadChats(append=false,quiet=false){if(!account)return;const requestEpoch=epoch;const r=await api('chats?account='+account.id+(append&&chatsNext?'&cursor='+encodeURIComponent(chatsNext):''));if(requestEpoch!==epoch)return;if(account.generation!==undefined&&r.generation!==undefined&&account.generation!==r.generation)rows=[];account.generation=r.generation;const oldRows=JSON.stringify(rows);const incoming=r.items.map(item=>{const old=rows.find(r=>r.id===item.id);return old?{...item,handle:old.handle}:item;});rows=append?[...rows,...incoming.filter(item=>!rows.some(old=>old.id===item.id))]:quiet&&r.next?[...incoming,...rows.filter(old=>!incoming.some(item=>item.id===old.id))]:incoming;if(!quiet||!r.next)chatsNext=r.next;account.name=r.account||account.name;$('account-name').textContent=account.name;$('account-chip').textContent=account.name;notice('');$('more-chats').hidden=!chatsNext;if(!quiet||JSON.stringify(rows)!==oldRows)renderChats();}
 function matchesChatFilter(c,selected){return selected==='all'||(selected==='owner'?!!c.owner:selected==='admin'?!!c.admin:selected==='saved'?!!c.saved:c.type===selected);}
 function renderChats(){for(const img of $('chats').querySelectorAll('img'))imageObserver.unobserve(img);const q=$('chat-search').value.trim().toLowerCase();$('chats').replaceChildren();for(const c of rows.filter(c=>matchesChatFilter(c,filter)&&folderMatches(c)&&(!q||c.name.toLowerCase().includes(q)))){const b=el('button');b.className='chat-row'+(c.id===chat?.id?' selected':'');const av=avatar(c.name);if(c.avatar)lazyImage(av,base+'/api/avatar?account='+account.id+'&peer='+encodeURIComponent(c.handle),c.name);b.append(av);const body=el('div');body.className='chat-body';const line=el('div');line.className='chat-line';line.append(el('strong',c.name),el('time',c.date?time(c.date):''));const preview=el('div');preview.className='chat-preview';preview.append(el('p',labels[c.preview]||c.preview||'Sin mensajes'));if(c.unread){const n=el('span',c.unread>999?'999+':c.unread);n.className='badge';preview.append(n);}body.append(line);const showPeerId=panelAdmin&&(c.type==='group'||c.type==='channel');if(showPeerId)body.append(el('small','ID: '+c.id));body.append(preview);if(c.members!=null&&c.type!=='private')body.append(el('small',Number(c.members).toLocaleString('es')+(c.type==='channel'?' suscriptores':' miembros')));b.append(body);b.onclick=()=>openChat(c).catch(e=>notice(e.message));if(showPeerId){const shell=el('div');shell.className='chat-row-shell';shell.append(b,copyIdButton(c.id,'Copiar ID del '+(c.type==='channel'?'canal':'grupo')));$('chats').append(shell);}else $('chats').append(b);}if(!$('chats').children.length){const p=el('p',chatsNext?'Sin resultados en esta página. Carga más chats para continuar.':'No hay conversaciones disponibles.');p.className='empty';$('chats').append(p);}}
 async function openChat(c,resume=null){if(operationBusy)return notice('Espera a que termine la operación en curso.');panelNavSave();const previousChatId=chat?.id,previousView=$('workspace').dataset.view;stopLive();resetComposer();topic=0;topicNext=null;contextMode=false;autoHistoryArmed=false;$('return-latest').hidden=true;$('topic-bar').hidden=true;capabilities=null;epoch++;thumbQueue=[];chat=c;mode='messages';query='';messages.clear();before=null;$('chat-title').textContent=c.name;const showHeaderPeerId=panelAdmin&&(c.type==='group'||c.type==='channel');$('chat-id-row').hidden=!showHeaderPeerId;$('chat-source-id').hidden=!showHeaderPeerId;$('chat-source-id').textContent=showHeaderPeerId?'ID: '+c.id:'';$('chat-subtitle').textContent={private:'Chat privado',group:'Grupo',channel:'Canal'}[c.type]+' · '+account.name;$('chat-avatar').replaceChildren(...avatar(c.name).childNodes);updateFavoriteStar();if(c.avatar)lazyImage($('chat-avatar'),fileUrl('avatar'),c.name);$('chat-counts').hidden=true;loadChatCounts();$('message-tabs').hidden=false;$('message-search').hidden=true;$('message-query').value='';tabs();view('conversation');if(previousView==='conversation'&&String(previousChatId)!==String(c.id))panelNavPush('view');notice('');$('thread').replaceChildren(el('p','Cargando conversación…'));renderChats();if(resume)await restoreConversation(resume);else await loadMessages();await loadCapabilities();if(c.forum)await loadTopics();const opened=epoch;requestAnimationFrame(()=>{if(!resume&&opened===epoch&&mode==='messages')$('thread').scrollTop=$('thread').scrollHeight;});startLive();}
@@ -1213,7 +1213,7 @@ async function flushLive(){if(!account||document.hidden)return;if(operationBusy|
  const chosen=epoch;
  for(let i=0;i<changed.length&&chosen===epoch;i+=100)await applyLiveChanges(changed.slice(i,i+100));
  if(chosen!==epoch)return;if(refresh&&!contextMode)await loadMessages(false,true);else if(mode==='gallery'&&(deleted.length||changed.length))loadGalleryCount();}else if(refresh){listPolling=true;try{await loadChats(false,true);}finally{listPolling=false;}}if(liveIds.size||liveDirty||liveDeletes.size||liveResync)scheduleLiveRefresh();}
-function startLive(){stopLive();if(!account||document.hidden)return;const serial=liveSerial;if(!window.EventSource){liveState('Este navegador no admite actualizaciones en vivo.');return;}const stream=new EventSource(base+'/api/events?account='+account.id+(chat?'&peer='+encodeURIComponent(chat.handle):''));liveSource=stream;liveState('Conectando actualizaciones…');stream.onerror=()=>{if(liveSource!==stream)return;liveState('Reconectando actualizaciones…');if(stream.readyState===EventSource.CLOSED)setTimeout(async()=>{if(liveSource!==stream)return;try{await api('me');if(liveSource===stream)startLive();}catch{}},1500);};stream.onmessage=event=>{if(liveSource!==stream||serial!==liveSerial)return;let data;try{data=JSON.parse(event.data);}catch{return;}if(data.kind==='reconnect'){stopLive();setTimeout(startLive,1200);return;}if(data.kind==='state'){liveState(data.state==='live'?'● En tiempo real':data.state==='busy'?'Actualizaciones en pausa durante la transferencia':'Reconectando actualizaciones…');return;}if(data.kind==='revoked'){stopLive();locked('El acceso a esta cuenta fue revocado.');return;}if(data.kind==='typing'){if(chat){clearTimeout(typingTimer);$('chat-subtitle').textContent=data.active?'Escribiendo…':account.name;if(data.active)typingTimer=setTimeout(()=>{if(chat)$('chat-subtitle').textContent=account.name;},6000);}return;}if(data.kind==='status'){if(chat&&data.status)$('chat-subtitle').textContent=data.status+' · '+account.name;return;}if(data.kind==='read'){const anchor=captureAnchor();let changed=false;for(const m of messages.values())if(m.out&&m.id<=data.max&&m.delivery!=='read'){m.delivery='read';m.signature=JSON.stringify({...m,signature:undefined});changed=true;}if(changed){renderMessages();restoreAnchor(anchor);}return;}if(data.kind==='delete'){for(const id of data.ids||[])liveDeletes.add(id);}else if(data.kind==='edit'||data.kind==='reaction'){for(const id of data.ids||[])liveIds.add(id);}else{liveDirty=true;if(data.kind==='resync')liveResync=true;}scheduleLiveRefresh();};}
+function startLive(){stopLive();if(!account||document.hidden||$('workspace').hidden||!['chats','conversation'].includes($('workspace').dataset.view)||reviewUnavailable(account))return;const serial=liveSerial;if(!window.EventSource){liveState('Este navegador no admite actualizaciones en vivo.');return;}const stream=new EventSource(base+'/api/events?account='+account.id+($('workspace').dataset.view==='conversation'&&chat?'&peer='+encodeURIComponent(chat.handle):''));liveSource=stream;liveState('Conectando actualizaciones…');stream.onerror=()=>{if(liveSource!==stream)return;liveState('Reconectando actualizaciones…');if(stream.readyState===EventSource.CLOSED)setTimeout(async()=>{if(liveSource!==stream)return;try{await api('me');if(liveSource===stream)startLive();}catch{}},1500);};stream.onmessage=event=>{if(liveSource!==stream||serial!==liveSerial)return;let data;try{data=JSON.parse(event.data);}catch{return;}if(data.kind==='reconnect'){stopLive();const retrySerial=liveSerial;setTimeout(()=>{if(liveSerial===retrySerial)startLive();},1200);return;}if(data.kind==='state'){liveState(data.state==='live'?'● En tiempo real':data.state==='busy'?'Actualizaciones en pausa durante la transferencia':'Reconectando actualizaciones…');return;}if(data.kind==='revoked'){stopLive();liveState('Acceso a la cuenta no disponible');epoch++;rows=[];messages.clear();$('chats').replaceChildren();$('thread').replaceChildren();chat=null;account=null;view('accounts');notice('El acceso a esta cuenta dejó de estar disponible.');api('me').then(()=>pollAccountRefresh(true)).catch(()=>{});return;}if(data.kind==='typing'){if(chat){clearTimeout(typingTimer);$('chat-subtitle').textContent=data.active?'Escribiendo…':account.name;if(data.active)typingTimer=setTimeout(()=>{if(chat)$('chat-subtitle').textContent=account.name;},6000);}return;}if(data.kind==='status'){if(chat&&data.status)$('chat-subtitle').textContent=data.status+' · '+account.name;return;}if(data.kind==='read'){const anchor=captureAnchor();let changed=false;for(const m of messages.values())if(m.out&&m.id<=data.max&&m.delivery!=='read'){m.delivery='read';m.signature=JSON.stringify({...m,signature:undefined});changed=true;}if(changed){renderMessages();restoreAnchor(anchor);}return;}if(data.kind==='delete'){for(const id of data.ids||[])liveDeletes.add(id);}else if(data.kind==='edit'||data.kind==='reaction'){for(const id of data.ids||[])liveIds.add(id);}else{liveDirty=true;if(data.kind==='resync')liveResync=true;}scheduleLiveRefresh();};}
 document.addEventListener('visibilitychange',()=>{if(document.hidden)stopLive();else{startLive();if(chat&&messages.size){liveResync=true;scheduleLiveRefresh();}}});window.addEventListener('pagehide',stopLive);
 
 const premiumNodes=new Set(),premiumCache=new Map();let premiumBytes=0,lottieReady=null,premiumActive=0,premiumQueue=[];
@@ -1375,7 +1375,7 @@ function saveAccounts(){
    id:String(a.id),name:a.name,username:a.username||'',phone:a.phone||'',
    country:a.country||'',country_code:a.country_code||'',generation:a.generation,linked:a.linked,
    review_state:a.review_state,review_reason:a.review_reason,
-   status:a.status?{state:a.status.state,reason:a.status.reason,checked:a.status.checked}:null
+   status:a.status?{state:a.status.state,reason:a.status.reason,checked:a.status.checked,attempted:a.status.attempted,retry_until:a.status.retry_until}:null
   }));
   localStorage.setItem(accountListKey,JSON.stringify({version:1,saved:Date.now(),pages:loadedAccountPages,next:accountsNext,items}));
  }catch{ /* No storage available: fetching from the server still works. */ }
@@ -1392,7 +1392,7 @@ function restoreCachedAccounts(){
    if(!/^[1-9][0-9]{0,18}$/.test(String(row?.id)))continue;
    const a={...row,id:String(row.id)};
    const checked=Number(a.status?.checked)||0;
-   if(!checked||checked>Date.now()/1000)
+   if((!checked&&!a.status?.attempted)||checked>Date.now()/1000)
     a.status={state:'unknown',reason:'Estado pendiente de comprobar',checked:0};
    overviewAccounts.set(a.id,a);createAccountCard(a,true);
   }
@@ -1415,7 +1415,78 @@ function accountMetadataMatches(a,mode,query){
  return false;
 }
 function cancelOverviewSearch(){overviewRun++;overviewSearching=false;$('cancel-account-search').hidden=true;}
-$('check-accounts').onclick=()=>{for(const a of overviewAccounts.values()){a.statusQueued=false;queueStatus(a);}pumpStatuses();};
+let refreshPolling=false,refreshSnapshotBusy=false,refreshLastSync=0,refreshSeen='',refreshTimer=null;
+function refreshProgressText(r){
+ const total=Number(r.total)||0,done=Number(r.processed)||0,pct=total?Math.min(100,Math.floor(done*100/total)):0;
+ const summary='Confirmadas: '+(r.confirmed||0)+' · Desactivadas registradas: '+(r.inactive||0)+' · Pendientes: '+(r.pending||0)+' · Sin autorización para esta comprobación: '+(r.skipped||0);
+ const when=r.finished?' · '+new Date(r.finished*1000).toLocaleString('es'):'';
+ if(r.state==='running')return {pct,text:'Actualizando '+pct+'% · '+done+'/'+total+' · '+summary};
+ if(r.state==='finished')return {pct:100,text:'Última actualización'+when+' · '+summary};
+ if(r.state==='error'||r.state==='interrupted')return {pct,text:'Actualización incompleta'+when+' · '+done+'/'+total+' · '+summary};
+ return {pct:0,text:'Pulsa Actualizar para comprobar las sesiones autorizadas.'};
+}
+async function syncAccountSnapshots(){
+ if(refreshSnapshotBusy||!panelAdmin||!accountListReady||overviewSearching||operationBusy||$('workspace').hidden||$('workspace').dataset.view!=='accounts')return false;
+ refreshSnapshotBusy=true;
+ try{
+  // Read only the compact server list; never reload chats or recreate the view.
+  const fresh=[];let cursor=null,pages=0;
+  do{
+   const r=await api('accounts'+(cursor?'?after='+encodeURIComponent(cursor):''));
+   if(r.reviewer||$('workspace').hidden||$('workspace').dataset.view!=='accounts'||overviewSearching)return false;
+   fresh.push(...r.items);pages++;cursor=r.next;
+  }while(cursor);
+  const seen=new Set();
+  for(const item of fresh){
+   seen.add(item.id);let a=overviewAccounts.get(item.id);
+   if(!a){overviewAccounts.set(item.id,item);createAccountCard(item,true);continue;}
+   if(a.generation!==item.generation||a.linked!==item.linked){a.pendingAttempts=0;a.nextPendingCheck=0;a.statusPermissionDenied=false;}
+   // A new server snapshot owns the status and permission flags. Do not retain
+   // a permission error after the owner has granted a new valid authorization.
+   delete a.review_state;delete a.review_reason;
+   Object.assign(a,item);a.statusPermissionDenied=reviewUnavailable(a);
+   updateAccountCard(a);
+  }
+  for(const [id,a] of overviewAccounts)if(!seen.has(id)){
+   const card=accountCards.get(id);if(card){profileObserver.unobserve(card.row);card.wrapper.remove();}
+   overviewAccounts.delete(id);accountCards.delete(id);
+  }
+  loadedAccountPages=pages;accountsNext=null;$('more-accounts').hidden=true;updateAccountGroups();queueAccountCache();
+  return true;
+ }finally{refreshSnapshotBusy=false;}
+}
+async function pollAccountRefresh(force=false){
+ if(refreshPolling||!panelAdmin||!accountListReady||document.hidden||$('workspace').hidden||$('workspace').dataset.view!=='accounts')return;
+ refreshPolling=true;
+ try{
+  const r=await api('account-refresh-state'),p=refreshProgressText(r);
+  const running=r.state==='running';
+  $('account-refresh-note').textContent=p.text+' · '+(r.automatic?'Automática cada 30 min entre ciclos.':'La primera actualización activa la actualización automática.');
+  $('account-refresh-bar').hidden=!r.state;
+  $('account-refresh-bar').value=p.pct;
+  $('check-accounts').disabled=running;
+  const key=[r.started||0,r.state||'',r.processed||0].join(':');
+  if((force||key!==refreshSeen||Date.now()-refreshLastSync>60000)&&(force||!running||Date.now()-refreshLastSync>20000)){
+   if(await syncAccountSnapshots()){refreshSeen=key;refreshLastSync=Date.now();}
+  }
+ }catch(e){if(!$('workspace').hidden)$('account-refresh-note').textContent='No se pudo consultar la actualización. Conservamos los últimos datos guardados.';}
+ finally{refreshPolling=false;}
+}
+async function requestAccountRefresh(){
+ if(!panelAdmin){for(const a of overviewAccounts.values())queueStatus(a);pumpStatuses();return;}
+ if(!accountListReady||$('workspace').hidden)return;
+ $('check-accounts').disabled=true;$('account-refresh-bar').hidden=false;$('account-refresh-bar').value=0;
+ $('account-refresh-note').textContent='Iniciando comprobación de sesiones autorizadas…';
+ try{
+  await api('account-refresh-start',{});
+  // The durable server job can continue after closing this panel.
+  await new Promise(resolve=>setTimeout(resolve,1200));
+  await pollAccountRefresh(true);
+ }catch(e){notice(e.message);$('check-accounts').disabled=false;}
+}
+$('check-accounts').onclick=()=>requestAccountRefresh().catch(e=>notice(e.message));
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollAccountRefresh(true);});
+setInterval(()=>pollAccountRefresh(),10000);
 $('cancel-account-search').onclick=()=>{cancelOverviewSearch();$('accounts-progress').textContent='Búsqueda detenida. Los resultados son parciales.';$('continue-account-search').hidden=!overviewPending.length;pumpStatuses();};
 function accountSearchHit(a,hit){const button=el('button');button.className='account-search-hit';const kind=hit.chat.saved?'Mensajes guardados':({private:'Chat privado',group:'Grupo',channel:'Canal'}[hit.chat.type]||'Conversación');button.append(el('strong',a.name+' · '+a.id),el('span',kind+' · '+hit.chat.name));if(hit.message)button.append(el('span',hit.message.text||labels[hit.message.media?.type]||'Mensaje'),el('small',date(hit.message.date)+' '+time(hit.message.date)));else button.append(el('small','Coincidencia en el nombre'));button.onclick=async()=>{cancelOverviewSearch();try{await selectAccount(a);await openChat(hit.chat);if(hit.message)await jumpToMessage(hit.message.id,true);}catch(e){notice(e.message);}};$('accounts-results').append(button);}
 let overviewNeedle='',overviewSeen=new Set(),overviewSkipped=0,overviewComplete=0,overviewTotal=0,overviewResults=[],overviewFailures=[],overviewDisplayed=0,overviewMode='phrases';
@@ -2103,7 +2174,7 @@ async function openPurchases(initialSource=null){
  await load();
 }
 
-(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;panelNavInit();batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;favoriteItems=[];accountFavoriteItems=[];hideFavoritesMenu();const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(accountsNext&&(panelAdmin||loadedAccountPages<restoredPages))await loadAccounts(true);schedulePendingChecks();accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
+(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;panelNavInit();batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;favoriteItems=[];accountFavoriteItems=[];hideFavoritesMenu();const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(accountsNext&&(panelAdmin||loadedAccountPages<restoredPages))await loadAccounts(true);schedulePendingChecks();accountListReady=true;queueAccountCache();resumeReady=true;queueResume();if(panelAdmin)pollAccountRefresh(false);
  // Every fresh visit begins with an EMPTY name/query field and NO zombie job.
  // This deletes ONLY old search jobs/hits, never a linked Telegram session.
  clearAccountSearchView();
