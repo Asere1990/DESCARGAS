@@ -1228,10 +1228,26 @@ document.addEventListener('visibilitychange',()=>{for(const node of premiumNodes
 $('compose-text').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();$('composer').requestSubmit();}});
 const overviewAccounts=new Map(),accountCards=new Map();
 let accountGroups=new Map(),accountTab='active',statusQueue=[],statusBusy=false,overviewRun=0,overviewSearching=false,overviewPending=[];
-const accountStates={active:'Activa',disconnected:'Desactivada',revoked:'Sesión revocada',expired:'Sesión vencida',invalid:'Sin sesión válida',unknown:'Sin verificar'};
-function accountLinkState(a){return a.linked===false?'disconnected':'active';}
-function statusGroup(a,state){return (panelAdmin?accountLinkState(a)==='active':state==='active')?'active':'inactive';}
-function buildAccountGroups(){accountGroups.clear();$('accounts').replaceChildren();for(const [key,title] of [['active','Cuentas activas'],['inactive','Cuentas desactivadas']]){const section=el('section'),heading=el('h2',title),list=el('div');section.className='account-group';section.append(heading,list);$('accounts').append(section);accountGroups.set(key,{section,heading,list,title});}updateAccountGroups();}
+const accountStates={active:'Activa',disconnected:'Desactivada',revoked:'Sesión revocada',expired:'Sesión vencida',invalid:'Sin sesión válida',unknown:'Pendiente de comprobar'};
+function accountLinkState(a){
+ if(a.linked===false)return 'disconnected';
+ const {state,reason}=a.status||{};
+ if(state==='active')return 'active';
+ if(['SESSION_REVOKED','SESSION_EXPIRED','AuthKeyUnregisteredError','AuthKeyInvalidError','AuthKeyDuplicatedError'].includes(reason))return 'disconnected';
+ return 'unknown';
+}
+function statusGroup(a,state){
+ if(!panelAdmin)return state==='active'?'active':'inactive';
+ const linkState=accountLinkState(a);
+ return linkState==='unknown'?'pending':linkState==='active'?'active':'inactive';
+}
+function buildAccountGroups(){
+ if(panelAdmin&&!$('account-tab-pending')){
+  const tab=el('button','Pendientes '),count=el('span','0');
+  tab.type='button';tab.id='account-tab-pending';count.id='account-count-pending';count.className='account-tab-count';
+  tab.append(count);tab.onclick=()=>setAccountTab('pending');$('account-tab-inactive').after(tab);
+ }
+accountGroups.clear();$('accounts').replaceChildren();for(const [key,title] of [['active','Cuentas activas'],['inactive','Cuentas desactivadas'],...(panelAdmin?[['pending','Cuentas pendientes']]:[])]){const section=el('section'),heading=el('h2',title),list=el('div');section.className='account-group';section.append(heading,list);$('accounts').append(section);accountGroups.set(key,{section,heading,list,title});}updateAccountGroups();}
 function updateAccountGroups(){
  const selected=panelReviewer?'active':accountTab,partial=accountsNext?'+':'';
  for(const [key,group] of accountGroups){
@@ -1250,15 +1266,31 @@ function updateAccountGroups(){
  note.hidden=!parts.length;
 }
 function setAccountTab(value){
- if(value!=='active'&&value!=='inactive')return;
+ if(value!=='active'&&value!=='inactive'&&!(panelAdmin&&value==='pending'))return;
  if(panelReviewer&&value==='inactive')return;
- accountTab=value;updateAccountGroups();queueResume();
+ accountTab=value;updateAccountGroups();queueResume();schedulePendingChecks();
 }
 $('account-tab-active').onclick=()=>setAccountTab('active');
 $('account-tab-inactive').onclick=()=>setAccountTab('inactive');
 function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;updateAccountMessageLink(card.message,a);card.addContact.disabled=!contactPhone(a);card.addContact.title=card.addContact.disabled?'No hay teléfono disponible':'Añadir este teléfono a Contactos';card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';const displayState=panelAdmin?accountLinkState(a):state;card.status.textContent=accountStates[displayState]||accountStates.unknown;card.status.dataset.state=displayState;card.row.disabled=a.linked===false;card.check.hidden=a.linked===false;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');if(typeof updateAccountFavoriteStar==='function')updateAccountFavoriteStar(a);const group=accountGroups.get(statusGroup(a,state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
-async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);if(status.state!=='unknown'||!a.status?.checked||status.reason==='La sesión cambió; vuelve a comprobar')a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){if(!a.status?.checked)a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
-async function pumpStatuses(){if(statusBusy||overviewSearching||operationBusy||!statusQueue.length||$('workspace').dataset.view!=='accounts')return;statusBusy=true;const a=statusQueue.shift();try{await verifyAccount(a);}finally{statusBusy=false;pumpStatuses();}}
+async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;if(card.check.disabled)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);const floodWait=/Telegram pide esperar (\d+) segundos/.exec(status.reason||'');if(floodWait)a.nextPendingCheck=Date.now()+Number(floodWait[1])*1000;if(panelAdmin||status.state!=='unknown'||!a.status?.checked||status.reason==='La sesión cambió; vuelve a comprobar')a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){if(panelAdmin||!a.status?.checked)a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
+async function pumpStatuses(){if(statusBusy||overviewSearching||operationBusy||!statusQueue.length||$('workspace').dataset.view!=='accounts')return;statusBusy=true;const a=statusQueue.shift();try{await verifyAccount(a);}finally{statusBusy=false;a.statusQueued=false;pumpStatuses();}}
+let pendingCheckTimer;
+function schedulePendingChecks(){
+ if(!panelAdmin||accountTab!=='pending'||pendingCheckTimer)return;
+ pendingCheckTimer=setTimeout(()=>{
+  pendingCheckTimer=null;
+  if(accountTab!=='pending'||$('workspace').dataset.view!=='accounts')return;
+  for(const a of overviewAccounts.values()){
+   if(accountLinkState(a)!=='unknown'||a.statusQueued||a.linked===false)continue;
+   if((a.pendingAttempts||0)>=3||Date.now()<(a.nextPendingCheck||0))continue;
+   a.pendingAttempts=(a.pendingAttempts||0)+1;
+   a.nextPendingCheck=Date.now()+60000*a.pendingAttempts;
+   queueStatus(a);
+  }
+  schedulePendingChecks();
+ },15000);
+}
 function queueStatus(a){if(a.linked===false)return;if(!a.statusQueued&&(!a.status?.checked||Date.now()/1000-a.status.checked>300)){a.statusQueued=true;statusQueue.push(a);pumpStatuses();}}
 // Solo presentación y exportación local: no modifica cuentas ni llama a Telegram.
 function contactPhone(a){
@@ -1959,7 +1991,7 @@ async function restoreConversation(saved){
 async function resumePanel(){
  const saved=readResume();if(!saved)return;resumeRestoring=true;
  try{
-  setAccountTab(saved.accountTab==='inactive'?'inactive':'active');
+  setAccountTab(saved.accountTab||'active');
   if(saved.view==='accounts'||!saved.account){document.querySelector('.accounts').scrollTop=Number(saved.accountsScroll)||0;return;}
   while(!overviewAccounts.has(saved.account.id)&&accountsNext)await loadAccounts(true);
   const a=overviewAccounts.get(saved.account.id);if(!a)return;
@@ -2058,7 +2090,7 @@ async function openPurchases(initialSource=null){
  await load();
 }
 
-(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;panelNavInit();batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;favoriteItems=[];accountFavoriteItems=[];hideFavoritesMenu();const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(accountsNext&&(panelAdmin||loadedAccountPages<restoredPages))await loadAccounts(true);accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
+(async()=>{try{const token=location.hash.slice(1);if(token){history.replaceState(null,'',location.pathname);await api('login',{token});}const me=await api('me');csrf=me.csrf;panelReviewer=!!me.reviewer;panelAdmin=!!me.admin;panelNavInit();batchLimit=me.zip_limit||500;resumeKey='descargas-panel-resume:'+base+':'+me.actor;accountListKey='descargas-panel-accounts:'+base+':'+me.actor;$('locked').hidden=true;$('workspace').hidden=false;favoriteItems=[];accountFavoriteItems=[];hideFavoritesMenu();const restoredPages=restoreCachedAccounts();await loadAccounts();await resumePanel();while(accountsNext&&(panelAdmin||loadedAccountPages<restoredPages))await loadAccounts(true);schedulePendingChecks();accountListReady=true;queueAccountCache();resumeReady=true;queueResume();
  // Every fresh visit begins with an EMPTY name/query field and NO zombie job.
  // This deletes ONLY old search jobs/hits, never a linked Telegram session.
  clearAccountSearchView();
