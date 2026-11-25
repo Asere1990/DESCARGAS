@@ -90,6 +90,33 @@ class ActionsTests(unittest.IsolatedAsyncioTestCase):
         self.client.get_entity.side_effect=lambda v:self.entity if isinstance(v,types.InputPeerChannel) else user
         with self.assertRaisesRegex(ValueError,'permiso'):await self.panel.actions.execute(111,self.payload('promote',target='@miembro',rights=['delete_messages']))
         self.client.rpc.assert_not_awaited()
+    async def test_invite_link_requires_invite_right_and_reuses_current_link(self):
+        self.group(grant=False)
+        rights=self.own.participant.admin_rights
+        rights.invite_users=False
+        with self.assertRaisesRegex(ValueError,'enlaces de invitación'):
+            await self.panel.actions.execute(111,self.payload('invite-link'))
+        self.client.rpc.assert_not_awaited()
+
+        rights.invite_users=True
+        link='https://t.me/+test-invite'
+        invite=types.ChatInviteExported(link=link,admin_id=22,date=None,permanent=True)
+        self.client.rpc.return_value=N(invites=[invite])
+        result=await self.panel.actions.execute(111,self.payload('invite-link'))
+        self.assertEqual(result['link'],link)
+        self.assertEqual(self.client.rpc.await_count,1)
+        self.assertIsInstance(self.client.rpc.call_args.args[0],functions.messages.GetExportedChatInvitesRequest)
+        self.assertNotIn(link,self.settings[next(iter(self.receipts))])
+
+    async def test_invite_link_creates_additional_link_when_none_is_available(self):
+        self.group(grant=False)
+        self.client.rpc.side_effect=[N(invites=[]),N(link='https://t.me/+new-test-invite')]
+        result=await self.panel.actions.execute(111,self.payload('invite-link'))
+        self.assertEqual(result['link'],'https://t.me/+new-test-invite')
+        request=self.client.rpc.call_args.args[0]
+        self.assertIsInstance(request,functions.messages.ExportChatInviteRequest)
+        self.assertFalse(request.legacy_revoke_permanent)
+
     async def test_protected_messages_remain_viewable_but_cannot_be_forwarded(self):
         self.client.get_messages.return_value.noforwards=True
         with self.assertRaisesRegex(ValueError,'protege'):await self.panel.actions.execute(111,self.payload('forward',message=9,destination=self.peer))
