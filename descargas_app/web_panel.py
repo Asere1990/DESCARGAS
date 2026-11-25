@@ -136,8 +136,9 @@ class TelegramPanel:
         self.live=LiveHub(self)
         from .panel_emoji import PremiumEmoji
         self.emoji=PremiumEmoji(self)
-        from .panel_accounts import AccountOverview
+        from .panel_accounts import AccountOverview,AccountRefresh
         self.overview=AccountOverview(self)
+        self.account_refresh=AccountRefresh(self)
         from .panel_background_search import BackgroundPanelSearch
         self.background_search=BackgroundPanelSearch(self)
         from .panel_favorites import PanelFavorites
@@ -592,6 +593,10 @@ class TelegramPanel:
                 response=web.json_response({'ok':True},headers=HEADERS);response.del_cookie('descargas_panel',path=request.path.split('/api/')[0]);return response
             if op=='revoke' and post:
                 await self.s.repo.set_setting(f'web-panel-version:{self.s.bot_id}:{actor}',secrets.token_hex(16));return web.json_response({'ok':True},headers=HEADERS)
+            if op=='account-refresh-start' and post:
+                return web.json_response(await self.account_refresh.begin(actor,session['version']),headers=HEADERS)
+            if op=='account-refresh-state' and request.method=='GET':
+                return web.json_response(await self.account_refresh.status(actor),headers=HEADERS)
             if op=='account-name-search' and request.method=='GET':
                 result=await self.account_name_search(actor,request.query.get('q',''),
                     integer(request.query.get('after','0'),0))
@@ -716,6 +721,8 @@ def mount_panel(app,service):
     async def stop_prepared(app):await panel.prepared.close()
     app.on_startup.append(start_prepared)
     app.on_startup.append(panel.background_search.start)
+    app.on_startup.append(panel.account_refresh.start)
+    app.on_shutdown.append(panel.account_refresh.stop)
     app.on_shutdown.append(panel.background_search.stop)
     app.on_shutdown.append(stop_prepared)
     app.on_shutdown.append(stop_live)
