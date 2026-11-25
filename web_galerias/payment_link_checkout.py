@@ -200,7 +200,15 @@ async def reconcile_access(connection,sub_id):
       ON CONFLICT(uid) DO UPDATE SET
        customer=excluded.customer,
        subscription=excluded.subscription,
-       state=excluded.state,
+       state=CASE WHEN wg_subscriptions.admin_revoked_at>0
+         AND wg_subscriptions.admin_revoked_at>=COALESCE(
+           (SELECT last_invoice_paid_at FROM wg_link_subscriptions
+            WHERE subscription=excluded.subscription),0)
+         THEN 'past_due' ELSE excluded.state END,
+       admin_revoked_at=CASE WHEN COALESCE(
+           (SELECT last_invoice_paid_at FROM wg_link_subscriptions
+            WHERE subscription=excluded.subscription),0)>wg_subscriptions.admin_revoked_at
+         THEN 0 ELSE wg_subscriptions.admin_revoked_at END,
        paid_until=CASE WHEN wg_subscriptions.subscription=excluded.subscription
          THEN GREATEST(wg_subscriptions.paid_until,excluded.paid_until)
          ELSE excluded.paid_until END,
@@ -374,12 +382,72 @@ def verified_repair_request(raw, headers, secret, now):
         raise web.HTTPForbidden(text="Solicitud administrativa no autorizada.")
     try:
         data=json.loads(raw)
-        if (not isinstance(data,dict) or set(data)!={"uid","actor"} or
+        if (not isinstance(data,dict) or set(data) not in ({"uid","actor"},{"uid","actor","action"}) or
+            data.get("action","restore") not in ("restore","remove","cancel") or
             any(type(data[k]) is not int or not 0<data[k]<2**63 for k in ("uid","actor"))):
             raise ValueError("invalid target")
     except (ValueError,TypeError,UnicodeError):
         raise web.HTTPBadRequest(text="Telegram ID inválido.") from None
     return data
+
+
+
+async def restore_verified_existing(g,uid,actor):
+    """Restore a current bound payment, including a manually revoked row.
+    Never overwrite another subscription or bypass risk/administrative blocks.
+    """
+    now=time.time()
+    async with g.db().acquire() as conn:
+        async with conn.transaction():
+            sub=await conn.fetchval("SELECT subscription FROM wg_subscriptions WHERE uid=$1",uid)
+            if not isinstance(sub,str) or not sub.startswith("sub_"):
+                return False
+            await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+                               "wg:stripe:"+sub)
+            row=await conn.fetchrow("""
+                UPDATE wg_subscriptions s SET state=p.status,
+                    paid_until=p.paid_until,cancel_at_period_end=p.cancel_at_period_end,
+                    admin_revoked_at=0,changed=$3
+                FROM wg_link_subscriptions p
+                WHERE s.uid=$1 AND s.subscription=$2 AND p.subscription=s.subscription
+                  AND p.price_id=$4 AND p.status IN ('active','trialing')
+                  AND p.paid_until>$3 AND p.last_invoice_paid_at>0
+                  AND EXISTS (SELECT 1 FROM wg_checkouts c WHERE c.uid=s.uid
+                    AND c.subscription=s.subscription AND left(c.session,8)='cs_live_')
+                  AND NOT EXISTS (SELECT 1 FROM wg_access_blocks b
+                    WHERE b.uid=s.uid AND b.blocked)
+                  AND NOT EXISTS (SELECT 1 FROM wg_web_dispute_blocks d WHERE d.uid=s.uid)
+                  AND NOT EXISTS (SELECT 1 FROM wg_web_refund_blocks f
+                    WHERE f.uid=s.uid AND f.event_created>=p.last_invoice_paid_at)
+                  AND (s.state<>p.status OR s.paid_until<>p.paid_until
+                       OR s.admin_revoked_at>0 OR s.cancel_at_period_end<>p.cancel_at_period_end)
+                RETURNING s.subscription
+            """,uid,sub,now,os.environ["GALERIAS_STRIPE_PRICE_ID"])
+            if row:
+                await conn.execute("INSERT INTO wg_activity(actor,operation,at) VALUES($1,$2,$3)",
+                                   actor,"gallery_paid_access_manual:"+sub,now)
+            return bool(row)
+
+
+async def remove_verified_paid_access(g,uid,actor):
+    """Revoke the Web membership only; do not cancel or refund Stripe."""
+    now=time.time()
+    async with g.db().acquire() as conn:
+        async with conn.transaction():
+            row=await conn.fetchrow("""
+                UPDATE wg_subscriptions s SET state='past_due',
+                    admin_revoked_at=GREATEST(s.admin_revoked_at,$2),changed=$2
+                WHERE s.uid=$1
+                  AND EXISTS (SELECT 1 FROM wg_checkouts c
+                    JOIN wg_link_subscriptions p ON p.subscription=c.subscription
+                    WHERE c.uid=s.uid AND c.subscription=s.subscription
+                      AND left(c.session,8)='cs_live_' AND p.price_id=$3)
+                RETURNING s.subscription
+            """,uid,now,os.environ["GALERIAS_STRIPE_PRICE_ID"])
+            if row:
+                await conn.execute("INSERT INTO wg_activity(actor,operation,at) VALUES($1,$2,$3)",
+                    actor,"gallery_paid_access_removed:"+row["subscription"],now)
+            return bool(row)
 
 
 async def manual_paid_access_repair(g, request):
@@ -388,7 +456,22 @@ async def manual_paid_access_repair(g, request):
     if not configured():
         raise web.HTTPServiceUnavailable(text="Pagos Web no disponibles.")
     uid=data["uid"]
+    action=data.get("action","restore")
+    if action=="remove":
+        # A verified purchase with a missing access row can also be revoked.
+        await recover_missing_paid_access(g,uid,data["actor"])
+        removed=await remove_verified_paid_access(g,uid,data["actor"])
+        return web.json_response({"status":"removed" if removed else "not_recoverable"},
+                                 headers={"Cache-Control":"no-store"})
+    if action=="cancel":
+        # Reuse the existing Web cancellation-at-expiry path and product checks.
+        from .billing_cancel import cancel
+        result=await cancel(g,uid,"CANCELAR_RENOVACION_WEB")
+        return web.json_response({"status":"cancel_scheduled" if result["ok"] else
+                                  "cancel_partial","paid_until":result["active_until"]},
+                                 headers={"Cache-Control":"no-store"})
     rows=await recover_missing_paid_access(g,uid,data["actor"])
+    restored=await restore_verified_existing(g,uid,data["actor"])
     paid=await g.db().fetchrow("""
         SELECT s.paid_until FROM wg_subscriptions s
         JOIN wg_link_subscriptions p ON p.subscription=s.subscription
@@ -399,7 +482,7 @@ async def manual_paid_access_repair(g, request):
                       AND c.subscription=s.subscription AND left(c.session,8)='cs_live_')
     """,uid,time.time(),os.environ["GALERIAS_STRIPE_PRICE_ID"])
     if paid and await g.entitled(uid):
-        result={"status":"recovered" if rows else "already_active",
+        result={"status":"recovered" if rows or restored else "already_active",
                 "paid_until":int(paid["paid_until"])}
     else:
         result={"status":"not_recoverable"}

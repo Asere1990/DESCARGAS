@@ -96,7 +96,13 @@ async def dedupe_once(g):
                 await db.execute("""
                     UPDATE wg_subscriptions SET
                         customer=p.customer,subscription=p.subscription,
-                        state=p.status,paid_until=p.paid_until,
+                        state=CASE WHEN wg_subscriptions.admin_revoked_at>0
+                            AND wg_subscriptions.admin_revoked_at>=p.last_invoice_paid_at
+                            THEN 'past_due' ELSE p.status END,
+                        admin_revoked_at=CASE WHEN p.last_invoice_paid_at>
+                            wg_subscriptions.admin_revoked_at THEN 0
+                            ELSE wg_subscriptions.admin_revoked_at END,
+                        paid_until=p.paid_until,
                         cancel_at_period_end=p.cancel_at_period_end,
                         subscription_started_at=GREATEST(
                           wg_subscriptions.subscription_started_at,

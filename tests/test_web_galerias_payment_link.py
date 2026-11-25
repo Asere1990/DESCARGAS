@@ -273,5 +273,61 @@ class PaymentLinkTests(unittest.IsolatedAsyncioTestCase):
             {"id":sub}),sub)
         self.assertIsNone(link.event_subscription_for_lock("charge.refunded",{}))
 
+
+    async def test_manual_remove_does_not_edit_stripe_receipt(self):
+        conn=SimpleNamespace(fetchrow=AsyncMock(return_value={"subscription":"sub_verified"}),
+                             execute=AsyncMock())
+        @asynccontextmanager
+        async def transaction():yield
+        @asynccontextmanager
+        async def acquire():yield conn
+        conn.transaction=transaction
+        g=SimpleNamespace(db=lambda:SimpleNamespace(acquire=acquire))
+        with patch.dict(os.environ,ENV):
+            self.assertTrue(await link.remove_verified_paid_access(g,UID,123456))
+        sql,*args=conn.fetchrow.await_args.args
+        self.assertIn("UPDATE wg_subscriptions",sql)
+        self.assertIn("admin_revoked_at",sql)
+        self.assertIn("p.price_id=$3",sql)
+        self.assertNotIn("UPDATE wg_link_subscriptions",sql)
+        self.assertEqual(args[0],UID)
+        self.assertEqual(args[2],PRICE)
+        self.assertEqual(conn.execute.await_args.args[1],123456)
+
+    async def test_manual_restore_requires_current_verified_invoice_and_no_blocks(self):
+        conn=SimpleNamespace(fetchval=AsyncMock(return_value="sub_verified"),
+                             fetchrow=AsyncMock(return_value={"subscription":"sub_verified"}),
+                             execute=AsyncMock())
+        @asynccontextmanager
+        async def transaction():yield
+        @asynccontextmanager
+        async def acquire():yield conn
+        conn.transaction=transaction
+        g=SimpleNamespace(db=lambda:SimpleNamespace(acquire=acquire))
+        with patch.dict(os.environ,ENV):
+            self.assertTrue(await link.restore_verified_existing(g,UID,123456))
+        sql,*args=conn.fetchrow.await_args.args
+        for guard in ("admin_revoked_at=0","p.last_invoice_paid_at>0",
+                      "wg_web_dispute_blocks","wg_web_refund_blocks","wg_access_blocks",
+                      "p.paid_until>$3","s.subscription=$2"):
+            self.assertIn(guard,sql)
+        self.assertEqual(args[0:2],[UID,"sub_verified"])
+        self.assertEqual(args[3],PRICE)
+
+    def test_admin_action_is_authenticated_and_validated(self):
+        now=int(time.time())
+        stamp=str(now)
+        secret="x"*64
+        for action in ("restore","remove","cancel","unknown"):
+            raw=json.dumps({"uid":UID,"actor":123456,"action":action}).encode()
+            signature=hmac.new(secret.encode(),b"web-recover-v1."+stamp.encode()+b"."+raw,
+                               hashlib.sha256).hexdigest()
+            headers={"X-Web-Recover-Time":stamp,"X-Web-Recover-Signature":signature}
+            if action=="unknown":
+                with self.assertRaises(web.HTTPBadRequest):
+                    link.verified_repair_request(raw,headers,secret,now)
+            else:
+                self.assertEqual(link.verified_repair_request(raw,headers,secret,now)["action"],action)
+
 if __name__=="__main__":
     unittest.main()

@@ -90,6 +90,10 @@ ALTER TABLE wg_subscriptions
  ADD COLUMN IF NOT EXISTS cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE wg_subscriptions
  ADD COLUMN IF NOT EXISTS subscription_started_at DOUBLE PRECISION NOT NULL DEFAULT 0;
+-- Explicit Web-only manual revocation; only a new paid invoice or /add web
+-- can restore it. Provider receipts and the Stripe subscription stay intact.
+ALTER TABLE wg_subscriptions
+ ADD COLUMN IF NOT EXISTS admin_revoked_at DOUBLE PRECISION NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS wg_link_subscriptions(
  subscription TEXT PRIMARY KEY,
  customer TEXT NOT NULL DEFAULT '',
