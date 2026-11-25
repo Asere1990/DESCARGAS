@@ -51,7 +51,7 @@ async def require_account(s,uid,actor=None):
     row=await reader(s.bot_id,uid) if reader else None
     if row and actor!=uid:
         if not police(actor):raise ValueError(DENIED)
-        if row['revoked'] or row['version']!=VERSION or row['generation']!=row['current_generation']:raise ValueError('La revisión de esta cuenta no está autorizada o fue revocada.')
+        if row['revoked']:raise ValueError('El titular revocó la autorización de revisión de esta cuenta.')
 
 async def require_source(s,uid,source,client=None,entity=None,actor=None):
     actor=ACTOR.get() if actor is None else actor
