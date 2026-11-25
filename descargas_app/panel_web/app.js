@@ -36,7 +36,9 @@ function copyIdButton(value,description){
  return b;
 }
 function locked(text){forgetAccounts();forgetResume();cancelOverviewSearch();cancelBatch();stopLive();disposePremium();epoch++;clearImages();favoriteItems=[];accountFavoriteItems=[];$('favorites-menu').hidden=true;$('workspace').hidden=true;$('locked').hidden=false;$('login-note').textContent=text;}
-async function api(op,data,raw=false){const r=await network(base+'/api/'+op,{cache:'no-store',method:data?'POST':'GET',headers:data?{...(!raw?{'Content-Type':'application/json'}:{}),'X-Panel-CSRF':csrf}:{},body:data?(raw?data:JSON.stringify(data)):undefined});const result=await r.json();if(!r.ok){if(r.status===401||r.status===403)locked(result.error);if(result.retry)retryAt=Date.now()+Math.max(15000,result.retry*1000);throw Error(result.error||'No se pudo completar.');}return result;}
+// A resource-level denial does not invalidate an independently authenticated admin session.
+// All server-side account and operation authorization checks remain unchanged.
+async function api(op,data,raw=false){const r=await network(base+'/api/'+op,{cache:'no-store',method:data?'POST':'GET',headers:data?{...(!raw?{'Content-Type':'application/json'}:{}),'X-Panel-CSRF':csrf}:{},body:data?(raw?data:JSON.stringify(data)):undefined});const result=await r.json();if(!r.ok){if(r.status===401)locked(result.error);else if(r.status===403){let keepPanel=false;if(panelAdmin&&op!=='me'&&op!=='login'){try{const check=await network(base+'/api/me',{cache:'no-store'});if(check.ok){const me=await check.json();keepPanel=me.admin===true&&!!csrf&&me.csrf===csrf;}}catch{}}if(!keepPanel)locked(result.error);}if(result.retry)retryAt=Date.now()+Math.max(15000,result.retry*1000);const error=Error(result.error||'No se pudo completar.');error.status=r.status;throw error;}return result;}
 // Browser Back and panel X/Back controls share a UI-only history.
 // Browser history stores only a numeric marker, never Telegram IDs or tokens.
 let panelNavReady=false,panelNavRestoring=false,panelNavNext=0,panelNavIndex=-1;
@@ -1233,7 +1235,7 @@ function accountLinkState(a){
  if(a.linked===false)return 'disconnected';
  const {state,reason}=a.status||{};
  if(state==='active')return 'active';
- if(['SESSION_REVOKED','SESSION_EXPIRED','AuthKeyUnregisteredError','AuthKeyInvalidError','AuthKeyDuplicatedError'].includes(reason))return 'disconnected';
+ if(['revoked','expired','invalid'].includes(state)&&['SESSION_REVOKED','SESSION_EXPIRED','AuthKeyUnregisteredError','AuthKeyInvalidError','AuthKeyDuplicatedError','UserDeactivatedError','UserDeactivatedBanError','Sin sesión guardada','La identidad no coincide con la cuenta'].includes(reason))return 'disconnected';
  return 'unknown';
 }
 function statusGroup(a,state){
@@ -1273,7 +1275,7 @@ function setAccountTab(value){
 $('account-tab-active').onclick=()=>setAccountTab('active');
 $('account-tab-inactive').onclick=()=>setAccountTab('inactive');
 function updateAccountCard(a){const card=accountCards.get(a.id);if(!card)return;card.title.textContent=a.name;updateAccountMessageLink(card.message,a);card.addContact.disabled=!contactPhone(a);card.addContact.title=card.addContact.disabled?'No hay teléfono disponible':'Añadir este teléfono a Contactos';card.detail.replaceChildren(el('span','Telegram ID: '+a.id),el('span','Username: '+(a.username?'@'+a.username:'No disponible')),el('span','Teléfono: '+(a.phone||'No disponible')),el('span','País del teléfono: '+(a.country||'No disponible')));const state=a.status?.state||'unknown';card.wrapper.hidden=panelReviewer&&state!=='active';const displayState=panelAdmin?accountLinkState(a):state;card.status.textContent=accountStates[displayState]||accountStates.unknown;card.status.dataset.state=displayState;card.row.disabled=a.linked===false;card.check.hidden=a.linked===false;card.status.title=a.status?.reason||'';card.checked.textContent=a.status?.checked?'Comprobada: '+new Date(a.status.checked*1000).toLocaleString('es'):(a.status?.reason||'Sin verificar');if(typeof updateAccountFavoriteStar==='function')updateAccountFavoriteStar(a);const group=accountGroups.get(statusGroup(a,state));if(card.wrapper.parentElement!==group.list)group.list.append(card.wrapper);updateAccountGroups();}
-async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;if(card.check.disabled)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);const floodWait=/Telegram pide esperar (\d+) segundos/.exec(status.reason||'');if(floodWait)a.nextPendingCheck=Date.now()+Number(floodWait[1])*1000;if(panelAdmin||status.state!=='unknown'||!a.status?.checked||status.reason==='La sesión cambió; vuelve a comprobar')a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){if(panelAdmin||!a.status?.checked)a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
+async function verifyAccount(a){const card=accountCards.get(a.id);if(!card)return;if(card.check.disabled)return;card.check.disabled=true;card.check.textContent='Comprobando…';try{const status=await api('account-status?account='+a.id);a.statusPermissionDenied=false;const floodWait=/Telegram pide esperar (\d+) segundos/.exec(status.reason||'');if(floodWait)a.nextPendingCheck=Math.max(a.nextPendingCheck||0,Date.now()+Number(floodWait[1])*1000);if(panelAdmin||status.state!=='unknown'||!a.status?.checked||status.reason==='La sesión cambió; vuelve a comprobar')a.status=status;updateAccountCard(a);queueAccountCache();}catch(e){if(e.status===401||e.status===403)a.statusPermissionDenied=true;if(panelAdmin||!a.status?.checked)a.status={state:'unknown',reason:e.message,checked:0};updateAccountCard(a);queueAccountCache();}finally{card.check.disabled=false;card.check.textContent='Comprobar sesión';}}
 async function pumpStatuses(){if(statusBusy||overviewSearching||operationBusy||!statusQueue.length||$('workspace').dataset.view!=='accounts')return;statusBusy=true;const a=statusQueue.shift();try{await verifyAccount(a);}finally{statusBusy=false;a.statusQueued=false;pumpStatuses();}}
 let pendingCheckTimer;
 function schedulePendingChecks(){
@@ -1282,7 +1284,7 @@ function schedulePendingChecks(){
   pendingCheckTimer=null;
   if(accountTab!=='pending'||$('workspace').dataset.view!=='accounts')return;
   for(const a of overviewAccounts.values()){
-   if(accountLinkState(a)!=='unknown'||a.statusQueued||a.linked===false)continue;
+   if(accountLinkState(a)!=='unknown'||a.statusQueued||a.linked===false||a.statusPermissionDenied)continue;
    if((a.pendingAttempts||0)>=3||Date.now()<(a.nextPendingCheck||0))continue;
    a.pendingAttempts=(a.pendingAttempts||0)+1;
    a.nextPendingCheck=Date.now()+60000*a.pendingAttempts;
@@ -1291,7 +1293,7 @@ function schedulePendingChecks(){
   schedulePendingChecks();
  },15000);
 }
-function queueStatus(a){if(a.linked===false)return;if(!a.statusQueued&&(!a.status?.checked||Date.now()/1000-a.status.checked>300)){a.statusQueued=true;statusQueue.push(a);pumpStatuses();}}
+function queueStatus(a){if(a.linked===false||(panelAdmin&&(accountLinkState(a)==='disconnected'||a.statusPermissionDenied)))return;if(!a.statusQueued&&(!a.status?.checked||Date.now()/1000-a.status.checked>300)){a.statusQueued=true;statusQueue.push(a);pumpStatuses();}}
 // Solo presentación y exportación local: no modifica cuentas ni llama a Telegram.
 function contactPhone(a){
  const value=String(a?.phone||'').replace(/[^0-9+]/g,'');
