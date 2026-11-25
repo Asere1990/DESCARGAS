@@ -234,11 +234,13 @@ class TelegramPanel:
         # Account sessions remain encrypted and are never opened by this listing.
         rows=await self.s.repo.pool.fetch(
             """SELECT a.uid,a.profile,a.generation,a.session IS NOT NULL AS linked,md5(a.session) AS session_tag,
-                      d.name,d.country,st.value AS status_cache
+                      d.name,d.country,st.value AS status_cache,
+                      c.revoked AS review_revoked,c.accepted AS review_accepted
                FROM descarga_accounts a
                LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2
                LEFT JOIN descarga_settings st
                  ON st.key='panel-account-status:' || $2::text || ':' || a.uid::text
+               LEFT JOIN descarga_creator_consent c ON c.uid=a.uid AND c.bot_id=$2
                WHERE a.uid>$1 AND (a.session IS NOT NULL OR ($4 AND a.profile IS NOT NULL))
                ORDER BY a.uid LIMIT $3""",after,self.s.bot_id,page_size+1,police(actor))
         items=[]
@@ -248,7 +250,7 @@ class TelegramPanel:
                 except ValueError:continue
             profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
             directory=self.s.repo.decode(row['name']) if row.get('name') else {}
-            from .panel_accounts import metadata
+            from .panel_accounts import metadata,review_metadata
             status=self.overview.cached_value(row.get('status_cache'),row.get('generation',0),row.get('session_tag',''),allow_stale=not limited)
             if limited:
                 if not status:
@@ -257,7 +259,8 @@ class TelegramPanel:
                     except (ValueError,TimeoutError,errors.RPCError,OSError):continue
                 if not status or status.get('state')!='active':continue
             items.append({'id':str(row['uid']),'linked':row['linked'],'generation':row.get('generation',0),'name':account_label(profile,directory),'username':profile.get('username') or '',
-                          **metadata(profile,directory,row.get('country','')), 'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
+                          **metadata(profile,directory,row.get('country','')),
+                          **(review_metadata(row,actor) if not limited else {}), 'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
         return {'items':items,'next':str(rows[page_size-1]['uid']) if len(rows)>page_size else None,'reviewer':limited}
     async def account_name_search(self,actor,query,after=0):
         """Fast prefix search of SAVED account names, without a Telegram connection.
@@ -267,6 +270,7 @@ class TelegramPanel:
         This is intentionally independent of active/revoked status for admins.
         """
         from .panel_background_search import fold
+        from .panel_accounts import review_metadata
         if not authorized(actor):raise web.HTTPForbidden()
         if not isinstance(query,str) or len(query)>100:raise ValueError('Escribe hasta 100 caracteres.')
         prefix=fold(query)
@@ -277,11 +281,13 @@ class TelegramPanel:
         # exist. Neither account_lock(), connected(), client() nor get_me() runs.
         rows=await self.s.repo.pool.fetch(
             """SELECT a.uid,a.profile,a.generation,a.session IS NOT NULL AS linked,md5(a.session) AS session_tag,
-                      d.name,d.country,st.value AS status_cache
+                      d.name,d.country,st.value AS status_cache,
+                      c.revoked AS review_revoked,c.accepted AS review_accepted
                FROM descarga_accounts a
                LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$1
                LEFT JOIN descarga_settings st
                  ON st.key='panel-account-status:' || $1::text || ':' || a.uid::text
+               LEFT JOIN descarga_creator_consent c ON c.uid=a.uid AND c.bot_id=$1
                WHERE a.session IS NOT NULL OR ($2 AND a.profile IS NOT NULL)
                ORDER BY a.uid""",self.s.bot_id,police(actor))
         matches=[]
@@ -312,6 +318,7 @@ class TelegramPanel:
             matches.append({'id':str(row['uid']),'linked':row['linked'],'name':display,
                             'username':profile.get('username') or '',
                             'generation':row.get('generation',0),
+                            **(review_metadata(row,actor) if not limited else {}),
                             'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
         matches.sort(key=lambda item:(fold(item['name']),int(item['id'])))
         return {'items':matches[after:after+60],
