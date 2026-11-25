@@ -9,7 +9,7 @@ from babel import Locale
 import phonenumbers
 from telethon import errors,functions,types
 from aiohttp import web
-from .creator_access import ACTOR,require_account
+from .creator_access import ACTOR,require_account,police
 from .moderation import authorized
 
 LOCALE=Locale.parse('es')
@@ -36,6 +36,24 @@ def metadata(profile,directory,country=''):
     return {'phone':phone,'country_code':code,'country':str(LOCALE.territories.get(code,code)) if code and code!='ZZ' else ''}
 
 def tag(row):return hashlib.md5(bytes(row['session'])).hexdigest() if row and row['session'] else ''
+
+def review_metadata(row,actor):
+    """Report review permission separately from session validity; no Telegram call."""
+    if row['uid']==actor or not row.get('review_revoked'):
+        return {}
+    reason=('Autorización de revisión no completada' if not row.get('review_accepted')
+            else 'Autorización de revisión revocada')
+    return {'review_state':'not_authorized','review_reason':reason}
+
+async def record_owner_confirmation(service,uid):
+    """Record only evidence from the owner's already successful identity check.
+    Caller holds the existing account lock; never connects to Telegram here.
+    """
+    row=await service.repo.account(uid)
+    if not row or not row['session']:return
+    data={'state':'active','reason':'Identidad confirmada por Telegram',
+          'checked':time.time(),'generation':row['generation'],'session_tag':tag(row)}
+    await service.repo.set_setting(f'panel-account-status:{service.bot_id}:{uid}',json.dumps(data))
 
 class AccountOverview:
     def __init__(self,panel):self.p=panel;self.s=panel.s;self.slots=asyncio.Semaphore(1)
@@ -73,9 +91,20 @@ class AccountOverview:
                     yield client
                 finally:await client.disconnect()
         finally:ACTOR.reset(marker)
+    async def review_denial(self,actor,uid):
+        try:
+            await require_account(self.s,uid,actor)
+        except ValueError:
+            # Never bypass the guard. An administrative review refusal is not
+            # evidence that the owner's Telegram session is valid or invalid.
+            if not police(actor):raise
+            return {'review_state':'not_authorized',
+                    'review_reason':'Revisión no autorizada; sin nueva comprobación técnica'}
+        return None
     async def check(self,actor,uid):
         if not authorized(actor):raise web.HTTPForbidden()
-        await require_account(self.s,uid,actor)
+        denial=await self.review_denial(actor,uid)
+        if denial:return denial
         row=await self.s.repo.account(uid)
         if not row or not row['session']:return {'state':'invalid','reason':'Sin sesión guardada','checked':time.time()}
         fingerprint=tag(row);generation=row['generation']
@@ -103,7 +132,8 @@ class AccountOverview:
             else:reason='Error temporal: '+name
         except (OSError,ConnectionError):reason='No se pudo conectar con Telegram'
         if not authorized(actor):raise web.HTTPForbidden()
-        await require_account(self.s,uid,actor)
+        denial=await self.review_denial(actor,uid)
+        if denial:return denial
         current=await self.s.repo.account(uid)
         if not current or current['generation']!=generation or tag(current)!=fingerprint:
             return {'state':'unknown','reason':'La sesión cambió; vuelve a comprobar','checked':0}
