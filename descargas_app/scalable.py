@@ -360,6 +360,13 @@ class ScaleService(Service):
             await self.repo.save_account(uid,client.session.save(),{'phone':pending['phone'],
                 'phone_country':phonenumbers.region_code_for_number(number) or 'ZZ',
                 'calling_code':number.country_code,'updated_at':int(time.time())})
+            # This is metadata from the owner's existing successful login,
+            # not an additional session check or a change to authorization.
+            try:
+                from .panel_accounts import record_owner_confirmation
+                await record_owner_confirmation(self,uid)
+            except Exception:
+                LOG.warning('Could not record owner session status')
         await self.repo.remember_person(self.bot_id,uid,' '.join(filter(None,[getattr(me,'first_name',''),getattr(me,'last_name','')])),phonenumbers.region_code_for_number(number) or 'ZZ')
         await self.clear_pending(uid)
         message=('✅CUENTA PROTEGIDA\nEl contenido de esta cuenta está protegido contra descargas'
