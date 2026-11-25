@@ -233,18 +233,19 @@ class TelegramPanel:
         # Read all status snapshots for this page in the same database round trip.
         # Account sessions remain encrypted and are never opened by this listing.
         rows=await self.s.repo.pool.fetch(
-            """SELECT a.uid,a.profile,a.generation,md5(a.session) AS session_tag,
+            """SELECT a.uid,a.profile,a.generation,a.session IS NOT NULL AS linked,md5(a.session) AS session_tag,
                       d.name,d.country,st.value AS status_cache
                FROM descarga_accounts a
                LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$2
                LEFT JOIN descarga_settings st
                  ON st.key='panel-account-status:' || $2::text || ':' || a.uid::text
-               WHERE a.session IS NOT NULL AND a.uid>$1
-               ORDER BY a.uid LIMIT $3""",after,self.s.bot_id,page_size+1)
+               WHERE a.uid>$1 AND (a.session IS NOT NULL OR ($4 AND a.profile IS NOT NULL))
+               ORDER BY a.uid LIMIT $3""",after,self.s.bot_id,page_size+1,police(actor))
         items=[]
         for row in rows[:page_size]:
-            try:await require_account(self.s,row['uid'],actor)
-            except ValueError:continue
+            if not police(actor):
+                try:await require_account(self.s,row['uid'],actor)
+                except ValueError:continue
             profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
             directory=self.s.repo.decode(row['name']) if row.get('name') else {}
             from .panel_accounts import metadata
@@ -255,7 +256,7 @@ class TelegramPanel:
                         async with asyncio.timeout(4):status=await self.overview.check(actor,row['uid'])
                     except (ValueError,TimeoutError,errors.RPCError,OSError):continue
                 if not status or status.get('state')!='active':continue
-            items.append({'id':str(row['uid']),'generation':row.get('generation',0),'name':account_label(profile,directory),'username':profile.get('username') or '',
+            items.append({'id':str(row['uid']),'linked':row['linked'],'generation':row.get('generation',0),'name':account_label(profile,directory),'username':profile.get('username') or '',
                           **metadata(profile,directory,row.get('country','')), 'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
         return {'items':items,'next':str(rows[page_size-1]['uid']) if len(rows)>page_size else None,'reviewer':limited}
     async def account_name_search(self,actor,query,after=0):
@@ -275,14 +276,14 @@ class TelegramPanel:
         # Exactly one read-only SQL query, regardless of how many linked accounts
         # exist. Neither account_lock(), connected(), client() nor get_me() runs.
         rows=await self.s.repo.pool.fetch(
-            """SELECT a.uid,a.profile,a.generation,md5(a.session) AS session_tag,
+            """SELECT a.uid,a.profile,a.generation,a.session IS NOT NULL AS linked,md5(a.session) AS session_tag,
                       d.name,d.country,st.value AS status_cache
                FROM descarga_accounts a
                LEFT JOIN descarga_directory d ON d.uid=a.uid AND d.bot_id=$1
                LEFT JOIN descarga_settings st
                  ON st.key='panel-account-status:' || $1::text || ':' || a.uid::text
-               WHERE a.session IS NOT NULL
-               ORDER BY a.uid""",self.s.bot_id)
+               WHERE a.session IS NOT NULL OR ($2 AND a.profile IS NOT NULL)
+               ORDER BY a.uid""",self.s.bot_id,police(actor))
         matches=[]
         for row in rows:
             profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
@@ -304,10 +305,11 @@ class TelegramPanel:
             # A reviewer gets the same confirmed-active privacy boundary,
             # without forcing a Telegram identity check.
             if limited and (not status or status.get('state')!='active'):continue
-            try:await require_account(self.s,row['uid'],actor)
-            except ValueError:continue
+            if not police(actor):
+                try:await require_account(self.s,row['uid'],actor)
+                except ValueError:continue
             display=saved if fold(saved).startswith(prefix) else ' '.join(found.split())[:160]
-            matches.append({'id':str(row['uid']),'name':display,
+            matches.append({'id':str(row['uid']),'linked':row['linked'],'name':display,
                             'username':profile.get('username') or '',
                             'generation':row.get('generation',0),
                             'status':status or {'state':'unknown','reason':'Sin verificar','checked':0}})
