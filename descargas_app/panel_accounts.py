@@ -80,13 +80,13 @@ class AccountOverview:
             if self.slots.locked():return {'state':state,'reason':'Hay otra comprobación en curso. Reintenta.','checked':0}
             async with self.slots,asyncio.timeout(18),self.connection(actor,uid) as client:
                 me=await identity(client)
-                if me is None:state='invalid';reason='Telegram no reconoce esta sesión';confirmed=True
+                if me is None:reason='Telegram no confirmó la identidad de la sesión'
                 elif me.id!=uid:reason='La identidad no coincide con la cuenta'
                 else:state='active';reason='Identidad confirmada por Telegram';confirmed=True
         except errors.SessionRevokedError:state='revoked';reason='SESSION_REVOKED';confirmed=True
         except errors.SessionExpiredError:state='expired';reason='SESSION_EXPIRED';confirmed=True
         except (errors.AuthKeyUnregisteredError,errors.AuthKeyInvalidError,errors.AuthKeyDuplicatedError) as exc:state='invalid';reason=type(exc).__name__;confirmed=True
-        except errors.UnauthorizedError as exc:state='invalid';reason=type(exc).__name__;confirmed=True
+        except errors.UnauthorizedError as exc:reason='Telegram no confirmó la sesión: '+type(exc).__name__
         except errors.FloodWaitError as exc:reason=f'Telegram pide esperar {exc.seconds} segundos'
         except (ValueError,TimeoutError):reason='Cuenta ocupada o comprobación temporalmente no disponible'
         except errors.RPCError as exc:reason='Error temporal: '+type(exc).__name__
