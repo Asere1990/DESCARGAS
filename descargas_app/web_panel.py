@@ -248,7 +248,7 @@ class TelegramPanel:
             profile=self.s.repo.decode(row['profile']) if row['profile'] else {}
             directory=self.s.repo.decode(row['name']) if row.get('name') else {}
             from .panel_accounts import metadata
-            status=self.overview.cached_value(row.get('status_cache'),row.get('generation',0),row.get('session_tag',''))
+            status=self.overview.cached_value(row.get('status_cache'),row.get('generation',0),row.get('session_tag',''),allow_stale=not limited)
             if limited:
                 if not status:
                     try:
