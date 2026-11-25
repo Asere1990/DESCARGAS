@@ -97,15 +97,10 @@ class LiveEntry:
                     self.client=self.s.client(await self.s.get_session(self.uid))
                     self.client.add_event_handler(self.raw,events.Raw())
                 await self.client.connect()
-                from .panel_accounts import identity,record_confirmed_session
+                from .panel_accounts import identity
                 me=await identity(self.client)
                 if not me or me.id!=self.uid:
                     self.publish({'kind':'reconnect'});return
-                # The identity was already confirmed by this authorized live
-                # connection. Save only the session health snapshot.
-                if await self.valid_actor() is None:return
-                try:await record_confirmed_session(self.s,self.uid,row)
-                except Exception:LOG.warning('Panel live status snapshot unavailable')
                 await self.client.set_receive_updates(True)
                 await self.client.catch_up()
                 self.ready=not self.yield_session.is_set()
