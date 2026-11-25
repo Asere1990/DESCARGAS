@@ -301,7 +301,7 @@ class TelegramPanel:
             if not found:continue
             status=self.overview.cached_value(row.get('status_cache'),
                                                row.get('generation',0),
-                                               row.get('session_tag',''))
+                                               row.get('session_tag',''),allow_stale=not limited)
             # A reviewer gets the same confirmed-active privacy boundary,
             # without forcing a Telegram identity check.
             if limited and (not status or status.get('state')!='active'):continue
