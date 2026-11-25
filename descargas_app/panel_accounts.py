@@ -39,13 +39,13 @@ class AccountOverview:
     async def cached(self,uid,generation,session_tag):
         return self.cached_value(await self.s.repo.setting(self.key(uid)),generation,session_tag)
     @staticmethod
-    def cached_value(raw,generation,session_tag):
+    def cached_value(raw,generation,session_tag,*,allow_stale=False):
         # The account list can read all cached states in one indexed SQL join.
         # Require the exact session fingerprint and generation; never trust stale states.
         try:data=json.loads(raw or '{}')
         except (ValueError,TypeError):return None
         if data.get('generation')!=generation or data.get('session_tag')!=session_tag:return None
-        if time.time()-data.get('checked',0)>300:return None
+        if not data.get('checked') or (not allow_stale and time.time()-data['checked']>300):return None
         return {k:data[k] for k in ('state','reason','checked')}
     @asynccontextmanager
     async def connection(self,actor,uid):
