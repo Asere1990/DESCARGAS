@@ -13,6 +13,10 @@ from .creator_access import ACTOR,require_account
 from .moderation import authorized
 
 LOCALE=Locale.parse('es')
+TERMINAL_SESSION_REASONS=frozenset(('SESSION_REVOKED','SESSION_EXPIRED',
+    'AuthKeyUnregisteredError','AuthKeyInvalidError','AuthKeyDuplicatedError',
+    'UserDeactivatedError','UserDeactivatedBanError','Sin sesión guardada',
+    'La identidad no coincide con la cuenta'))
 
 async def identity(client):
     # get_me() suppresses UnauthorizedError, losing SESSION_REVOKED vs expiry.
@@ -45,7 +49,9 @@ class AccountOverview:
         try:data=json.loads(raw or '{}')
         except (ValueError,TypeError):return None
         if data.get('generation')!=generation or data.get('session_tag')!=session_tag:return None
-        if not data.get('checked') or (not allow_stale and time.time()-data['checked']>300):return None
+        terminal=(data.get('state') in ('revoked','expired','invalid') and
+                  data.get('reason') in TERMINAL_SESSION_REASONS)
+        if not data.get('checked') or (not allow_stale and not terminal and time.time()-data['checked']>300):return None
         return {k:data[k] for k in ('state','reason','checked')}
     @asynccontextmanager
     async def connection(self,actor,uid):
@@ -81,15 +87,20 @@ class AccountOverview:
             async with self.slots,asyncio.timeout(18),self.connection(actor,uid) as client:
                 me=await identity(client)
                 if me is None:reason='Telegram no confirmó la identidad de la sesión'
-                elif me.id!=uid:reason='La identidad no coincide con la cuenta'
+                elif me.id!=uid:state='invalid';reason='La identidad no coincide con la cuenta';confirmed=True
                 else:state='active';reason='Identidad confirmada por Telegram';confirmed=True
         except errors.SessionRevokedError:state='revoked';reason='SESSION_REVOKED';confirmed=True
         except errors.SessionExpiredError:state='expired';reason='SESSION_EXPIRED';confirmed=True
         except (errors.AuthKeyUnregisteredError,errors.AuthKeyInvalidError,errors.AuthKeyDuplicatedError) as exc:state='invalid';reason=type(exc).__name__;confirmed=True
-        except errors.UnauthorizedError as exc:reason='Telegram no confirmó la sesión: '+type(exc).__name__
         except errors.FloodWaitError as exc:reason=f'Telegram pide esperar {exc.seconds} segundos'
         except (ValueError,TimeoutError):reason='Cuenta ocupada o comprobación temporalmente no disponible'
-        except errors.RPCError as exc:reason='Error temporal: '+type(exc).__name__
+        except errors.RPCError as exc:
+            name=type(exc).__name__
+            if name in ('UserDeactivatedError','UserDeactivatedBanError'):
+                state='invalid';reason=name;confirmed=True
+            elif isinstance(exc,errors.UnauthorizedError):
+                reason='Telegram no confirmó la sesión: '+name
+            else:reason='Error temporal: '+name
         except (OSError,ConnectionError):reason='No se pudo conectar con Telegram'
         if not authorized(actor):raise web.HTTPForbidden()
         await require_account(self.s,uid,actor)
