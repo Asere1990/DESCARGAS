@@ -300,6 +300,9 @@ def mount(app,service,*,enable_history_import=False):
         return await downloads.save_file(g,request)
     async def stripe(request):
         return await payments.webhook(g,request)
+    async def repair_paid(request):
+        from .payment_link_checkout import manual_paid_access_repair
+        return await manual_paid_access_repair(g,request)
     async def notices_upload(request):
         result=await broadcasts.upload(g,request)
         return web.json_response(result,headers={"Cache-Control":"no-store"})
@@ -338,6 +341,7 @@ def mount(app,service,*,enable_history_import=False):
     app.router.add_get("/web-galerias/download/{ticket}",download)
     app.router.add_get("/web-galerias/file/{item}",save_file)
     app.router.add_post("/web-galerias/stripe",stripe)
+    app.router.add_post("/web-galerias/internal/repair-paid",repair_paid)
     async def startup(_):
         g.task=asyncio.create_task(g.setup())
     async def cleanup(_):

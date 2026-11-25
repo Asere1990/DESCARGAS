@@ -172,6 +172,17 @@ async def sync_once(g):
 
 async def run(g):
     while not g.closed:
+        # Reconcile only verified paid checkouts missing their access row.
+        # This is independent of the CRM mirror; a transient error retries.
+        try:
+            from .payment_link_checkout import recover_missing_paid_access
+            repaired=await recover_missing_paid_access(g)
+            if repaired:
+                log.info("Web paid access recovered: %s",len(repaired))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("Web paid access reconciliation pending (%s)",type(exc).__name__)
         try:
             await sync_once(g)
         except asyncio.CancelledError:

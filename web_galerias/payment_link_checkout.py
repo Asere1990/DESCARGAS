@@ -5,8 +5,11 @@ $6.99/month subscription product. A random, one-time client reference joins the
 signed Stripe event to the Telegram ID. Only paid invoice periods grant access.
 Webhook events can arrive in any order; their information is reconciled in DB.
 """
+import hashlib
+import hmac
 import json
 import os
+import re
 import secrets
 import time
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -302,6 +305,121 @@ async def recover_independently_verified_purchase(g):
 
 
 
+
+async def recover_missing_paid_access(g, uid=None, actor=None):
+    """Repair only missing access backed by a verified, bound, current invoice.
+
+    Do not overwrite any existing access row, grant a free month, alter Stripe,
+    or clear an administrative/risk block. An atomic INSERT is idempotent even
+    if two workers or a manual command run together.
+    """
+    if not configured():
+        return []
+    now=time.time()
+    price=os.environ["GALERIAS_STRIPE_PRICE_ID"]
+    async with g.db().acquire() as conn:
+        async with conn.transaction():
+            rows=await conn.fetch("""
+                WITH candidates AS (
+                    SELECT DISTINCT ON (c.uid) c.uid,p.customer,p.subscription,
+                        p.status,p.paid_until,p.cancel_at_period_end,
+                        GREATEST(p.subscription_started_at,c.created) AS started_at
+                    FROM wg_checkouts c
+                    JOIN wg_link_subscriptions p ON p.subscription=c.subscription
+                    LEFT JOIN wg_subscriptions s ON s.uid=c.uid
+                    WHERE ($3::bigint IS NULL OR c.uid=$3)
+                      AND left(c.session,8)='cs_live_'
+                      AND p.price_id=$1 AND p.status IN ('active','trialing')
+                      AND p.paid_until>$2 AND p.last_invoice_paid_at>0
+                      AND left(p.customer,4)='cus_' AND s.uid IS NULL
+                      AND NOT EXISTS (SELECT 1 FROM wg_web_dispute_blocks d
+                                      WHERE d.uid=c.uid)
+                      AND NOT EXISTS (SELECT 1 FROM wg_access_blocks b
+                                      WHERE b.uid=c.uid AND b.blocked)
+                      AND NOT EXISTS (SELECT 1 FROM wg_web_refund_blocks f
+                          WHERE f.uid=c.uid AND f.event_created>=p.last_invoice_paid_at)
+                    ORDER BY c.uid,GREATEST(p.subscription_started_at,c.created) DESC,
+                        p.last_invoice_paid_at DESC,p.subscription DESC
+                    LIMIT $4
+                )
+                INSERT INTO wg_subscriptions(uid,customer,subscription,state,
+                    paid_until,changed,cancel_at_period_end,subscription_started_at)
+                SELECT uid,customer,subscription,status,paid_until,$2,
+                    cancel_at_period_end,started_at FROM candidates
+                ON CONFLICT DO NOTHING
+                RETURNING uid,subscription,paid_until
+            """,price,now,uid,1 if uid is not None else 30)
+            for row in rows:
+                await conn.execute("""
+                    INSERT INTO wg_activity(actor,operation,at)
+                    VALUES($1,$2,$3)
+                """,actor if actor is not None else row["uid"],
+                    ("gallery_paid_access_manual:" if actor is not None else
+                     "gallery_paid_access_auto:")+row["subscription"],now)
+            return [dict(row) for row in rows]
+
+
+def verified_repair_request(raw, headers, secret, now):
+    """Authenticate the reverse server-to-server command, not a public login."""
+    stamp=headers.get("X-Web-Recover-Time","")
+    signature=headers.get("X-Web-Recover-Signature","")
+    if (len(secret)<48 or len(raw)>1024 or
+        not re.fullmatch(r"[0-9]{1,12}",stamp) or
+        not re.fullmatch(r"[0-9a-f]{64}",signature) or
+        abs(now-int(stamp))>60):
+        raise web.HTTPForbidden(text="Solicitud administrativa no autorizada.")
+    expected=hmac.new(secret.encode(),
+        b"web-recover-v1."+stamp.encode()+b"."+raw,hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected,signature):
+        raise web.HTTPForbidden(text="Solicitud administrativa no autorizada.")
+    try:
+        data=json.loads(raw)
+        if (not isinstance(data,dict) or set(data)!={"uid","actor"} or
+            any(type(data[k]) is not int or not 0<data[k]<2**63 for k in ("uid","actor"))):
+            raise ValueError("invalid target")
+    except (ValueError,TypeError,UnicodeError):
+        raise web.HTTPBadRequest(text="Telegram ID inválido.") from None
+    return data
+
+
+async def manual_paid_access_repair(g, request):
+    data=verified_repair_request(await request.read(),request.headers,
+        os.getenv("CUBANITAS_BRIDGE_SECRET",""),time.time())
+    if not configured():
+        raise web.HTTPServiceUnavailable(text="Pagos Web no disponibles.")
+    uid=data["uid"]
+    rows=await recover_missing_paid_access(g,uid,data["actor"])
+    paid=await g.db().fetchrow("""
+        SELECT s.paid_until FROM wg_subscriptions s
+        JOIN wg_link_subscriptions p ON p.subscription=s.subscription
+        WHERE s.uid=$1 AND s.state IN ('active','trialing') AND s.paid_until>$2
+          AND p.price_id=$3 AND p.status IN ('active','trialing')
+          AND p.paid_until>=s.paid_until AND p.last_invoice_paid_at>0
+          AND EXISTS (SELECT 1 FROM wg_checkouts c WHERE c.uid=s.uid
+                      AND c.subscription=s.subscription AND left(c.session,8)='cs_live_')
+    """,uid,time.time(),os.environ["GALERIAS_STRIPE_PRICE_ID"])
+    if paid and await g.entitled(uid):
+        result={"status":"recovered" if rows else "already_active",
+                "paid_until":int(paid["paid_until"])}
+    else:
+        result={"status":"not_recoverable"}
+    return web.json_response(result,headers={"Cache-Control":"no-store"})
+
+
+def event_subscription_for_lock(kind,obj):
+    """Serialize the checkout, invoice and subscription events for one sub."""
+    if kind in ("checkout.session.completed","checkout.session.async_payment_succeeded"):
+        value=obj.get("subscription")
+    elif kind in ("invoice.paid","invoice.payment_failed"):
+        value=subscription_id_from_invoice(obj)
+    elif kind in ("customer.subscription.created","customer.subscription.updated",
+                  "customer.subscription.deleted"):
+        value=obj.get("id")
+    else:
+        return None
+    return value if isinstance(value,str) and value.startswith("sub_") else None
+
+
 async def webhook(g,request):
     """Verify Stripe signature before reading metadata, UID or event state."""
     import stripe
@@ -338,6 +456,14 @@ async def webhook(g,request):
             if await conn.fetchval(
                     "SELECT 1 FROM wg_payment_events WHERE id=$1",eid):
                 return web.json_response({"ok":True})
+            # Checkout and invoice may arrive concurrently in separate transactions.
+            # Lock before any staging so the second event sees the committed first.
+            lock_sub=event_subscription_for_lock(kind,obj)
+            if lock_sub:
+                await conn.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+                                   "wg:stripe:"+lock_sub)
+                if await conn.fetchval("SELECT 1 FROM wg_payment_events WHERE id=$1",eid):
+                    return web.json_response({"ok":True})
             affected=None
             if kind in ("checkout.session.completed",
                         "checkout.session.async_payment_succeeded"):

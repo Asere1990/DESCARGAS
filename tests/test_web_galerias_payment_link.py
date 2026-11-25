@@ -1,4 +1,6 @@
 """Payment Link checkout: exact $6.99 Stripe subscription, no secret API key needed."""
+import hashlib
+import hmac
 import json
 import os
 import time
@@ -218,6 +220,58 @@ class PaymentLinkTests(unittest.IsolatedAsyncioTestCase):
                 response=await link.webhook(g,req)
             self.assertEqual(response.status,200)
             conn.execute.assert_not_awaited()
+
+
+    async def test_missing_paid_access_is_idempotent_and_preserves_paid_period(self):
+        period=time.time()+2600000
+        conn=SimpleNamespace(fetch=AsyncMock(return_value=[
+            {"uid":UID,"subscription":"sub_verified","paid_until":period}]),
+            execute=AsyncMock())
+        @asynccontextmanager
+        async def transaction():yield
+        @asynccontextmanager
+        async def acquire():yield conn
+        conn.transaction=transaction
+        g=SimpleNamespace(db=lambda:SimpleNamespace(acquire=acquire))
+        with patch.dict(os.environ,ENV):
+            rows=await link.recover_missing_paid_access(g,UID,123456)
+            self.assertEqual(rows[0]["paid_until"],period)
+            sql,*args=conn.fetch.await_args.args
+            self.assertEqual(args[0],PRICE)
+            self.assertEqual(args[2:], [UID,1])
+            for guard in ("s.uid IS NULL","p.last_invoice_paid_at>0",
+                          "wg_web_dispute_blocks","wg_web_refund_blocks",
+                          "wg_access_blocks","ON CONFLICT DO NOTHING"):
+                self.assertIn(guard,sql)
+            self.assertEqual(conn.execute.await_args.args[1],123456)
+            conn.fetch.return_value=[]
+            conn.execute.reset_mock()
+            self.assertEqual(await link.recover_missing_paid_access(g,UID,123456),[])
+            conn.execute.assert_not_awaited()
+
+    def test_reverse_repair_requires_fresh_domain_separated_signature(self):
+        now=int(time.time())
+        stamp=str(now)
+        secret="x"*64
+        raw=json.dumps({"uid":UID,"actor":123456}).encode()
+        signature=hmac.new(secret.encode(),b"web-recover-v1."+stamp.encode()+b"."+raw,
+                           hashlib.sha256).hexdigest()
+        headers={"X-Web-Recover-Time":stamp,"X-Web-Recover-Signature":signature}
+        self.assertEqual(link.verified_repair_request(raw,headers,secret,now)["uid"],UID)
+        for body,head,t in ((raw,{},now),(raw,headers,now+61),
+                            (raw+b" ",headers,now)):
+            with self.assertRaises(web.HTTPForbidden):
+                link.verified_repair_request(body,head,secret,t)
+
+    def test_checkout_and_invoice_use_same_subscription_lock(self):
+        sub="sub_same123"
+        self.assertEqual(link.event_subscription_for_lock("checkout.session.completed",
+            {"subscription":sub}),sub)
+        self.assertEqual(link.event_subscription_for_lock("invoice.paid",
+            {"parent":{"subscription_details":{"subscription":sub}}}),sub)
+        self.assertEqual(link.event_subscription_for_lock("customer.subscription.created",
+            {"id":sub}),sub)
+        self.assertIsNone(link.event_subscription_for_lock("charge.refunded",{}))
 
 if __name__=="__main__":
     unittest.main()
